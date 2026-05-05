@@ -4,21 +4,12 @@ const path = require('path');
 const url = require('url');
 
 const COMPONENT_PATH = '~/Documents/Music/to the metal/component.json';
-const WATCH_DIRS = [__dirname, '~/Documents/Music/to the metal/'];
 
 const clients = [];
 
 function broadcastReload() {
     for (const res of clients) {
         res.write('data: reload\n\n');
-    }
-}
-
-function getComponent() {
-    try {
-        return JSON.parse(fs.readFileSync(COMPONENT_PATH, 'utf8'));
-    } catch (e) {
-        return null;
     }
 }
 
@@ -48,14 +39,14 @@ const server = http.createServer((req, res) => {
     }
 
     if (parsed.pathname === '/mp3') {
-        const comp = getComponent();
-        if (!comp || !comp.file) {
-            res.writeHead(404);
-            res.end('No file in component');
-            return;
-        }
-        const mp3Path = path.join(path.dirname(COMPONENT_PATH), comp.file);
         try {
+            const comp = JSON.parse(fs.readFileSync(COMPONENT_PATH, 'utf8'));
+            if (!comp || !comp.file) {
+                res.writeHead(404);
+                res.end('No file in component');
+                return;
+            }
+            const mp3Path = comp.file; // Already absolute
             const stat = fs.statSync(mp3Path);
             res.writeHead(200, {
                 'Content-Type': 'audio/mpeg',
@@ -65,15 +56,17 @@ const server = http.createServer((req, res) => {
             fs.createReadStream(mp3Path).pipe(res);
         } catch (e) {
             res.writeHead(404);
-            res.end('File not found');
+            res.end('File not found: ' + e.message);
         }
         return;
     }
 
-    // Serve canvas
+    // Serve canvas from server's directory
     const filePath = path.join(__dirname, parsed.pathname === '/' ? 'index.html' : parsed.pathname);
+    console.log('Trying to read:', filePath);
     fs.readFile(filePath, (err, data) => {
         if (err) {
+            console.log('Error reading file:', err.message);
             res.writeHead(404);
             res.end('Not found');
             return;
@@ -98,4 +91,6 @@ function watchDir(dir) {
     }
 }
 
-for (const dir of WATCH_DIRS) watchDir(dir);
+// Watch server directory and component directory
+watchDir(__dirname);
+watchDir(path.dirname(COMPONENT_PATH));
