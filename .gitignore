@@ -1,4 +1,5 @@
 input.json
 output.json
+canvases/
 node_modules/
 .DS_Store
