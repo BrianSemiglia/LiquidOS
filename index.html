@@ -1,49 +1,58 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8">
+    <title>Live Edit</title>
     <style>
-        * { box-sizing: border-box; }
-        html, body { min-height: 100%; margin: 0; }
-        body { font-family: system-ui, sans-serif; background: #0f172a; }
-        #canvas { padding: 24px; }
-        .error { color: #fecaca; background: #7f1d1d; padding: 16px; border-radius: 12px; white-space: pre-wrap; }
+        body {
+            margin: 0;
+            padding: 2rem;
+            background: #0f172a;
+            color: white;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        #app {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: flex-start;
+        }
     </style>
 </head>
 <body>
-    <div id="canvas">Loading...</div>
+    <main id="app"></main>
+
     <script>
-        const render = data => {
-            const canvas = document.getElementById('canvas');
-            canvas.replaceChildren();
+        const app = document.getElementById('app');
 
-            for (const component of data.components || []) {
-                const template = document.createElement('template');
-                template.innerHTML = component.html || '';
-
-                for (const style of template.content.querySelectorAll('style')) {
-                    document.head.appendChild(style.cloneNode(true));
-                    style.remove();
+        const load = async () => {
+            const data = await fetch('/component', { cache: 'no-store' }).then(response => {
+                if (!response.ok) {
+                    throw new Error('/component returned ' + response.status);
                 }
 
-                canvas.appendChild(template.content.cloneNode(true));
+                return response.json();
+            });
+
+            if (!Array.isArray(data.components)) {
+                throw new Error('/component did not return { components: [...] }');
             }
+
+            app.innerHTML = data.components
+                .map(component => component.html || '')
+                .join('\n');
         };
 
-        const showError = error => {
-            document.getElementById('canvas').innerHTML = `<div class="error">Error: ${error.message}</div>`;
+        new EventSource('/events').onmessage = () => {
+            load().catch(error => {
+                app.textContent = 'Error: ' + error.message;
+            });
         };
 
-        const load = () => fetch('/component', { cache: 'no-store' })
-            .then(response => response.ok ? response.json() : response.text().then(text => Promise.reject(new Error(text || `HTTP ${response.status}`))))
-            .then(render)
-            .catch(showError);
-
-        new EventSource('/events').onmessage = event => {
-            if (event.data === 'reload') load();
-        };
-
-        load();
+        load().catch(error => {
+            app.textContent = 'Error: ' + error.message;
+        });
     </script>
 </body>
 </html>
