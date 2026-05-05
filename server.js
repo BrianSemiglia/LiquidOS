@@ -422,6 +422,7 @@ const renderedHtml = (index, component, resources) =>
         );
 
 const renderedInput = () => ({
+    ...readJson(INPUT_PATH),
     components: leafComponents().map(({ index, componentPath, component }) => {
         const resources = componentResources(component);
 

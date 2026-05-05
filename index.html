@@ -91,6 +91,10 @@
 
     <script>
         const app = document.getElementById('app');
+        const instanceStyle = document.createElement('style');
+
+        instanceStyle.id = 'instance-style';
+        document.head.append(instanceStyle);
 
         const submitPrompt = async (componentIndex, prompt) => {
             const response = await fetch('/output', {
@@ -109,6 +113,8 @@
         const renderComponent = component => {
             const item = document.createElement('section');
             item.className = 'item';
+            item.dataset.componentIndex = component.index;
+            item.dataset.componentPath = component.componentPath || '';
 
             const surface = document.createElement('div');
             surface.className = 'surface';
@@ -206,6 +212,7 @@
                 throw new Error('/input did not return { components: [...] }');
             }
 
+            instanceStyle.textContent = typeof data.css === 'string' ? data.css : '';
             app.replaceChildren(...data.components.map(renderComponent));
         };
 
