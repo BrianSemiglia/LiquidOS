@@ -3,8 +3,25 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = __dirname;
-const INPUT_PATH = path.join(ROOT, 'input.json');
-const OUTPUT_PATH = path.join(ROOT, 'output.json');
+
+const argValue = (name, fallback) => {
+    const prefix = name + '=';
+    const inline = process.argv.find(arg => arg.startsWith(prefix));
+
+    if (inline) {
+        return inline.slice(prefix.length);
+    }
+
+    const index = process.argv.indexOf(name);
+    return index === -1 ? fallback : process.argv[index + 1] || fallback;
+};
+
+const resolveConfigPath = value =>
+    path.isAbsolute(value) ? value : path.resolve(ROOT, value);
+
+const INPUT_PATH = resolveConfigPath(argValue('--input', 'input.json'));
+const OUTPUT_PATH = resolveConfigPath(argValue('--output', 'output.json'));
+const PORT = Number.parseInt(argValue('--port', '3000'), 10);
 
 const clients = new Set();
 let watchers = [];
@@ -227,4 +244,8 @@ if (!fs.existsSync(OUTPUT_PATH)) {
 }
 
 watchGraph();
-server.listen(3000, () => console.log('Server at http://localhost:3000'));
+server.listen(PORT, () => {
+    console.log('Server at http://localhost:' + PORT);
+    console.log('Input: ' + INPUT_PATH);
+    console.log('Output: ' + OUTPUT_PATH);
+});
