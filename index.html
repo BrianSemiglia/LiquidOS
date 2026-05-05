@@ -3,33 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <style>
-        * { margin: 0; padding: 0; }
-        html, body { height: 100%; overflow: hidden; }
+        * { box-sizing: border-box; }
+        html, body { min-height: 100%; margin: 0; }
+        body { font-family: system-ui, sans-serif; background: #0f172a; }
+        #canvas { padding: 24px; }
+        .error { color: #fecaca; background: #7f1d1d; padding: 16px; border-radius: 12px; white-space: pre-wrap; }
     </style>
 </head>
 <body>
     <div id="canvas">Loading...</div>
     <script>
-        console.log('Fetching /component...');
-        fetch('/component')
-            .then(r => {
-                console.log('Response status:', r.status);
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.json();
-            })
-            .then(comp => {
-                console.log('Component loaded:', comp);
-                document.getElementById('canvas').innerHTML = comp.html;
-            })
-            .catch(err => {
-                console.error('Error:', err);
-                document.getElementById('canvas').innerHTML = '<div style="color:red;padding:2rem">Error: ' + err.message + '<br><br>Check console (Cmd+Opt+J)</div>';
-            });
+        const render = data => {
+            const canvas = document.getElementById('canvas');
+            canvas.replaceChildren();
 
-        const source = new EventSource('http://localhost:3000/events');
-        source.onmessage = (event) => {
-            if (event.data === 'reload') location.reload();
+            for (const component of data.components || []) {
+                const template = document.createElement('template');
+                template.innerHTML = component.html || '';
+
+                for (const style of template.content.querySelectorAll('style')) {
+                    document.head.appendChild(style.cloneNode(true));
+                    style.remove();
+                }
+
+                canvas.appendChild(template.content.cloneNode(true));
+            }
         };
+
+        const showError = error => {
+            document.getElementById('canvas').innerHTML = `<div class="error">Error: ${error.message}</div>`;
+        };
+
+        const load = () => fetch('/component', { cache: 'no-store' })
+            .then(response => response.ok ? response.json() : response.text().then(text => Promise.reject(new Error(text || `HTTP ${response.status}`))))
+            .then(render)
+            .catch(showError);
+
+        new EventSource('/events').onmessage = event => {
+            if (event.data === 'reload') load();
+        };
+
+        load();
     </script>
 </body>
 </html>
