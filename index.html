@@ -131,6 +131,37 @@
             form.append(textarea, button);
             item.append(surface, form, status);
 
+            surface.addEventListener('click', event => {
+                const action = event.target.closest('[data-live-prompt]');
+
+                if (!action || !surface.contains(action)) {
+                    return;
+                }
+
+                const prompt = String(action.dataset.livePrompt || '').trim();
+
+                if (!prompt) {
+                    return;
+                }
+
+                event.preventDefault();
+                action.disabled = true;
+                status.className = 'status';
+                status.textContent = 'Sending';
+
+                submitPrompt(component.index, prompt)
+                    .then(() => {
+                        status.textContent = 'Sent';
+                    })
+                    .catch(error => {
+                        status.className = 'status error';
+                        status.textContent = 'Error: ' + error.message;
+                    })
+                    .finally(() => {
+                        action.disabled = false;
+                    });
+            });
+
             form.addEventListener('submit', event => {
                 event.preventDefault();
 
