@@ -70,23 +70,71 @@ const leafComponents = () =>
         component: readJson(entry.componentPath)
     }));
 
+const resourceUrl = (index, name) =>
+    '/input/' + index + '/resources/' + encodeURIComponent(name);
+
+const componentResources = component => {
+    const resources = Object.fromEntries(
+        Object.entries(component.resources || {}).map(([name, resource]) => [
+            name,
+            typeof resource === 'string' ? { path: resource } : resource
+        ])
+    );
+
+    if (component.file && !resources.file) {
+        resources.file = {
+            path: component.file,
+            mime: component.type
+        };
+    }
+
+    return resources;
+};
+
+const renderedResources = (index, resources) =>
+    Object.fromEntries(
+        Object.entries(resources).map(([name, resource]) => [
+            name,
+            {
+                ...resource,
+                url: resourceUrl(index, name)
+            }
+        ])
+    );
+
+const renderedHtml = (index, component, resources) =>
+    String(component.html || '')
+        .replaceAll('data-input-file', 'src="/input/' + index + '/file"')
+        .replace(/\{\{\s*resources\.([A-Za-z0-9_-]+)\.url\s*\}\}/g, (match, name) =>
+            resources[name] ? resourceUrl(index, name) : match
+        );
+
 const renderedInput = () => ({
-    components: leafComponents().map(({ index, componentPath, component }) => ({
-        ...component,
-        index,
-        componentPath,
-        file: component.file ? '/input/' + index + '/file' : undefined,
-        html: String(component.html || '')
-            .replaceAll('data-input-file', 'src="/input/' + index + '/file"')
-    }))
+    components: leafComponents().map(({ index, componentPath, component }) => {
+        const resources = componentResources(component);
+
+        return {
+            ...component,
+            index,
+            componentPath,
+            resources: renderedResources(index, resources),
+            file: component.file ? '/input/' + index + '/file' : undefined,
+            html: renderedHtml(index, component, resources)
+        };
+    })
 });
 
-const watchedFiles = () => [
-    INPUT_PATH,
-    ...leafComponents().flatMap(({ componentPath, component }) =>
-        [componentPath, component.file].filter(Boolean)
-    )
-];
+const watchedFiles = () =>
+    Array.from(new Set([
+        INPUT_PATH,
+        ...leafComponents().flatMap(({ componentPath, component }) =>
+            [
+                componentPath,
+                component.file,
+                ...Object.values(componentResources(component)).map(resource => resource.path)
+            ].filter(Boolean)
+        )
+    ]));
 
 const broadcast = () => {
     clients.forEach(res => res.write('data: update\n\n'));
@@ -141,6 +189,8 @@ const appendOutput = async req => {
             createdAt: new Date().toISOString(),
             componentPath: leaf.componentPath,
             file: leaf.component.file || null,
+            resources: componentResources(leaf.component),
+            data: leaf.component.data || null,
             prompt
         }
     ]);
@@ -217,6 +267,22 @@ const server = http.createServer(async (req, res) => {
             }
 
             streamFile(req, res, component.file, component.type);
+            return;
+        }
+
+        const inputResource = url.pathname.match(/^\/input\/(\d+)\/resources\/(.+)$/);
+
+        if (req.method === 'GET' && inputResource) {
+            const component = leafComponents()[Number(inputResource[1])]?.component;
+            const name = decodeURIComponent(inputResource[2]);
+            const resource = component && componentResources(component)[name];
+
+            if (!resource?.path) {
+                send(res, 404, 'Input resource not found');
+                return;
+            }
+
+            streamFile(req, res, resource.path, resource.mime || resource.type);
             return;
         }
 
