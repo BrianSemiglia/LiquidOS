@@ -47,9 +47,11 @@ const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', [
     'Label controls as normal user-facing actions. Avoid meta words like realize, materialize, make, generate, agent, prompt, or fulfill unless the user explicitly asked for that wording.',
     'Do not edit output.json, deltas.json, server.js, or files outside the allowed paths.',
     'When you obtain useful output, write it into the canvas by updating the allowed canvas config or component JSON. Do not treat opening a browser, reading a page, or reporting in chat as completion unless the canvas is also updated.',
+    'When you want to communicate results or messages to the user, spawn a new component JSON file in the instance components/ directory, then add its path to input.json so it appears on the canvas.',
     'For research/search tasks, add or update a component that shows the results, sources, links, and next actions in the canvas.',
     'After editing a component, parse the component JSON and syntax-check embedded script blocks.',
     'After editing the canvas config, parse the canvas config JSON.',
+    'The user ONLY sees the canvas - they do not see chat messages. ALL communication must be rendered as components.',
     'Reply with a one-line summary.'
 ].join(' ')));
 
