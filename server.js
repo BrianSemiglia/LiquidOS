@@ -1,8 +1,10 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 
 const ROOT = __dirname;
+const SERVER_BUILD = 'hermes-output-server-2026-05-06-single-callback-agent';
 
 const argValue = (name, fallback) => {
     const prefix = name + '=';
@@ -19,17 +21,44 @@ const argValue = (name, fallback) => {
 const resolveConfigPath = value =>
     path.isAbsolute(value) ? value : path.resolve(ROOT, value);
 
-const INPUT_PATH = resolveConfigPath(argValue('--input', 'input.json'));
-const OUTPUT_PATH = resolveConfigPath(argValue('--output', 'output.json'));
-const DELTAS_PATH = resolveConfigPath(
-    argValue('--deltas', path.join(path.dirname(INPUT_PATH), 'deltas.json'))
-);
+const CANVASES_ROOT = path.join(ROOT, 'canvases');
+const DEFAULT_CANVAS_PATH = fs.existsSync(path.join(CANVASES_ROOT, 'random-pdfs', 'input.json'))
+    ? path.join(CANVASES_ROOT, 'random-pdfs')
+    : ROOT;
+let CANVAS_PATH = resolveConfigPath(argValue('--canvas', DEFAULT_CANVAS_PATH));
+let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
+let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
+let DELTAS_PATH = path.join(CANVAS_PATH, 'deltas.json');
 const PORT = Number.parseInt(argValue('--port', '3000'), 10);
+const AGENT_COMMAND = argValue('--agent', argValue('--hermes-command', 'hermes'));
+const AGENT_ARGS = argValue('--agent-args', argValue('--hermes-args', '--oneshot')).split(' ').filter(Boolean);
+const AGENT_TIMEOUT_MS = Number.parseInt(argValue('--agent-timeout-ms', '300000'), 10);
+const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', [
+    'You are updating one live canvas.',
+    'For component-scoped requests, edit only the allowed component JSON file, the allowed canvas config file, and, when the user request explicitly concerns the represented file, the allowed represented file or resources.',
+    'For canvas-scoped requests, edit the allowed canvas config file and any listed component JSON files needed to satisfy the request.',
+    'Prefer component JSON for local UI changes; prefer represented files for content/file changes.',
+    'Prefer the canvas config file for layout changes that affect the outer canvas, such as maximize, minimize, hide, show, ordering, or canvas CSS.',
+    'Preserve valid JSON and existing component fields unless the request requires changing them.',
+    'When editing the canvas config, preserve valid JSON and the existing components list unless the request requires changing it.',
+    'When editing component HTML, keep all HTML inside the "html" string valid.',
+    'If adding JavaScript to component HTML, place complete <script> tags after the component markup.',
+    'When adding a control to a component for an agent-performed action, wire it with data-live-prompt containing the follow-up request; do not implement the action locally unless the user explicitly asks for local behavior.',
+    'Label controls as normal user-facing actions. Avoid meta words like realize, materialize, make, generate, agent, prompt, or fulfill unless the user explicitly asked for that wording.',
+    'Do not edit output.json, deltas.json, server.js, or files outside the allowed paths.',
+    'When you obtain useful output, write it into the canvas by updating the allowed canvas config or component JSON. Do not treat opening a browser, reading a page, or reporting in chat as completion unless the canvas is also updated.',
+    'For research/search tasks, add or update a component that shows the results, sources, links, and next actions in the canvas.',
+    'After editing a component, parse the component JSON and syntax-check embedded script blocks.',
+    'After editing the canvas config, parse the canvas config JSON.',
+    'Reply with a one-line summary.'
+].join(' ')));
 
 const clients = new Set();
 let watchers = [];
 let watchTimer;
 let processingDeltas = false;
+let agentProcess;
+let activeJobId;
 
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
@@ -37,6 +66,367 @@ const writeJson = (file, value) => {
     const temp = file + '.' + process.pid + '.tmp';
     fs.writeFileSync(temp, JSON.stringify(value, null, 2) + '\n');
     fs.renameSync(temp, file);
+};
+
+const ensureCanvasFiles = () => {
+    if (!fs.existsSync(INPUT_PATH)) {
+        throw new Error('Canvas input.json not found: ' + INPUT_PATH);
+    }
+
+    if (!fs.existsSync(OUTPUT_PATH)) {
+        writeOutputJob(null);
+    }
+
+    if (!fs.existsSync(DELTAS_PATH)) {
+        writeJson(DELTAS_PATH, []);
+    }
+};
+
+const setCanvasPath = canvasPath => {
+    const nextCanvasPath = resolveConfigPath(canvasPath);
+
+    CANVAS_PATH = nextCanvasPath;
+    INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
+    OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
+    DELTAS_PATH = path.join(CANVAS_PATH, 'deltas.json');
+    ensureCanvasFiles();
+};
+
+const outputText = () =>
+    fs.existsSync(OUTPUT_PATH) ? fs.readFileSync(OUTPUT_PATH, 'utf8') : '';
+
+const readOutputJob = () => {
+    const text = outputText().trim();
+
+    if (!text) {
+        return null;
+    }
+
+    const value = JSON.parse(text);
+
+    if (Array.isArray(value)) {
+        return null;
+    }
+
+    return isObject(value) && Object.keys(value).length ? value : null;
+};
+
+const writeOutputJob = job => {
+    writeJson(OUTPUT_PATH, job || null);
+};
+
+const updateOutputJob = (jobId, patch) => {
+    const current = readOutputJob();
+
+    if (!current || current.id !== jobId) {
+        return false;
+    }
+
+    writeOutputJob({
+        ...current,
+        ...patch
+    });
+    return true;
+};
+
+const componentScripts = html =>
+    Array.from(String(html || '').matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi), match => match[1]);
+
+const validateComponentFile = componentPath => {
+    const component = readJson(componentPath);
+    const html = String(component.html || '');
+
+    if (/<[^>]*<script\b/i.test(html)) {
+        throw new Error('Component HTML contains a <script> tag inside another opening tag');
+    }
+
+    componentScripts(html).forEach(script => {
+        new Function(script);
+    });
+};
+
+const validateCanvasConfig = () => {
+    const input = readJson(INPUT_PATH);
+
+    if (!Array.isArray(input.components)) {
+        throw new Error('Canvas config must contain a components array');
+    }
+
+    input.components.forEach((componentPath, index) => {
+        if (typeof componentPath !== 'string') {
+            throw new Error('Canvas component path at index ' + index + ' must be a string');
+        }
+    });
+};
+
+const validateComponentFiles = componentPaths => {
+    componentPaths.forEach(componentPath => {
+        validateComponentFile(resolveFromRoot(componentPath));
+    });
+};
+
+const agentJobPrompt = job => {
+    const componentPath = job.componentPath ? resolveFromRoot(job.componentPath) : null;
+    const componentJson = componentPath ? fs.readFileSync(componentPath, 'utf8') : null;
+    const canvasJson = fs.readFileSync(INPUT_PATH, 'utf8');
+    const canvasComponents = inputEntries().map(entry => entry.componentPath);
+    const representedFile = job.file ? resolveFromRoot(job.file) : null;
+    const resources = Object.fromEntries(
+        Object.entries(job.resources || {}).map(([name, resource]) => [
+            name,
+            {
+                ...resource,
+                path: resource.path ? resolveFromRoot(resource.path) : resource.path
+            }
+        ])
+    );
+
+    return [
+        AGENT_PROMPT,
+        '',
+        'Callback scope:',
+        job.scope || 'component',
+        '',
+        'Allowed canvas config file for outer layout changes:',
+        INPUT_PATH,
+        '',
+        'Allowed canvas component JSON files:',
+        JSON.stringify(job.scope === 'canvas' ? canvasComponents : [componentPath].filter(Boolean), null, 2),
+        '',
+        'Selected canvas components:',
+        JSON.stringify(job.selectedComponents || [], null, 2),
+        '',
+        'Allowed component JSON file for this component callback:',
+        componentPath || '(none; this is a canvas callback)',
+        '',
+        'Allowed represented file for content/file changes:',
+        representedFile || '(none)',
+        '',
+        'Allowed resource files:',
+        JSON.stringify(resources, null, 2),
+        '',
+        'User request:',
+        job.prompt,
+        '',
+        'Component metadata:',
+        JSON.stringify({
+            file: representedFile,
+            resources,
+            data: job.data || null
+        }, null, 2),
+        '',
+        'Current canvas config JSON:',
+        canvasJson,
+        '',
+        'Current component JSON:',
+        componentJson || '(none)'
+    ].join('\n');
+};
+
+const runAgentOneshot = prompt =>
+    new Promise((resolve, reject) => {
+        let stdout = '';
+        let stderr = '';
+        let timedOut = false;
+
+        agentProcess = spawn(AGENT_COMMAND, [...AGENT_ARGS, prompt], {
+            cwd: ROOT,
+            env: process.env,
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+
+        const timeout = setTimeout(() => {
+            timedOut = true;
+            agentProcess.kill('SIGTERM');
+        }, AGENT_TIMEOUT_MS);
+
+        agentProcess.stdout.on('data', chunk => {
+            stdout += chunk;
+            process.stdout.write(chunk);
+        });
+
+        agentProcess.stderr.on('data', chunk => {
+            stderr += chunk;
+            process.stderr.write(chunk);
+        });
+
+        agentProcess.on('error', error => {
+            clearTimeout(timeout);
+            agentProcess = undefined;
+            reject(error);
+        });
+
+        agentProcess.on('close', code => {
+            clearTimeout(timeout);
+            agentProcess = undefined;
+
+            if (timedOut) {
+                reject(new Error('Agent timed out after ' + AGENT_TIMEOUT_MS + 'ms'));
+                return;
+            }
+
+            if (code !== 0) {
+                reject(new Error('Agent exited with code ' + code + (stderr.trim() ? ': ' + stderr.trim() : '')));
+                return;
+            }
+
+            resolve(stdout.trim());
+        });
+    });
+
+const processOutputJob = async job => {
+    const jobId = job.id || 'job-' + Date.now();
+    const componentPath = job.componentPath ? resolveFromRoot(job.componentPath) : null;
+
+    activeJobId = jobId;
+    writeOutputJob({
+        ...job,
+        id: jobId,
+        status: 'running',
+        startedAt: new Date().toISOString()
+    });
+
+    try {
+        const response = await runAgentOneshot(agentJobPrompt({ ...job, id: jobId, componentPath }));
+
+        validateCanvasConfig();
+        if (job.scope === 'canvas') {
+            validateComponentFiles(inputEntries().map(entry => entry.componentPath));
+        } else {
+            validateComponentFile(componentPath);
+        }
+        updateOutputJob(jobId, {
+            status: 'done',
+            completedAt: new Date().toISOString(),
+            response
+        });
+    } catch (error) {
+        updateOutputJob(jobId, {
+            status: 'failed',
+            failedAt: new Date().toISOString(),
+            error: error.message
+        });
+    } finally {
+        activeJobId = undefined;
+        broadcast();
+    }
+};
+
+const feedHermesOutput = () => {
+    if (activeJobId || agentProcess) {
+        return false;
+    }
+
+    const job = readOutputJob();
+
+    if (!job || (job.status && job.status !== 'pending') || !job.prompt) {
+        return false;
+    }
+
+    if (job.scope !== 'canvas' && !job.componentPath) {
+        return false;
+    }
+
+    processOutputJob(job).catch(error => {
+        console.error('agent job error:', error);
+        activeJobId = undefined;
+    });
+
+    return true;
+};
+
+const currentBusyState = () => {
+    const job = readOutputJob();
+    const busy = Boolean(activeJobId || agentProcess || job?.status === 'pending' || job?.status === 'running');
+
+    return {
+        busy,
+        job: job
+            ? {
+                id: job.id || null,
+                scope: job.scope || null,
+                status: job.status || null,
+                prompt: job.prompt || null,
+                startedAt: job.startedAt || null
+            }
+            : null
+    };
+};
+
+const canvasName = canvasPath =>
+    path.relative(CANVASES_ROOT, canvasPath) || path.basename(canvasPath);
+
+const availableCanvases = () =>
+    fs.existsSync(CANVASES_ROOT)
+        ? fs.readdirSync(CANVASES_ROOT, { withFileTypes: true })
+            .filter(entry => entry.isDirectory())
+            .map(entry => {
+                const canvasPath = path.join(CANVASES_ROOT, entry.name);
+
+                return {
+                    name: entry.name,
+                    path: canvasPath,
+                    current: canvasPath === CANVAS_PATH,
+                    valid: fs.existsSync(path.join(canvasPath, 'input.json'))
+                };
+            })
+            .filter(canvas => canvas.valid)
+        : [];
+
+const switchCanvas = name => {
+    if (activeJobId || agentProcess) {
+        const error = new Error('Cannot switch canvases while a callback is running');
+        error.statusCode = 409;
+        throw error;
+    }
+
+    if (!/^[^/][^/]*$/.test(name)) {
+        const error = new Error('Invalid canvas name');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const canvasPath = path.join(CANVASES_ROOT, name);
+
+    if (!fs.existsSync(path.join(canvasPath, 'input.json'))) {
+        const error = new Error('Canvas not found: ' + name);
+        error.statusCode = 404;
+        throw error;
+    }
+
+    setCanvasPath(canvasPath);
+    processDeltas();
+    watchGraph();
+};
+
+const createCanvas = name => {
+    const safeName = String(name || '').trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+
+    if (!safeName) {
+        const error = new Error('Canvas name is required');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const canvasPath = path.join(CANVASES_ROOT, safeName);
+
+    if (fs.existsSync(canvasPath)) {
+        const error = new Error('Canvas already exists: ' + safeName);
+        error.statusCode = 409;
+        throw error;
+    }
+
+    fs.mkdirSync(canvasPath, { recursive: true });
+    writeJson(path.join(canvasPath, 'input.json'), {
+        components: [],
+        css: 'body{background:#0b1120}'
+    });
+    writeJson(path.join(canvasPath, 'output.json'), null);
+    writeJson(path.join(canvasPath, 'deltas.json'), []);
+    return safeName;
 };
 
 const send = (res, status, body, type = 'text/plain; charset=utf-8') => {
@@ -357,6 +747,37 @@ const processDeltas = () => {
     }
 };
 
+const requestDeltaStep = direction => {
+    const deltas = fs.existsSync(DELTAS_PATH) ? readJson(DELTAS_PATH) : [];
+
+    if (!Array.isArray(deltas)) {
+        throw new Error('deltas.json must be an array');
+    }
+
+    const toStatus = direction === 'undo' ? 'rollback-pending' : 'reapply-pending';
+    const candidates = deltas.filter(delta =>
+        delta.format === 'json-patch'
+        && delta.status === (direction === 'undo' ? 'applied' : 'rolled-back')
+    );
+    const target = direction === 'undo'
+        ? candidates[candidates.length - 1]
+        : candidates.sort((a, b) =>
+            String(b.rolledBackAt || '').localeCompare(String(a.rolledBackAt || ''))
+        )[0];
+
+    if (!target) {
+        const error = new Error(direction === 'undo' ? 'Nothing to undo' : 'Nothing to redo');
+        error.statusCode = 409;
+        throw error;
+    }
+
+    target.status = toStatus;
+    target.requestedAt = new Date().toISOString();
+    writeJson(DELTAS_PATH, deltas);
+
+    return processDeltas();
+};
+
 const inputEntries = () => {
     const input = readJson(INPUT_PATH);
 
@@ -415,10 +836,11 @@ const renderedResources = (index, resources) =>
     );
 
 const renderedHtml = (index, component, resources) =>
-    String(component.html || '')
+    (component.css ? '<style>' + String(component.css) + '</style>' : '')
+    + String(component.html || '')
         .replaceAll('data-input-file', 'src="/input/' + index + '/file"')
-        .replace(/\{\{\s*resources\.([A-Za-z0-9_-]+)\.url\s*\}\}/g, (match, name) =>
-            resources[name] ? resourceUrl(index, name) : match
+        .replace(/\{\{\s*resources\.(.+?)\.url\s*\}\}/g, (match, name) =>
+            resources[name.trim()] ? resourceUrl(index, name.trim()) : match
         );
 
 const renderedInput = () => ({
@@ -440,6 +862,7 @@ const renderedInput = () => ({
 const watchedFiles = () =>
     Array.from(new Set([
         INPUT_PATH,
+        OUTPUT_PATH,
         DELTAS_PATH,
         ...leafComponents().flatMap(({ componentPath, component }) =>
             [
@@ -460,12 +883,15 @@ const scheduleWatchRefresh = () => {
         try {
             const deltasChanged = processDeltas();
             watchGraph();
+
             if (deltasChanged) {
                 scheduleWatchRefresh();
             }
+
+            feedHermesOutput();
         } catch (error) {
             console.error('watch error:', error.message);
-            scheduleWatchRefresh();
+            broadcast();
             return;
         }
 
@@ -495,31 +921,53 @@ const readBody = req =>
 
 const appendOutput = async req => {
     const body = JSON.parse(await readBody(req));
-    const index = Number(body.componentIndex);
     const prompt = String(body.prompt || '').trim();
+    const isCanvasPrompt = body.scope === 'canvas' || !Object.hasOwn(body, 'componentIndex');
+
+    if (!prompt) {
+        throw new Error('Prompt requires prompt text');
+    }
+
+    const currentJob = readOutputJob();
+
+    if (activeJobId || currentJob?.status === 'pending' || currentJob?.status === 'running') {
+        const error = new Error('A callback is already running');
+        error.statusCode = 409;
+        throw error;
+    }
+
+    if (isCanvasPrompt) {
+        writeOutputJob({
+            id: 'output-' + Date.now(),
+            scope: 'canvas',
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+            canvasPath: CANVAS_PATH,
+            inputPath: INPUT_PATH,
+            selectedComponents: Array.isArray(body.selectedComponents) ? body.selectedComponents : [],
+            prompt
+        });
+        return;
+    }
+
+    const index = Number(body.componentIndex);
     const leaf = leafComponents()[index];
 
-    if (!leaf || !prompt) {
+    if (!leaf) {
         throw new Error('Prompt requires a valid componentIndex and prompt');
     }
 
-    const output = fs.existsSync(OUTPUT_PATH) ? readJson(OUTPUT_PATH) : [];
-
-    if (!Array.isArray(output)) {
-        throw new Error('output.json must be an array');
-    }
-
-    writeJson(OUTPUT_PATH, [
-        ...output,
-        {
-            createdAt: new Date().toISOString(),
-            componentPath: leaf.componentPath,
-            file: leaf.component.file || null,
-            resources: componentResources(leaf.component),
-            data: leaf.component.data || null,
-            prompt
-        }
-    ]);
+    writeOutputJob({
+        id: 'output-' + Date.now(),
+        scope: 'component',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        componentPath: leaf.componentPath,
+        file: leaf.component.file || null,
+        resources: componentResources(leaf.component),
+        data: leaf.component.data || null,
+        prompt
+    });
 };
 
 const streamFile = (req, res, file, type = 'application/octet-stream') => {
@@ -576,9 +1024,59 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        if (req.method === 'GET' && url.pathname === '/status') {
+            send(res, 200, JSON.stringify(currentBusyState()), 'application/json; charset=utf-8');
+            return;
+        }
+
+        if (req.method === 'GET' && url.pathname === '/canvases') {
+            send(res, 200, JSON.stringify({
+                current: canvasName(CANVAS_PATH),
+                canvases: availableCanvases()
+            }), 'application/json; charset=utf-8');
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/canvas') {
+            const body = JSON.parse(await readBody(req));
+
+            switchCanvas(String(body.name || ''));
+            broadcast();
+            send(res, 200, JSON.stringify({
+                current: canvasName(CANVAS_PATH),
+                canvases: availableCanvases()
+            }), 'application/json; charset=utf-8');
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/canvases') {
+            const body = JSON.parse(await readBody(req));
+            const name = createCanvas(body.name);
+
+            switchCanvas(name);
+            broadcast();
+            send(res, 201, JSON.stringify({
+                current: canvasName(CANVAS_PATH),
+                canvases: availableCanvases()
+            }), 'application/json; charset=utf-8');
+            return;
+        }
+
         if (req.method === 'POST' && url.pathname === '/output') {
             await appendOutput(req);
+            feedHermesOutput();
+            broadcast();
             send(res, 204, '');
+            return;
+        }
+
+        if (req.method === 'POST' && (url.pathname === '/deltas/undo' || url.pathname === '/deltas/redo')) {
+            const direction = url.pathname.endsWith('/undo') ? 'undo' : 'redo';
+
+            requestDeltaStep(direction);
+            watchGraph();
+            broadcast();
+            send(res, 200, JSON.stringify({ ok: true, direction }), 'application/json; charset=utf-8');
             return;
         }
 
@@ -627,22 +1125,25 @@ const server = http.createServer(async (req, res) => {
         );
     } catch (error) {
         console.error('request error:', error);
-        send(res, 500, 'Error: ' + error.message);
+        send(res, error.statusCode || 500, 'Error: ' + error.message);
     }
 });
 
-if (!fs.existsSync(OUTPUT_PATH)) {
-    writeJson(OUTPUT_PATH, []);
-}
-
-if (!fs.existsSync(DELTAS_PATH)) {
-    writeJson(DELTAS_PATH, []);
-}
-
+ensureCanvasFiles();
 processDeltas();
 watchGraph();
+feedHermesOutput();
+
+process.on('exit', () => {
+    if (agentProcess) {
+        agentProcess.kill();
+    }
+});
+
 server.listen(PORT, () => {
+    console.log('Build: ' + SERVER_BUILD);
     console.log('Server at http://localhost:' + PORT);
+    console.log('Canvas: ' + CANVAS_PATH);
     console.log('Input: ' + INPUT_PATH);
     console.log('Output: ' + OUTPUT_PATH);
     console.log('Deltas: ' + DELTAS_PATH);

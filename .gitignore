@@ -2,4 +2,7 @@ input.json
 output.json
 canvases/
 node_modules/
+package.json
+package-lock.json
+npm-debug.log*
 .DS_Store

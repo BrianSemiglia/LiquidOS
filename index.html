@@ -10,7 +10,7 @@
 
         body {
             margin: 0;
-            padding: 2rem;
+            padding: 2rem 2rem 7rem;
             background: #111827;
             color: #f9fafb;
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -27,52 +27,21 @@
             display: grid;
             gap: 0.75rem;
             min-width: 0;
+            border-radius: 10px;
+            outline: 2px solid transparent;
+            outline-offset: 4px;
+        }
+
+        .item[data-selected="true"] {
+            outline-color: #38bdf8;
+        }
+
+        .item[data-active="true"] {
+            outline-color: #facc15;
         }
 
         .surface {
             min-width: 0;
-        }
-
-        .prompt {
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 0.5rem;
-            align-items: end;
-        }
-
-        .prompt textarea {
-            width: 100%;
-            min-height: 4.5rem;
-            resize: vertical;
-            border: 1px solid #374151;
-            border-radius: 8px;
-            padding: 0.75rem;
-            background: #020617;
-            color: #f9fafb;
-            font: inherit;
-            line-height: 1.4;
-        }
-
-        .prompt textarea:focus {
-            outline: 2px solid #38bdf8;
-            outline-offset: 2px;
-        }
-
-        .prompt button {
-            height: 2.75rem;
-            border: 0;
-            border-radius: 8px;
-            padding: 0 1rem;
-            background: #14b8a6;
-            color: #042f2e;
-            cursor: pointer;
-            font: inherit;
-            font-weight: 700;
-        }
-
-        .prompt button:disabled {
-            cursor: default;
-            opacity: 0.55;
         }
 
         .status {
@@ -84,14 +53,206 @@
         .error {
             color: #fecaca;
         }
+
+        .global-prompt {
+            position: fixed;
+            left: 50%;
+            bottom: 1rem;
+            z-index: 20;
+            display: grid;
+            grid-template-columns: auto auto minmax(12rem, 1fr) auto;
+            gap: 0.5rem;
+            width: min(calc(100vw - 2rem), 54rem);
+            padding: 0.75rem;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            background: rgba(15, 23, 42, 0.96);
+            box-shadow: 0 18px 50px rgba(0, 0, 0, 0.38);
+            transform: translateX(-50%);
+        }
+
+        .global-prompt textarea {
+            min-width: 0;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            background: #020617;
+            color: #f9fafb;
+            font: inherit;
+        }
+
+        .canvas-nav {
+            display: flex;
+            gap: 0.35rem;
+            min-width: 0;
+        }
+
+        .canvas-nav select {
+            min-width: 8rem;
+            max-width: 12rem;
+            height: 2.75rem;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            background: #020617;
+            color: #f9fafb;
+            font: inherit;
+            padding: 0 0.55rem;
+        }
+
+        .canvas-nav button {
+            min-width: 3.4rem;
+            background: #1e293b;
+            color: #e0f2fe;
+            border: 1px solid #475569;
+        }
+
+        .global-prompt textarea {
+            height: 2.75rem;
+            min-height: 2.75rem;
+            max-height: 8rem;
+            resize: vertical;
+            padding: 0.65rem 0.75rem;
+            line-height: 1.25;
+        }
+
+        .global-prompt button {
+            height: 2.75rem;
+            border: 0;
+            border-radius: 6px;
+            padding: 0 1rem;
+            background: #38bdf8;
+            color: #082f49;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 800;
+        }
+
+        .global-prompt button:disabled {
+            cursor: default;
+            opacity: 0.55;
+        }
+
+        .delta-nav {
+            display: flex;
+            gap: 0.35rem;
+        }
+
+        .delta-nav button {
+            min-width: 4.25rem;
+            background: #1e293b;
+            color: #e0f2fe;
+            border: 1px solid #475569;
+        }
+
+        .global-status {
+            position: fixed;
+            left: 50%;
+            bottom: 5.2rem;
+            z-index: 21;
+            width: min(calc(100vw - 2rem), 54rem);
+            min-height: 1rem;
+            color: #bae6fd;
+            font-size: 0.8rem;
+            transform: translateX(-50%);
+        }
+
+        .busy-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 30;
+            display: none;
+            place-items: center;
+            padding: 2rem;
+            background: rgba(2, 6, 23, 0.62);
+            backdrop-filter: blur(2px);
+        }
+
+        body[data-busy="true"] .busy-overlay {
+            display: grid;
+        }
+
+        .busy-card {
+            display: grid;
+            justify-items: center;
+            gap: 0.8rem;
+            width: min(22rem, calc(100vw - 2rem));
+            padding: 1.25rem;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            background: #0f172a;
+            color: #e0f2fe;
+            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+            text-align: center;
+        }
+
+        .busy-spinner {
+            width: 2rem;
+            height: 2rem;
+            border: 3px solid #334155;
+            border-top-color: #38bdf8;
+            border-radius: 999px;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .busy-title {
+            font-weight: 850;
+        }
+
+        .busy-detail {
+            max-width: 18rem;
+            color: #94a3b8;
+            font-size: 0.85rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
     </style>
 </head>
 <body>
     <main id="app"></main>
+    <div class="global-status" id="global-status"></div>
+    <form class="global-prompt" id="global-prompt">
+        <div class="canvas-nav" aria-label="Canvas selection">
+            <select id="canvas-select" aria-label="Canvas"></select>
+            <button type="button" id="new-canvas">New</button>
+        </div>
+        <div class="delta-nav" aria-label="Delta navigation">
+            <button type="button" id="undo-delta">Undo</button>
+            <button type="button" id="redo-delta">Redo</button>
+        </div>
+        <textarea id="global-text" placeholder="Prompt the canvas"></textarea>
+        <button type="submit">Send</button>
+    </form>
+    <div class="busy-overlay" id="busy-overlay" aria-live="polite" aria-busy="true">
+        <div class="busy-card">
+            <div class="busy-spinner" aria-hidden="true"></div>
+            <div class="busy-title" id="busy-title">Agent working</div>
+            <div class="busy-detail" id="busy-detail"></div>
+        </div>
+    </div>
 
     <script>
         const app = document.getElementById('app');
+        const globalForm = document.getElementById('global-prompt');
+        const globalText = document.getElementById('global-text');
+        const globalStatus = document.getElementById('global-status');
+        const canvasSelect = document.getElementById('canvas-select');
+        const newCanvas = document.getElementById('new-canvas');
+        const undoDelta = document.getElementById('undo-delta');
+        const redoDelta = document.getElementById('redo-delta');
+        const busyDetail = document.getElementById('busy-detail');
         const instanceStyle = document.createElement('style');
+
+        let latestComponents = [];
+        let activeComponentIndex = 0;
+        let selectionAnchorIndex = 0;
+        let selectedComponentIndexes = new Set([0]);
+        let statusTimer;
 
         instanceStyle.id = 'instance-style';
         document.head.append(instanceStyle);
@@ -108,6 +269,164 @@
             if (!response.ok) {
                 throw new Error('/output returned ' + response.status);
             }
+
+            setBusy({ busy: true, job: { prompt } });
+            watchBusy();
+        };
+
+        const submitCanvasPrompt = async prompt => {
+            const selectedComponents = latestComponents
+                .filter(component => selectedComponentIndexes.has(component.index))
+                .map(component => ({
+                    index: component.index,
+                    componentPath: component.componentPath || null,
+                    file: component.file || null,
+                    resources: component.resources || {},
+                    data: component.data || null
+                }));
+
+            const response = await fetch('/output', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ scope: 'canvas', prompt, selectedComponents })
+            });
+
+            if (!response.ok) {
+                throw new Error('/output returned ' + response.status);
+            }
+
+            setBusy({ busy: true, job: { prompt } });
+            watchBusy();
+        };
+
+        const stepDelta = async direction => {
+            const button = direction === 'undo' ? undoDelta : redoDelta;
+            const response = await fetch('/deltas/' + direction, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                throw new Error('/deltas/' + direction + ' returned ' + response.status);
+            }
+
+            return response.json();
+        };
+
+        const runDeltaStep = direction => {
+            const button = direction === 'undo' ? undoDelta : redoDelta;
+
+            button.disabled = true;
+            globalStatus.className = 'global-status';
+            globalStatus.textContent = direction === 'undo' ? 'Undoing' : 'Redoing';
+
+            stepDelta(direction)
+                .then(() => {
+                    globalStatus.textContent = direction === 'undo' ? 'Undone' : 'Redone';
+                })
+                .catch(error => {
+                    globalStatus.className = 'global-status error';
+                    globalStatus.textContent = 'Error: ' + error.message;
+                })
+                .finally(() => {
+                    button.disabled = false;
+                });
+        };
+
+        const renderCanvasOptions = data => {
+            canvasSelect.replaceChildren(...data.canvases.map(canvas => {
+                const option = document.createElement('option');
+
+                option.value = canvas.name;
+                option.textContent = canvas.name;
+                return option;
+            }));
+            canvasSelect.value = data.current || '';
+        };
+
+        const loadCanvases = async () => {
+            const data = await fetch('/canvases', { cache: 'no-store' }).then(response => {
+                if (!response.ok) {
+                    throw new Error('/canvases returned ' + response.status);
+                }
+
+                return response.json();
+            });
+
+            renderCanvasOptions(data);
+            return data;
+        };
+
+        const switchCanvas = async name => {
+            const data = await fetch('/canvas', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ name })
+            }).then(response => {
+                if (!response.ok) {
+                    throw new Error('/canvas returned ' + response.status);
+                }
+
+                return response.json();
+            });
+
+            renderCanvasOptions(data);
+            await load();
+        };
+
+        const createCanvas = async name => {
+            const data = await fetch('/canvases', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ name })
+            }).then(response => {
+                if (!response.ok) {
+                    throw new Error('/canvases returned ' + response.status);
+                }
+
+                return response.json();
+            });
+
+            renderCanvasOptions(data);
+            await load();
+        };
+
+        const setBusy = state => {
+            document.body.dataset.busy = state.busy ? 'true' : 'false';
+            busyDetail.textContent = state.job?.prompt || '';
+            globalForm.querySelectorAll('button,textarea,select').forEach(control => {
+                control.disabled = state.busy;
+            });
+        };
+
+        const refreshStatus = async () => {
+            const state = await fetch('/status', { cache: 'no-store' }).then(response => {
+                if (!response.ok) {
+                    throw new Error('/status returned ' + response.status);
+                }
+
+                return response.json();
+            });
+
+            setBusy(state);
+            return state;
+        };
+
+        const watchBusy = () => {
+            clearInterval(statusTimer);
+            refreshStatus().catch(() => {});
+            statusTimer = setInterval(() => {
+                refreshStatus().then(state => {
+                    if (!state.busy) {
+                        clearInterval(statusTimer);
+                    }
+                }).catch(() => {});
+            }, 900);
         };
 
         const renderComponent = component => {
@@ -120,22 +439,15 @@
             surface.className = 'surface';
             surface.innerHTML = component.html || '';
 
-            const form = document.createElement('form');
-            form.className = 'prompt';
-
-            const textarea = document.createElement('textarea');
-            textarea.name = 'prompt';
-            textarea.placeholder = 'Prompt';
-
-            const button = document.createElement('button');
-            button.type = 'submit';
-            button.textContent = 'Send';
-
             const status = document.createElement('div');
             status.className = 'status';
+            status.hidden = true;
 
-            form.append(textarea, button);
-            item.append(surface, form, status);
+            item.append(surface, status);
+
+            item.addEventListener('pointerdown', () => {
+                selectComponent(component.index);
+            });
 
             surface.addEventListener('click', event => {
                 const action = event.target.closest('[data-live-prompt]');
@@ -151,52 +463,153 @@
                 }
 
                 event.preventDefault();
+                selectComponent(component.index);
                 action.disabled = true;
+                status.hidden = false;
                 status.className = 'status';
                 status.textContent = 'Sending';
+                setBusy({ busy: true, job: { prompt } });
 
                 submitPrompt(component.index, prompt)
                     .then(() => {
                         status.textContent = 'Sent';
                     })
                     .catch(error => {
-                        status.className = 'status error';
-                        status.textContent = 'Error: ' + error.message;
-                    })
-                    .finally(() => {
+                        setBusy({ busy: false, job: null });
                         action.disabled = false;
-                    });
-            });
-
-            form.addEventListener('submit', event => {
-                event.preventDefault();
-
-                const prompt = textarea.value.trim();
-
-                if (!prompt) {
-                    textarea.focus();
-                    return;
-                }
-
-                button.disabled = true;
-                status.className = 'status';
-                status.textContent = 'Sending';
-
-                submitPrompt(component.index, prompt)
-                    .then(() => {
-                        textarea.value = '';
-                        status.textContent = 'Sent';
-                    })
-                    .catch(error => {
                         status.className = 'status error';
                         status.textContent = 'Error: ' + error.message;
-                    })
-                    .finally(() => {
-                        button.disabled = false;
                     });
             });
 
             return item;
+        };
+
+        const syncActiveComponent = components => {
+            if (!components.some(component => component.index === activeComponentIndex) && components.length) {
+                activeComponentIndex = components[0].index;
+            }
+
+            if (!components.some(component => component.index === selectionAnchorIndex)) {
+                selectionAnchorIndex = activeComponentIndex;
+            }
+
+            selectedComponentIndexes = new Set(
+                [...selectedComponentIndexes].filter(index =>
+                    components.some(component => component.index === index)
+                )
+            );
+
+            if (!selectedComponentIndexes.size && components.length) {
+                selectedComponentIndexes.add(activeComponentIndex);
+            }
+        };
+
+        const orderedIndexes = () =>
+            latestComponents.map(component => component.index);
+
+        const itemForIndex = index =>
+            app.querySelector('[data-component-index="' + index + '"]');
+
+        const applySelection = () => {
+            app.querySelectorAll('.item').forEach(item => {
+                const index = Number(item.dataset.componentIndex);
+
+                item.dataset.selected = selectedComponentIndexes.has(index) ? 'true' : 'false';
+                item.dataset.active = index === activeComponentIndex ? 'true' : 'false';
+            });
+        };
+
+        const selectComponent = (index, extend = false) => {
+            if (!latestComponents.some(component => component.index === index)) {
+                return;
+            }
+
+            activeComponentIndex = index;
+
+            if (!extend) {
+                selectionAnchorIndex = index;
+                selectedComponentIndexes = new Set([index]);
+            } else {
+                const indexes = orderedIndexes();
+                const start = indexes.indexOf(selectionAnchorIndex);
+                const end = indexes.indexOf(index);
+                const low = Math.min(start, end);
+                const high = Math.max(start, end);
+
+                selectedComponentIndexes = new Set(indexes.slice(low, high + 1));
+            }
+
+            applySelection();
+            itemForIndex(index)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        };
+
+        const moveSelection = (direction, extend) => {
+            const indexes = orderedIndexes();
+            const position = indexes.indexOf(activeComponentIndex);
+
+            if (position === -1) {
+                return;
+            }
+
+            let nextIndex;
+
+            if (direction === 'left') {
+                nextIndex = indexes[Math.max(0, position - 1)];
+            } else if (direction === 'right') {
+                nextIndex = indexes[Math.min(indexes.length - 1, position + 1)];
+            } else {
+                nextIndex = verticalNeighbor(direction);
+            }
+
+            if (nextIndex !== undefined) {
+                selectComponent(nextIndex, extend);
+            }
+        };
+
+        const verticalNeighbor = direction => {
+            const current = itemForIndex(activeComponentIndex);
+
+            if (!current) {
+                return activeComponentIndex;
+            }
+
+            const currentRect = current.getBoundingClientRect();
+            const currentX = currentRect.left + currentRect.width / 2;
+            const currentY = currentRect.top + currentRect.height / 2;
+            const candidates = [...app.querySelectorAll('.item')]
+                .map(item => {
+                    const rect = item.getBoundingClientRect();
+                    const index = Number(item.dataset.componentIndex);
+                    const x = rect.left + rect.width / 2;
+                    const y = rect.top + rect.height / 2;
+
+                    return { index, x, y };
+                })
+                .filter(candidate =>
+                    direction === 'up'
+                        ? candidate.y < currentY - 8
+                        : candidate.y > currentY + 8
+                )
+                .sort((a, b) =>
+                    Math.abs(a.y - currentY) - Math.abs(b.y - currentY)
+                    || Math.abs(a.x - currentX) - Math.abs(b.x - currentX)
+                );
+
+            return candidates[0]?.index ?? activeComponentIndex;
+        };
+
+        const activateSurfaceScripts = surface => {
+            surface.querySelectorAll('script').forEach(script => {
+                const next = document.createElement('script');
+
+                Array.from(script.attributes).forEach(attribute => {
+                    next.setAttribute(attribute.name, attribute.value);
+                });
+
+                next.textContent = script.textContent;
+                script.replaceWith(next);
+            });
         };
 
         const load = async () => {
@@ -212,11 +625,112 @@
                 throw new Error('/input did not return { components: [...] }');
             }
 
+            latestComponents = data.components;
             instanceStyle.textContent = typeof data.css === 'string' ? data.css : '';
-            app.replaceChildren(...data.components.map(renderComponent));
+            syncActiveComponent(latestComponents);
+
+            const items = latestComponents.map(renderComponent);
+
+            app.replaceChildren(...items);
+            items.forEach(item => activateSurfaceScripts(item.querySelector('.surface')));
+            applySelection();
         };
 
+        globalText.addEventListener('keydown', event => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                globalForm.requestSubmit();
+            }
+        });
+
+        undoDelta.addEventListener('click', () => {
+            runDeltaStep('undo');
+        });
+
+        redoDelta.addEventListener('click', () => {
+            runDeltaStep('redo');
+        });
+
+        canvasSelect.addEventListener('change', () => {
+            globalStatus.className = 'global-status';
+            globalStatus.textContent = 'Switching canvas';
+            switchCanvas(canvasSelect.value)
+                .then(() => {
+                    globalStatus.textContent = 'Canvas switched';
+                })
+                .catch(error => {
+                    globalStatus.className = 'global-status error';
+                    globalStatus.textContent = 'Error: ' + error.message;
+                    loadCanvases().catch(() => {});
+                });
+        });
+
+        newCanvas.addEventListener('click', () => {
+            const name = window.prompt('Canvas name');
+
+            if (!name) {
+                return;
+            }
+
+            globalStatus.className = 'global-status';
+            globalStatus.textContent = 'Creating canvas';
+            createCanvas(name)
+                .then(() => {
+                    globalStatus.textContent = 'Canvas created';
+                })
+                .catch(error => {
+                    globalStatus.className = 'global-status error';
+                    globalStatus.textContent = 'Error: ' + error.message;
+                });
+        });
+
+        globalForm.addEventListener('submit', event => {
+            event.preventDefault();
+
+            const prompt = globalText.value.trim();
+            const button = globalForm.querySelector('button');
+
+            if (!prompt) {
+                globalText.focus();
+                return;
+            }
+
+            button.disabled = true;
+            globalStatus.className = 'global-status';
+            globalStatus.textContent = 'Sending';
+            setBusy({ busy: true, job: { prompt } });
+
+            submitCanvasPrompt(prompt)
+                .then(() => {
+                    globalText.value = '';
+                    globalStatus.textContent = 'Sent';
+                })
+                .catch(error => {
+                    setBusy({ busy: false, job: null });
+                    globalStatus.className = 'global-status error';
+                    globalStatus.textContent = 'Error: ' + error.message;
+                });
+        });
+
+        document.addEventListener('keydown', event => {
+            const editable = event.target.closest('textarea,input,select,[contenteditable="true"]');
+            const direction = {
+                ArrowLeft: 'left',
+                ArrowRight: 'right',
+                ArrowUp: 'up',
+                ArrowDown: 'down'
+            }[event.key];
+
+            if (!direction || editable) {
+                return;
+            }
+
+            event.preventDefault();
+            moveSelection(direction, event.shiftKey);
+        });
+
         new EventSource('/events').onmessage = () => {
+            refreshStatus().catch(() => {});
             load().catch(error => {
                 app.textContent = 'Error: ' + error.message;
             });
@@ -225,6 +739,11 @@
         load().catch(error => {
             app.textContent = 'Error: ' + error.message;
         });
+        loadCanvases().catch(error => {
+            globalStatus.className = 'global-status error';
+            globalStatus.textContent = 'Error: ' + error.message;
+        });
+        watchBusy();
     </script>
 </body>
 </html>
