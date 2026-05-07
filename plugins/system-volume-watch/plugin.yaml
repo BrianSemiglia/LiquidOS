@@ -8,6 +8,8 @@ provides_tools:
   - volume_watch_set
   - volume_watch_refresh
   - volume_watch_pending_events
+  - volume_watch_configure
+  - volume_watch_set_callback
 provides_hooks:
   - on_session_start
   - on_session_end

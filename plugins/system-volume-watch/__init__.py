@@ -1,8 +1,10 @@
 """system-volume-watch plugin - observe macOS output volume changes.
 
 This plugin keeps a small polling loop in the Hermes process, records
-changes into a JSON state file plus an append-only outbox, and can
-optionally launch a Hermes oneshot when an external change arrives.
+changes into a JSON state file plus an append-only outbox, and emits
+callback jobs into ``output.json`` when the host volume changes.
+Hermes owns the visible loading state and the final component update.
+
 The dispatch path is loop-safe:
 
 - self-initiated volume changes are suppressed briefly
@@ -44,6 +46,7 @@ OUTBOX_PATH = STATE_DIR / "outbox.jsonl"
 PID_PATH = STATE_DIR / "daemon.pid"
 CONTEXT_PATH = STATE_DIR / "daemon.context.json"
 OUTPUT_PATH_ENV = "LIVE_EDIT_OUTPUT_PATH"
+CALLBACK_PROMPT_ENV = "HERMES_VOLUME_WATCH_CALLBACK_PROMPT"
 
 DISABLE_ENV = "HERMES_VOLUME_WATCH_DISABLE"
 AUTO_DISPATCH_ENV = "HERMES_VOLUME_WATCH_AUTO_DISPATCH"
@@ -88,6 +91,33 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _daemon_context() -> Dict[str, Any]:
+    try:
+        return json.loads(CONTEXT_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_daemon_context(**updates: Any) -> Dict[str, Any]:
+    context = _daemon_context()
+    context.update({key: value for key, value in updates.items() if value is not None})
+
+    env_output_path = os.getenv(OUTPUT_PATH_ENV, "").strip()
+    if "output_path" not in context and env_output_path:
+        context["output_path"] = env_output_path
+
+    if not context.get("output_path"):
+        context.pop("output_path", None)
+
+    if not context.get("callback_prompt"):
+        context.pop("callback_prompt", None)
+
+    context["updated_at"] = _now_iso()
+    _ensure_state_dir()
+    CONTEXT_PATH.write_text(json.dumps(context, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return context
+
+
 def _ensure_state_dir() -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -104,6 +134,7 @@ def _snapshot_locked() -> Dict[str, Any]:
     snapshot["self_change_window_seconds"] = SELF_CHANGE_WINDOW_SECONDS
     snapshot["state_file"] = str(STATE_PATH)
     snapshot["outbox_file"] = str(OUTBOX_PATH)
+    snapshot["daemon_context"] = _daemon_context()
     return snapshot
 
 
@@ -132,71 +163,26 @@ def _append_outbox(event: Dict[str, Any]) -> None:
 
 
 def _output_path() -> Optional[Path]:
-    raw = os.getenv(OUTPUT_PATH_ENV, "").strip()
+    config = _daemon_context()
+    raw = str(config.get("output_path") or "").strip()
+    if not raw:
+        raw = os.getenv(OUTPUT_PATH_ENV, "").strip()
     if not raw:
         return None
     return Path(raw)
 
 
-def _input_path() -> Optional[Path]:
-    raw = os.getenv("LIVE_EDIT_INPUT_PATH", "").strip()
-    if not raw:
-        return None
-    return Path(raw)
-
-
-def _resolve_repo_path(raw_path: str, repo_root: Path) -> Path:
-    path = Path(raw_path)
-    return path if path.is_absolute() else repo_root / path
-
-
-def _best_component_hints() -> List[Dict[str, Any]]:
-    input_path = _input_path()
-    if input_path is None or not input_path.exists():
-        return []
-
+def _callback_prompt(event: Dict[str, Any]) -> str:
+    config = _daemon_context()
+    prompt = str(config.get("callback_prompt") or "").strip()
+    if not prompt:
+        prompt = os.getenv(CALLBACK_PROMPT_ENV, "").strip()
+    if not prompt:
+        prompt = f"System volume changed to {event.get('volume', event.get('to'))} percent."
     try:
-        canvas = json.loads(input_path.read_text(encoding="utf-8"))
+        return prompt.format(**event)
     except Exception:
-        return []
-
-    components = canvas.get("components")
-    if not isinstance(components, list):
-        return []
-
-    repo_root = input_path.parent.parent
-    hints: List[Dict[str, Any]] = []
-
-    for index, raw_component in enumerate(components):
-        if not isinstance(raw_component, str):
-            continue
-        component_path = _resolve_repo_path(raw_component, repo_root)
-        if not component_path.exists() or "volume" not in component_path.name.lower():
-            try:
-                data = json.loads(component_path.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            html_blob = json.dumps(data, sort_keys=True).lower()
-            if "volume" not in html_blob and "speaker" not in html_blob and "audio" not in html_blob:
-                continue
-        else:
-            try:
-                data = json.loads(component_path.read_text(encoding="utf-8"))
-            except Exception:
-                data = {}
-
-        resources = data.get("resources") if isinstance(data, dict) else {}
-        hints.append(
-            {
-                "index": index,
-                "componentPath": str(component_path),
-                "file": data.get("file") if isinstance(data, dict) else None,
-                "resources": resources if isinstance(resources, dict) else {},
-                "data": data.get("data") if isinstance(data, dict) else None,
-            }
-        )
-
-    return hints[:3]
+        return prompt
 
 
 def _write_output_job(event: Dict[str, Any]) -> None:
@@ -213,23 +199,15 @@ def _write_output_job(event: Dict[str, Any]) -> None:
     except Exception:
         pass
 
+    prompt = _callback_prompt(event)
     job = {
         "id": f"volume-change-{int(time.time() * 1000)}",
-        "scope": "canvas",
         "status": "pending",
         "createdAt": _now_iso(),
+        "type": "hermes_callback",
         "source": PLUGIN_NAME,
-        "event": "system_volume_changed",
-        "request": (
-            f"System volume changed to {event.get('to')} percent. "
-            "Update the canvas to reflect the new system volume."
-        ),
-        "prompt": (
-            f"System volume changed to {event.get('to')} percent. "
-            "Update the canvas to reflect the new system volume."
-        ),
+        "prompt": prompt,
         "payload": event,
-        "selectedComponents": _best_component_hints(),
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -258,40 +236,13 @@ def _daemon_running() -> bool:
     except Exception:
         return False
 
-
-def _daemon_context() -> Dict[str, Any]:
-    try:
-        return json.loads(CONTEXT_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def _write_daemon_context() -> None:
-    output_path = os.getenv(OUTPUT_PATH_ENV, "").strip()
-    input_path = os.getenv("LIVE_EDIT_INPUT_PATH", "").strip()
-    canvas_path = os.getenv("LIVE_EDIT_CANVAS_PATH", "").strip()
-    payload = {
-        "output_path": output_path,
-        "input_path": input_path,
-        "canvas_path": canvas_path,
-        "updated_at": _now_iso(),
-    }
-    CONTEXT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONTEXT_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    try:
-        os.kill(pid, 0)
-        return True
-    except Exception:
-        return False
-
-
 def _start_daemon() -> bool:
     if _watching_disabled() or not _is_supported():
         return False
 
-    current_output = os.getenv(OUTPUT_PATH_ENV, "").strip()
+    context = _daemon_context()
+    current_output = str(context.get("output_path") or os.getenv(OUTPUT_PATH_ENV, "")).strip()
     if _daemon_running():
-        context = _daemon_context()
         if not current_output:
             return True
         if context.get("output_path") == current_output:
@@ -321,7 +272,7 @@ def _start_daemon() -> bool:
     )
 
     PID_PATH.write_text(str(proc.pid) + "\n", encoding="utf-8")
-    _write_daemon_context()
+    _write_daemon_context(output_path=current_output)
     logger.info("[system-volume-watch] started daemon pid=%s", proc.pid)
     return True
 
@@ -388,6 +339,24 @@ def _get_volume() -> int:
     return _parse_volume(proc.stdout)
 
 
+def _get_muted() -> Optional[bool]:
+    proc = subprocess.run(
+        ["osascript", "-e", "output muted of (get volume settings)"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+
+    value = proc.stdout.strip().lower()
+    if value in {"true", "1", "yes"}:
+        return True
+    if value in {"false", "0", "no"}:
+        return False
+    return None
+
+
 def _set_volume(value: int) -> None:
     proc = subprocess.run(
         ["osascript", "-e", f"set volume output volume {value}"],
@@ -407,10 +376,12 @@ def _append_event(event: Dict[str, Any]) -> None:
 
 def _record_change(source: str, previous: Optional[int], current: int) -> Dict[str, Any]:
     event = {
-        "at": _now_iso(),
+        "changedAt": _now_iso(),
         "source": source,
         "from": previous,
+        "muted": _get_muted(),
         "to": current,
+        "volume": current,
     }
     _state["current_volume"] = current
     _state["last_change"] = event
@@ -605,11 +576,14 @@ def volume_watch_set(args: Dict[str, Any], **kwargs: Any) -> str:
 
     with _lock:
         previous = _state.get("current_volume")
+        current_at = _now_iso()
         event = {
-            "at": _now_iso(),
+            "changedAt": current_at,
             "source": "local-set",
             "from": previous,
+            "muted": _get_muted(),
             "to": value,
+            "volume": value,
         }
         _state["supported"] = True
         _state["available"] = True
@@ -619,13 +593,48 @@ def volume_watch_set(args: Dict[str, Any], **kwargs: Any) -> str:
         _state["last_error"] = None
         _state["last_self_set"] = {
             "target": value,
-            "set_at": event["at"],
+            "set_at": current_at,
             "suppress_until": time.time() + SELF_CHANGE_WINDOW_SECONDS,
         }
         _append_event(event)
         _write_state_locked()
 
     return json.dumps({"ok": True, "volume": value, "status": _status_payload()}, indent=2, sort_keys=True)
+
+
+def volume_watch_configure(args: Dict[str, Any], **kwargs: Any) -> str:
+    parsed = _parse_args(args)
+    callback_prompt = str(parsed.get("callback_prompt", parsed.get("prompt", ""))).strip()
+    output_path = str(parsed.get("output_path", "")).strip()
+
+    if not callback_prompt:
+        return json.dumps(
+            {"ok": False, "error": "callback_prompt is required", "status": _status_payload()},
+            indent=2,
+            sort_keys=True,
+        )
+
+    if not output_path:
+        return json.dumps(
+            {"ok": False, "error": "output_path is required", "status": _status_payload()},
+            indent=2,
+            sort_keys=True,
+        )
+
+    if not Path(output_path).is_absolute():
+        return json.dumps(
+            {"ok": False, "error": "output_path must be absolute", "status": _status_payload()},
+            indent=2,
+            sort_keys=True,
+        )
+
+    configured = _write_daemon_context(callback_prompt=callback_prompt, output_path=output_path)
+    _ensure_watcher_running()
+    return json.dumps({"ok": True, "config": configured, "status": _status_payload()}, indent=2, sort_keys=True)
+
+
+def volume_watch_set_callback(args: Dict[str, Any], **kwargs: Any) -> str:
+    return volume_watch_configure(args, **kwargs)
 
 
 def _on_session_start(**kwargs: Any) -> None:
@@ -711,6 +720,56 @@ def register(ctx) -> None:
         handler=volume_watch_set,
         check_fn=None,
     )
+    ctx.register_tool(
+        name="volume_watch_configure",
+        toolset=PLUGIN_NAME,
+        schema={
+            "name": "volume_watch_configure",
+            "description": "Configure the system volume watcher callback prompt and output.json path.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "callback_prompt": {
+                        "type": "string",
+                        "description": "Prompt to send back into Hermes when volume changes.",
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Absolute path to the canvas output.json file.",
+                    }
+                },
+                "required": ["callback_prompt", "output_path"],
+                "additionalProperties": False,
+            },
+        },
+        handler=volume_watch_configure,
+        check_fn=None,
+    )
+    ctx.register_tool(
+        name="volume_watch_set_callback",
+        toolset=PLUGIN_NAME,
+        schema={
+            "name": "volume_watch_set_callback",
+            "description": "Backward-compatible alias for volume_watch_configure.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "callback_prompt": {
+                        "type": "string",
+                        "description": "Prompt to send back into Hermes when volume changes.",
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Absolute path to the canvas output.json file.",
+                    }
+                },
+                "required": ["callback_prompt", "output_path"],
+                "additionalProperties": False,
+            },
+        },
+        handler=volume_watch_set_callback,
+        check_fn=None,
+    )
     ctx.register_hook("on_session_start", _on_session_start)
     ctx.register_hook("on_session_end", _on_session_end)
     _ensure_watcher_running()
@@ -722,7 +781,9 @@ def _daemon_main() -> int:
         return 0
     PID_PATH.parent.mkdir(parents=True, exist_ok=True)
     PID_PATH.write_text(str(os.getpid()) + "\n", encoding="utf-8")
-    _write_daemon_context()
+    context = _daemon_context()
+    output_path = str(context.get("output_path") or os.getenv(OUTPUT_PATH_ENV, "")).strip()
+    _write_daemon_context(output_path=output_path)
     try:
         with _lock:
             _state["supported"] = True

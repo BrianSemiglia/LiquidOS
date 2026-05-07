@@ -45,6 +45,10 @@ const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', [
     'If adding JavaScript to component HTML, place complete <script> tags after the component markup.',
     'When adding a control to a component for an agent-performed action, wire it with data-live-prompt containing the follow-up request; do not implement the action locally unless the user explicitly asks for local behavior.',
     'Label controls as normal user-facing actions. Avoid meta words like realize, materialize, make, generate, agent, prompt, or fulfill unless the user explicitly asked for that wording.',
+    'Perform two separate valid JSON filesystem writes. First, update whichever component JSON files are needed to show a visible loading state and lock relevant controls or inputs, save those files to disk, and parse each changed JSON file before doing side effects, external reads, or longer reasoning.',
+    'Do not assume the loading and resolved UI must live in one component; let Hermes decide whether to use one multi-state component or separate loading and resolved components.',
+    'For component-scoped callbacks, the target component is relevant unless the request clearly identifies another allowed component. For canvas-scoped callbacks, inspect the current canvas config and allowed component files to choose relevant components; use selected components as hints only when they are supplied.',
+    'Second, after the work completes, write the resolved or failed state to disk and unlock controls that should be usable again. Do not defer the loading-state write until the final answer.',
     'Do not edit output.json, deltas.json, server.js, or files outside the allowed paths.',
     'When you obtain useful output, write it into the canvas by updating the allowed canvas config or component JSON. Do not treat opening a browser, reading a page, or reporting in chat as completion unless the canvas is also updated.',
     'When you want to communicate results or messages to the user, spawn a new component JSON file in the instance components/ directory, then add its path to input.json so it appears on the canvas.',
@@ -59,9 +63,8 @@ const clients = new Set();
 let watchers = [];
 let watchTimer;
 let processingDeltas = false;
-let agentProcess;
-let activeJobId;
 let watcherBootstrapProcess;
+let watcherBootstrapOutputPath;
 
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
@@ -132,23 +135,15 @@ const updateOutputJob = (jobId, patch) => {
     return true;
 };
 
-const clearStaleRunningOutputJob = () => {
+const clearStaleOutputJob = () => {
     const job = readOutputJob();
 
-    if (!job || job.status !== 'running') {
+    if (!job || !['pending', 'running'].includes(job.status)) {
         return false;
     }
 
     writeOutputJob(null);
     return true;
-};
-
-const ensureNoStaleRunningOutputJob = () => {
-    if (activeJobId || agentProcess) {
-        return false;
-    }
-
-    return clearStaleRunningOutputJob();
 };
 
 const componentScripts = html =>
@@ -187,8 +182,21 @@ const validateComponentFiles = componentPaths => {
     });
 };
 
+const callbackPromptText = job => {
+    return job.prompt || job.request || '';
+};
+
+const resolvedOutputJob = job => {
+    const promptText = callbackPromptText(job);
+
+    return promptText
+        ? { ...job, scope: job.scope || (job.componentPath ? 'component' : 'canvas'), prompt: promptText, request: job.request || promptText }
+        : null;
+};
+
 const agentJobPrompt = job => {
     const target = job.target || null;
+    const promptText = callbackPromptText(job);
 
     if (target) {
         return [
@@ -198,7 +206,7 @@ const agentJobPrompt = job => {
             JSON.stringify(target, null, 2),
             '',
             'Request:',
-            job.request || job.prompt || ''
+            promptText
         ].join('\n');
     }
 
@@ -242,7 +250,7 @@ const agentJobPrompt = job => {
         JSON.stringify(resources, null, 2),
         '',
         'User request:',
-        job.prompt,
+        promptText,
         '',
         'Component metadata:',
         JSON.stringify({
@@ -265,7 +273,7 @@ const runAgentOneshot = prompt =>
         let stderr = '';
         let timedOut = false;
 
-        agentProcess = spawn(AGENT_COMMAND, [...AGENT_ARGS, prompt], {
+        const proc = spawn(AGENT_COMMAND, [...AGENT_ARGS, prompt], {
             cwd: ROOT,
             env: {
                 ...process.env,
@@ -278,29 +286,26 @@ const runAgentOneshot = prompt =>
 
         const timeout = setTimeout(() => {
             timedOut = true;
-            agentProcess.kill('SIGTERM');
+            proc.kill('SIGTERM');
         }, AGENT_TIMEOUT_MS);
 
-        agentProcess.stdout.on('data', chunk => {
+        proc.stdout.on('data', chunk => {
             stdout += chunk;
             process.stdout.write(chunk);
         });
 
-        agentProcess.stderr.on('data', chunk => {
+        proc.stderr.on('data', chunk => {
             stderr += chunk;
             process.stderr.write(chunk);
         });
 
-        agentProcess.on('error', error => {
+        proc.on('error', error => {
             clearTimeout(timeout);
-            agentProcess = undefined;
             reject(error);
         });
 
-        agentProcess.on('close', code => {
+        proc.on('close', code => {
             clearTimeout(timeout);
-            agentProcess = undefined;
-
             if (timedOut) {
                 reject(new Error('Agent timed out after ' + AGENT_TIMEOUT_MS + 'ms'));
                 return;
@@ -319,7 +324,6 @@ const processOutputJob = async job => {
     const jobId = job.id || 'job-' + Date.now();
     const componentPath = job.componentPath ? resolveFromRoot(job.componentPath) : null;
 
-    activeJobId = jobId;
     writeOutputJob({
         ...job,
         id: jobId,
@@ -348,42 +352,33 @@ const processOutputJob = async job => {
             error: error.message
         });
     } finally {
-        activeJobId = undefined;
         broadcast();
     }
 };
 
 const feedHermesOutput = () => {
-    if (ensureNoStaleRunningOutputJob()) {
-        return false;
-    }
-
-    if (activeJobId || agentProcess) {
-        return false;
-    }
-
     const job = readOutputJob();
+    const resolvedJob = job ? resolvedOutputJob(job) : null;
+    const promptText = resolvedJob ? callbackPromptText(resolvedJob) : '';
 
-    if (!job || (job.status && job.status !== 'pending') || !job.prompt) {
+    if (!job || (job.status && job.status !== 'pending') || !promptText) {
         return false;
     }
 
-    if (job.scope !== 'canvas' && !job.componentPath) {
+    if (resolvedJob.scope !== 'canvas' && !resolvedJob.componentPath) {
         return false;
     }
 
-    processOutputJob(job).catch(error => {
+    processOutputJob(resolvedJob).catch(error => {
         console.error('agent job error:', error);
-        activeJobId = undefined;
     });
 
     return true;
 };
 
 const currentBusyState = () => {
-    ensureNoStaleRunningOutputJob();
     const job = readOutputJob();
-    const busy = Boolean(activeJobId || agentProcess || job?.status === 'pending' || job?.status === 'running');
+    const busy = Boolean(job?.status === 'pending' || job?.status === 'running');
 
     return {
         busy,
@@ -392,7 +387,7 @@ const currentBusyState = () => {
                 id: job.id || null,
                 scope: job.scope || null,
                 status: job.status || null,
-                prompt: job.prompt || null,
+                prompt: job.prompt || job.request || null,
                 startedAt: job.startedAt || null
             }
             : null
@@ -420,12 +415,6 @@ const availableCanvases = () =>
         : [];
 
 const switchCanvas = name => {
-    if (activeJobId || agentProcess) {
-        const error = new Error('Cannot switch canvases while a callback is running');
-        error.statusCode = 409;
-        throw error;
-    }
-
     if (!/^[^/][^/]*$/.test(name)) {
         const error = new Error('Invalid canvas name');
         error.statusCode = 400;
@@ -443,6 +432,7 @@ const switchCanvas = name => {
     setCanvasPath(canvasPath);
     processDeltas();
     watchGraph();
+    bootstrapVolumeWatcher();
 };
 
 const createCanvas = name => {
@@ -976,13 +966,17 @@ const appendOutput = async req => {
 
     const currentJob = readOutputJob();
 
-    if (activeJobId || currentJob?.status === 'pending' || currentJob?.status === 'running') {
+    if (currentJob?.status === 'pending' || currentJob?.status === 'running') {
         const error = new Error('A callback is already running');
         error.statusCode = 409;
         throw error;
     }
 
     if (isCanvasPrompt) {
+        console.log('[callback] received canvas prompt', JSON.stringify({
+            request,
+            selectedComponents: Array.isArray(body.selectedComponents) ? body.selectedComponents.length : 0
+        }));
         writeOutputJob({
             id: 'output-' + Date.now(),
             scope: 'canvas',
@@ -991,7 +985,8 @@ const appendOutput = async req => {
             canvasPath: CANVAS_PATH,
             inputPath: INPUT_PATH,
             selectedComponents: Array.isArray(body.selectedComponents) ? body.selectedComponents : [],
-            request
+            request,
+            prompt: request
         });
         return;
     }
@@ -1021,6 +1016,11 @@ const appendOutput = async req => {
         throw new Error('Prompt requires a valid target or componentIndex and request');
     }
 
+    console.log('[callback] received component prompt', JSON.stringify({
+        request,
+        componentPath: leaf.componentPath || null,
+        file: leaf.component.file || null
+    }));
     writeOutputJob({
         id: 'output-' + Date.now(),
         scope: 'component',
@@ -1066,7 +1066,7 @@ const streamFile = (req, res, file, type = 'application/octet-stream') => {
 };
 
 const bootstrapVolumeWatcher = () => {
-    if (watcherBootstrapProcess) {
+    if (watcherBootstrapProcess || watcherBootstrapOutputPath === OUTPUT_PATH) {
         return;
     }
 
@@ -1075,18 +1075,31 @@ const bootstrapVolumeWatcher = () => {
         return;
     }
 
-    const prompt = 'Initialize enabled background watchers and reply with ok.';
+    const callbackPrompt = [
+        'The system volume changed.',
+        'First produce a loading-state version of the volume UI.',
+        'Then produce the resolved volume UI after handling the event.',
+        'Choose whether that means one component with two states or two separate components; the harness does not choose.'
+    ].join(' ');
+    const prompt = [
+        'Initialize enabled background watchers.',
+        'When you handle the system volume callback, decide how the volume UI should be structured.',
+        'You may update one component that supports loading and resolved states, or use separate loading and resolved components if that fits better; the harness does not choose for you.',
+        'Call volume_watch_configure(callback_prompt, output_path) with:',
+        '- callback_prompt: ' + JSON.stringify(callbackPrompt),
+        '- output_path: ' + JSON.stringify(OUTPUT_PATH),
+        'Reply with ok.'
+    ].join(' ');
     watcherBootstrapProcess = spawn(AGENT_COMMAND, [...AGENT_ARGS, prompt], {
         cwd: ROOT,
         env: {
             ...process.env,
             LIVE_EDIT_OUTPUT_PATH: OUTPUT_PATH,
-            LIVE_EDIT_INPUT_PATH: INPUT_PATH,
-            LIVE_EDIT_CANVAS_PATH: CANVAS_PATH,
             HERMES_VOLUME_WATCH_AUTO_DISPATCH: '0'
         },
         stdio: ['ignore', 'pipe', 'pipe']
     });
+    watcherBootstrapOutputPath = OUTPUT_PATH;
 
     watcherBootstrapProcess.on('close', code => {
         watcherBootstrapProcess = undefined;
@@ -1224,17 +1237,11 @@ const server = http.createServer(async (req, res) => {
 });
 
 ensureCanvasFiles();
-clearStaleRunningOutputJob();
+clearStaleOutputJob();
 processDeltas();
 watchGraph();
 bootstrapVolumeWatcher();
 feedHermesOutput();
-
-process.on('exit', () => {
-    if (agentProcess) {
-        agentProcess.kill();
-    }
-});
 
 server.listen(PORT, () => {
     console.log('Build: ' + SERVER_BUILD);

@@ -155,62 +155,6 @@
             transform: translateX(-50%);
         }
 
-        .busy-overlay {
-            position: fixed;
-            inset: 0;
-            z-index: 30;
-            display: none;
-            place-items: center;
-            padding: 2rem;
-            background: rgba(2, 6, 23, 0.62);
-            backdrop-filter: blur(2px);
-        }
-
-        body[data-busy="true"] .busy-overlay {
-            display: grid;
-        }
-
-        .busy-card {
-            display: grid;
-            justify-items: center;
-            gap: 0.8rem;
-            width: min(22rem, calc(100vw - 2rem));
-            padding: 1.25rem;
-            border: 1px solid #334155;
-            border-radius: 8px;
-            background: #0f172a;
-            color: #e0f2fe;
-            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
-            text-align: center;
-        }
-
-        .busy-spinner {
-            width: 2rem;
-            height: 2rem;
-            border: 3px solid #334155;
-            border-top-color: #38bdf8;
-            border-radius: 999px;
-            animation: spin 0.8s linear infinite;
-        }
-
-        .busy-title {
-            font-weight: 850;
-        }
-
-        .busy-detail {
-            max-width: 18rem;
-            color: #94a3b8;
-            font-size: 0.85rem;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
     </style>
 </head>
 <body>
@@ -228,13 +172,6 @@
         <textarea id="global-text" placeholder="Prompt the canvas"></textarea>
         <button type="submit">Send</button>
     </form>
-    <div class="busy-overlay" id="busy-overlay" aria-live="polite" aria-busy="true">
-        <div class="busy-card">
-            <div class="busy-spinner" aria-hidden="true"></div>
-            <div class="busy-title" id="busy-title">Agent working</div>
-            <div class="busy-detail" id="busy-detail"></div>
-        </div>
-    </div>
 
     <script>
         const app = document.getElementById('app');
@@ -245,7 +182,6 @@
         const newCanvas = document.getElementById('new-canvas');
         const undoDelta = document.getElementById('undo-delta');
         const redoDelta = document.getElementById('redo-delta');
-        const busyDetail = document.getElementById('busy-detail');
         const instanceStyle = document.createElement('style');
 
         let latestComponents = [];
@@ -433,11 +369,9 @@
         };
 
         const setBusy = state => {
-            document.body.dataset.busy = state.busy ? 'true' : 'false';
-            busyDetail.textContent = state.job?.prompt || '';
-            globalForm.querySelectorAll('button,textarea,select').forEach(control => {
-                control.disabled = state.busy;
-            });
+            globalStatus.className = state.busy ? 'global-status' : 'global-status';
+            globalStatus.textContent = state.job?.prompt ? 'Agent working: ' + state.job.prompt : (state.busy ? 'Agent working' : '');
+            globalForm.querySelector('button[type="submit"]').disabled = Boolean(state.busy);
         };
 
         const refreshStatus = async () => {
