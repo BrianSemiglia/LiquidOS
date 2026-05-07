@@ -1,10 +1,11 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
+const pty = require('node-pty');
 
 const ROOT = __dirname;
-const SERVER_BUILD = 'hermes-output-server-2026-05-06-single-callback-agent';
+const SERVER_BUILD = 'hermes-output-server-2026-05-07-canvas-host-session';
 
 const argValue = (name, fallback) => {
     const prefix = name + '=';
@@ -34,7 +35,7 @@ const AGENT_COMMAND = argValue('--agent', argValue('--hermes-command', 'hermes')
 const AGENT_ARGS = argValue('--agent-args', argValue('--hermes-args', '--oneshot')).split(' ').filter(Boolean);
 const AGENT_TIMEOUT_MS = Number.parseInt(argValue('--agent-timeout-ms', '300000'), 10);
 const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', [
-    'You are updating one live canvas.',
+    'You are LiquidOS, a just-in-time operating system. You produce and modify components as the user needs.',
     'For component-scoped requests, edit only the allowed component JSON file, the allowed canvas config file, and, when the user request explicitly concerns the represented file, the allowed represented file or resources.',
     'For canvas-scoped requests, edit the allowed canvas config file and any listed component JSON files needed to satisfy the request.',
     'Prefer component JSON for local UI changes; prefer represented files for content/file changes.',
@@ -46,7 +47,6 @@ const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', [
     'When adding a control to a component for an agent-performed action, wire it with data-live-prompt containing the follow-up request; do not implement the action locally unless the user explicitly asks for local behavior.',
     'Label controls as normal user-facing actions. Avoid meta words like realize, materialize, make, generate, agent, prompt, or fulfill unless the user explicitly asked for that wording.',
     'Perform two separate valid JSON filesystem writes. First, update whichever component JSON files are needed to show a visible loading state and lock relevant controls or inputs, save those files to disk, and parse each changed JSON file before doing side effects, external reads, or longer reasoning.',
-    'Do not assume the loading and resolved UI must live in one component; let Hermes decide whether to use one multi-state component or separate loading and resolved components.',
     'For component-scoped callbacks, the target component is relevant unless the request clearly identifies another allowed component. For canvas-scoped callbacks, inspect the current canvas config and allowed component files to choose relevant components; use selected components as hints only when they are supplied.',
     'Second, after the work completes, write the resolved or failed state to disk and unlock controls that should be usable again. Do not defer the loading-state write until the final answer.',
     'Do not edit output.json, deltas.json, server.js, or files outside the allowed paths.',
@@ -63,8 +63,36 @@ const clients = new Set();
 let watchers = [];
 let watchTimer;
 let processingDeltas = false;
-let watcherBootstrapProcess;
-let watcherBootstrapOutputPath;
+let activeCanvasHermes = null;
+const ENABLED_HERMES_TOOLSETS = (() => {
+    try {
+        const result = spawnSync(AGENT_COMMAND, ['plugins', 'list'], {
+            cwd: ROOT,
+            env: process.env,
+            encoding: 'utf8',
+            maxBuffer: 2_000_000
+        });
+
+        if (result.status !== 0) {
+            return [];
+        }
+
+        return Array.from(
+            new Set(
+                String(result.stdout || '')
+                    .split(/\r?\n/)
+                    .flatMap(line => {
+                        const match = line.match(/^\s*│\s*([^│]+?)\s*│\s*enabled\s*│/);
+                        return match ? [match[1].trim()] : [];
+                    })
+                    .filter(Boolean)
+            )
+        );
+    } catch (error) {
+        console.error('[hermes-host] toolset discovery failed:', error.message);
+        return [];
+    }
+})();
 
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
@@ -96,6 +124,7 @@ const setCanvasPath = canvasPath => {
     OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
     DELTAS_PATH = path.join(CANVAS_PATH, 'deltas.json');
     ensureCanvasFiles();
+    startCanvasHermesHost(CANVAS_PATH);
 };
 
 const outputText = () =>
@@ -119,6 +148,177 @@ const readOutputJob = () => {
 
 const writeOutputJob = job => {
     writeJson(OUTPUT_PATH, job || null);
+};
+
+const buildCanvasHermesArgs = () => {
+    const liveArgs = [];
+
+    for (let index = 0; index < AGENT_ARGS.length; index += 1) {
+        const arg = AGENT_ARGS[index];
+
+        if (arg === '--oneshot' || arg === '--query' || arg === '-q' || arg === '--resume' || arg === '-r' || arg === '--continue' || arg === '-c') {
+            if (arg === '--query' || arg === '-q' || arg === '--resume' || arg === '-r' || arg === '--continue' || arg === '-c') {
+                const next = AGENT_ARGS[index + 1];
+                if (next && !String(next).startsWith('-')) {
+                    index += 1;
+                }
+            }
+            continue;
+        }
+
+        if (arg.startsWith('--query=') || arg.startsWith('--resume=') || arg.startsWith('--continue=')) {
+            continue;
+        }
+
+        liveArgs.push(arg);
+    }
+
+    if (!liveArgs.some(arg => arg === '--source' || arg.startsWith('--source='))) {
+        liveArgs.push('--source', 'tool');
+    }
+
+    if (ENABLED_HERMES_TOOLSETS.length && !liveArgs.some(arg => arg === '--toolsets' || arg === '-t' || arg.startsWith('--toolsets='))) {
+        liveArgs.push('--toolsets', ENABLED_HERMES_TOOLSETS.join(','));
+    }
+
+    if (!liveArgs.some(arg => arg === '--quiet' || arg === '-Q')) {
+        liveArgs.push('--quiet');
+    }
+
+    return liveArgs;
+};
+
+const buildCanvasHermesEnv = () => ({
+    ...process.env,
+    LIVE_EDIT_OUTPUT_PATH: OUTPUT_PATH,
+    LIVE_EDIT_INPUT_PATH: INPUT_PATH,
+    LIVE_EDIT_CANVAS_PATH: CANVAS_PATH
+});
+
+const canvasHermesBootstrapPrompt = () => [
+    'Initialize enabled background watchers for this canvas.',
+    'If any watcher needs a callback prompt or output path, configure it using the current canvas output file: ' + JSON.stringify(OUTPUT_PATH) + '.',
+    'The callback prompt should make Hermes update the relevant visible component in the canvas, not write raw data back into the output file as the final result.',
+    'When a callback benefits from it, use a loading state first and then a resolved state.',
+    'Choose the callback prompt yourself.',
+    'Reply with ok once the watcher is ready.'
+].join(' ');
+
+const stopCanvasHermesHost = () => {
+    if (!activeCanvasHermes) {
+        return false;
+    }
+
+    const host = activeCanvasHermes;
+    activeCanvasHermes = null;
+    host.stopped = true;
+
+    if (host.bootstrapTimer) {
+        clearTimeout(host.bootstrapTimer);
+        host.bootstrapTimer = null;
+    }
+
+    try {
+        host.proc.kill();
+    } catch (error) {
+        console.error('[hermes-host] failed to stop:', error.message);
+    }
+
+    return true;
+};
+
+const startCanvasHermesHost = canvasPath => {
+    const resolvedCanvasPath = resolveConfigPath(canvasPath);
+
+    if (activeCanvasHermes && activeCanvasHermes.canvasPath === resolvedCanvasPath && !activeCanvasHermes.exited) {
+        return activeCanvasHermes;
+    }
+
+    stopCanvasHermesHost();
+
+    const liveArgs = ['chat', ...buildCanvasHermesArgs()];
+    console.log('[hermes-host] start args=' + JSON.stringify(liveArgs));
+
+    const host = {
+        canvasPath: resolvedCanvasPath,
+        proc: pty.spawn(AGENT_COMMAND, liveArgs, {
+            cwd: ROOT,
+            env: buildCanvasHermesEnv(),
+            cols: 120,
+            rows: 40,
+            name: 'xterm-color'
+        }),
+        startedAt: new Date().toISOString(),
+        exited: false,
+        stopped: false,
+        exitCode: null,
+        signal: null,
+        outputTail: '',
+        bootstrapSent: false
+    };
+
+    host.proc.onData(data => {
+        host.outputTail = (host.outputTail + data).slice(-16384);
+
+        if (!host.bootstrapSent && (host.outputTail.includes('Ctrl+C cancel') || host.outputTail.includes('msg=interrupt'))) {
+            try {
+                const prompt = canvasHermesBootstrapPrompt();
+                console.log('[hermes-host] bootstrap prompt=' + JSON.stringify(prompt));
+                host.proc.write(prompt + '\r');
+                host.bootstrapSent = true;
+                host.bootstrapSentAt = new Date().toISOString();
+                console.log('[hermes-host] bootstrap sent canvas=' + path.relative(CANVASES_ROOT, host.canvasPath));
+            } catch (error) {
+                console.error('[hermes-host] bootstrap write failed:', error.message);
+            }
+        }
+    });
+
+    host.bootstrapTimer = setTimeout(() => {
+        if (host.exited || host.stopped || host.bootstrapSent) {
+            return;
+        }
+
+        try {
+            const prompt = canvasHermesBootstrapPrompt();
+            console.log('[hermes-host] bootstrap prompt=' + JSON.stringify(prompt));
+            host.proc.write(prompt + '\r');
+            host.bootstrapSent = true;
+            host.bootstrapSentAt = new Date().toISOString();
+            console.log('[hermes-host] bootstrap sent canvas=' + path.relative(CANVASES_ROOT, host.canvasPath));
+        } catch (error) {
+            console.error('[hermes-host] bootstrap write failed:', error.message);
+        }
+    }, 750);
+
+    host.proc.onExit(({ exitCode, signal }) => {
+        host.exited = true;
+        host.exitCode = exitCode;
+        host.signal = signal;
+
+        if (host.bootstrapTimer) {
+            clearTimeout(host.bootstrapTimer);
+            host.bootstrapTimer = null;
+        }
+
+        if (activeCanvasHermes === host) {
+            activeCanvasHermes = null;
+        }
+
+        if (!host.stopped && CANVAS_PATH === host.canvasPath) {
+            setTimeout(() => {
+                if (!activeCanvasHermes && CANVAS_PATH === host.canvasPath) {
+                    startCanvasHermesHost(host.canvasPath);
+                }
+            }, 1000);
+        }
+
+        console.log('[hermes-host] exited canvas=' + path.relative(CANVASES_ROOT, host.canvasPath) + ' code=' + exitCode + ' signal=' + (signal || 'none'));
+    });
+
+    activeCanvasHermes = host;
+    console.log('[hermes-host] started canvas=' + path.relative(CANVASES_ROOT, host.canvasPath));
+    return host;
 };
 
 const updateOutputJob = (jobId, patch) => {
@@ -432,7 +632,6 @@ const switchCanvas = name => {
     setCanvasPath(canvasPath);
     processDeltas();
     watchGraph();
-    bootstrapVolumeWatcher();
 };
 
 const createCanvas = name => {
@@ -1065,47 +1264,6 @@ const streamFile = (req, res, file, type = 'application/octet-stream') => {
     fs.createReadStream(file, { start, end }).pipe(res);
 };
 
-const bootstrapVolumeWatcher = () => {
-    if (watcherBootstrapProcess || watcherBootstrapOutputPath === OUTPUT_PATH) {
-        return;
-    }
-
-    const pluginPath = path.join(ROOT, 'plugins', 'system-volume-watch', 'plugin.yaml');
-    if (!fs.existsSync(pluginPath)) {
-        return;
-    }
-
-    const callbackPrompt = [
-        'The system volume changed.',
-        'First produce a loading-state version of the volume UI.',
-        'Then produce the resolved volume UI after handling the event.',
-        'Choose whether that means one component with two states or two separate components; the harness does not choose.'
-    ].join(' ');
-    const prompt = [
-        'Initialize enabled background watchers.',
-        'When you handle the system volume callback, decide how the volume UI should be structured.',
-        'You may update one component that supports loading and resolved states, or use separate loading and resolved components if that fits better; the harness does not choose for you.',
-        'Call volume_watch_configure(callback_prompt, output_path) with:',
-        '- callback_prompt: ' + JSON.stringify(callbackPrompt),
-        '- output_path: ' + JSON.stringify(OUTPUT_PATH),
-        'Reply with ok.'
-    ].join(' ');
-    watcherBootstrapProcess = spawn(AGENT_COMMAND, [...AGENT_ARGS, prompt], {
-        cwd: ROOT,
-        env: {
-            ...process.env,
-            LIVE_EDIT_OUTPUT_PATH: OUTPUT_PATH,
-            HERMES_VOLUME_WATCH_AUTO_DISPATCH: '0'
-        },
-        stdio: ['ignore', 'pipe', 'pipe']
-    });
-    watcherBootstrapOutputPath = OUTPUT_PATH;
-
-    watcherBootstrapProcess.on('close', code => {
-        watcherBootstrapProcess = undefined;
-    });
-};
-
 const staticPath = pathname => {
     const file = path.resolve(ROOT, pathname === '/' ? 'index.html' : '.' + decodeURIComponent(pathname));
     return file.startsWith(ROOT + path.sep) || file === ROOT ? file : undefined;
@@ -1238,10 +1396,24 @@ const server = http.createServer(async (req, res) => {
 
 ensureCanvasFiles();
 clearStaleOutputJob();
+startCanvasHermesHost(CANVAS_PATH);
 processDeltas();
 watchGraph();
-bootstrapVolumeWatcher();
 feedHermesOutput();
+
+const shutdownCanvasHermes = () => {
+    stopCanvasHermesHost();
+};
+
+process.on('exit', shutdownCanvasHermes);
+process.on('SIGINT', () => {
+    shutdownCanvasHermes();
+    process.exit(130);
+});
+process.on('SIGTERM', () => {
+    shutdownCanvasHermes();
+    process.exit(143);
+});
 
 server.listen(PORT, () => {
     console.log('Build: ' + SERVER_BUILD);

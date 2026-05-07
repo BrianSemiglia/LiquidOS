@@ -172,13 +172,31 @@ def _output_path() -> Optional[Path]:
     return Path(raw)
 
 
+def _default_callback_prompt(event: Dict[str, Any]) -> str:
+    volume = event.get("volume", event.get("to"))
+    muted = event.get("muted")
+    pieces = ["The system volume changed."]
+    if volume is not None:
+        pieces.append(f"The new volume is {volume}%.")
+    if muted is True:
+        pieces.append("It is muted.")
+    pieces.append("Update the canvas using the payload and decide the best component shape and loading behavior.")
+    return " ".join(pieces)
+
+
 def _callback_prompt(event: Dict[str, Any]) -> str:
     config = _daemon_context()
     prompt = str(config.get("callback_prompt") or "").strip()
     if not prompt:
         prompt = os.getenv(CALLBACK_PROMPT_ENV, "").strip()
+    if prompt and "output.json" in prompt:
+        logger.debug("[system-volume-watch] ignoring stale callback prompt that targets output.json")
+        prompt = ""
+    if prompt and "write a json component" in prompt.lower():
+        logger.debug("[system-volume-watch] ignoring stale callback prompt that describes raw JSON output")
+        prompt = ""
     if not prompt:
-        prompt = f"System volume changed to {event.get('volume', event.get('to'))} percent."
+        prompt = _default_callback_prompt(event)
     try:
         return prompt.format(**event)
     except Exception:
@@ -190,12 +208,13 @@ def _write_output_job(event: Dict[str, Any]) -> None:
     if output_path is None:
         return
 
+    supersedes = None
     try:
         if output_path.exists():
             current = json.loads(output_path.read_text(encoding="utf-8"))
             if isinstance(current, dict) and current.get("status") in {"pending", "running"}:
-                logger.debug("[system-volume-watch] output.json busy; skipping event write")
-                return
+                supersedes = str(current.get("id") or "").strip() or None
+                logger.debug("[system-volume-watch] output.json busy; superseding %s", supersedes or "current job")
     except Exception:
         pass
 
@@ -209,6 +228,8 @@ def _write_output_job(event: Dict[str, Any]) -> None:
         "prompt": prompt,
         "payload": event,
     }
+    if supersedes:
+        job["supersedes"] = supersedes
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
