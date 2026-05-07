@@ -143,6 +143,14 @@ const clearStaleRunningOutputJob = () => {
     return true;
 };
 
+const ensureNoStaleRunningOutputJob = () => {
+    if (activeJobId || agentProcess) {
+        return false;
+    }
+
+    return clearStaleRunningOutputJob();
+};
+
 const componentScripts = html =>
     Array.from(String(html || '').matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi), match => match[1]);
 
@@ -346,6 +354,10 @@ const processOutputJob = async job => {
 };
 
 const feedHermesOutput = () => {
+    if (ensureNoStaleRunningOutputJob()) {
+        return false;
+    }
+
     if (activeJobId || agentProcess) {
         return false;
     }
@@ -369,6 +381,7 @@ const feedHermesOutput = () => {
 };
 
 const currentBusyState = () => {
+    ensureNoStaleRunningOutputJob();
     const job = readOutputJob();
     const busy = Boolean(activeJobId || agentProcess || job?.status === 'pending' || job?.status === 'running');
 
