@@ -1,0 +1,13 @@
+---
+name: system-volume-watch
+version: "1.0.0"
+description: Poll macOS output volume and emit loop-safe change events
+author: Codex
+provides_tools:
+  - volume_watch_status
+  - volume_watch_set
+  - volume_watch_refresh
+  - volume_watch_pending_events
+provides_hooks:
+  - on_session_start
+  - on_session_end
