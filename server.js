@@ -132,6 +132,23 @@ const updateOutputJob = (jobId, patch) => {
     return true;
 };
 
+const clearStaleRunningOutputJob = () => {
+    const job = readOutputJob();
+
+    if (!job || job.status !== 'running') {
+        return false;
+    }
+
+    writeOutputJob(null);
+    console.log('[output] cleared stale running job on startup', JSON.stringify({
+        id: job.id || null,
+        scope: job.scope || null,
+        source: job.source || null,
+        event: job.event || null
+    }));
+    return true;
+};
+
 const componentScripts = html =>
     Array.from(String(html || '').matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi), match => match[1]);
 
@@ -1248,6 +1265,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 ensureCanvasFiles();
+clearStaleRunningOutputJob();
 processDeltas();
 watchGraph();
 bootstrapVolumeWatcher();
