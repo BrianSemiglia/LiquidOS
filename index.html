@@ -253,9 +253,43 @@
         let selectionAnchorIndex = 0;
         let selectedComponentIndexes = new Set([0]);
         let statusTimer;
+        let scrollSaveTimer;
 
         instanceStyle.id = 'instance-style';
         document.head.append(instanceStyle);
+
+        const scrollKey = canvasName => 'live-edit-scroll:' + (canvasName || 'default');
+
+        const currentScrollKey = () => scrollKey(canvasSelect.value);
+
+        const saveScrollPosition = () => {
+            try {
+                sessionStorage.setItem(currentScrollKey(), String(window.scrollY || 0));
+            } catch (error) {
+                // Ignore storage failures; scroll persistence is best-effort.
+            }
+        };
+
+        const loadScrollPosition = () => {
+            try {
+                const raw = sessionStorage.getItem(currentScrollKey());
+                const value = Number.parseInt(raw || '0', 10);
+                return Number.isFinite(value) && value >= 0 ? value : 0;
+            } catch (error) {
+                return 0;
+            }
+        };
+
+        const restoreScrollPosition = () => {
+            const top = loadScrollPosition();
+            requestAnimationFrame(() => {
+                window.scrollTo({
+                    top,
+                    left: 0,
+                    behavior: 'auto'
+                });
+            });
+        };
 
         const submitPrompt = async (target, request) => {
             const response = await fetch('/output', {
@@ -359,6 +393,7 @@
         };
 
         const switchCanvas = async name => {
+            saveScrollPosition();
             const data = await fetch('/canvas', {
                 method: 'POST',
                 headers: {
@@ -378,6 +413,7 @@
         };
 
         const createCanvas = async name => {
+            saveScrollPosition();
             const data = await fetch('/canvases', {
                 method: 'POST',
                 headers: {
@@ -634,6 +670,7 @@
             app.replaceChildren(...items);
             items.forEach(item => activateSurfaceScripts(item.querySelector('.surface')));
             applySelection();
+            restoreScrollPosition();
         };
 
         globalText.addEventListener('keydown', event => {
@@ -728,6 +765,11 @@
             event.preventDefault();
             moveSelection(direction, event.shiftKey);
         });
+
+        window.addEventListener('scroll', () => {
+            clearTimeout(scrollSaveTimer);
+            scrollSaveTimer = setTimeout(saveScrollPosition, 120);
+        }, { passive: true });
 
         new EventSource('/events').onmessage = () => {
             refreshStatus().catch(() => {});
