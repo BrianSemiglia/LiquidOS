@@ -64,6 +64,7 @@ _state: Dict[str, Any] = {
     "available": False,
     "watching": False,
     "current_volume": None,
+    "current_muted": None,
     "last_polled_at": None,
     "last_change": None,
     "last_error": None,
@@ -395,16 +396,24 @@ def _append_event(event: Dict[str, Any]) -> None:
     _state["recent_events"] = list(_events)
 
 
-def _record_change(source: str, previous: Optional[int], current: int) -> Dict[str, Any]:
+def _record_change(
+    source: str,
+    previous: Optional[int],
+    current: int,
+    previous_muted: Optional[bool] = None,
+) -> Dict[str, Any]:
+    muted = _get_muted()
     event = {
         "changedAt": _now_iso(),
         "source": source,
         "from": previous,
-        "muted": _get_muted(),
+        "fromMuted": previous_muted,
+        "muted": muted,
         "to": current,
         "volume": current,
     }
     _state["current_volume"] = current
+    _state["current_muted"] = muted
     _state["last_change"] = event
     _state["last_error"] = None
     _append_event(event)
@@ -416,6 +425,8 @@ def _poll_once() -> None:
     now = time.time()
     with _lock:
         previous = _state.get("current_volume")
+        previous_muted = _state.get("current_muted")
+        muted = _get_muted()
         _state["supported"] = _is_supported()
         _state["available"] = True
         _state["watching"] = True
@@ -425,24 +436,36 @@ def _poll_once() -> None:
         target = self_change.get("target")
 
         if previous is None:
-            event = _record_change("startup", None, current)
+            event = _record_change("startup", None, current, previous_muted)
             _write_state_locked()
             return
 
-        if current == previous:
+        muted_changed = muted is not None and previous_muted is not None and muted != previous_muted
+
+        if current == previous and not muted_changed:
             if suppress_until and now > suppress_until:
                 _state["last_self_set"] = None
                 _write_state_locked()
             return
 
+        if current == previous and muted_changed:
+            event = _record_change("external-mute", previous, current, previous_muted)
+            _state["last_self_set"] = None
+            logger.info("[system-volume-watch] mute state changed %s -> %s", previous_muted, muted)
+            _write_state_locked()
+            _append_outbox(event)
+            _write_output_job(event)
+            return
+
         if target == current and now <= suppress_until:
             _state["current_volume"] = current
+            _state["current_muted"] = muted
             _state["last_error"] = None
             _state["last_polled_at"] = _now_iso()
             _write_state_locked()
             return
 
-        event = _record_change("external", previous, current)
+        event = _record_change("external", previous, current, previous_muted)
         _state["last_self_set"] = None
         logger.info("[system-volume-watch] volume changed %s -> %s", previous, current)
         _write_state_locked()
@@ -499,6 +522,7 @@ def _ensure_watcher_running() -> bool:
         _state["available"] = True
         _state["watching"] = True
         _state.setdefault("current_volume", None)
+        _state.setdefault("current_muted", None)
         _state["last_error"] = None
         _write_state_locked()
     return _start_daemon()
@@ -610,6 +634,7 @@ def volume_watch_set(args: Dict[str, Any], **kwargs: Any) -> str:
         _state["available"] = True
         _state["watching"] = True
         _state["current_volume"] = value
+        _state["current_muted"] = _get_muted()
         _state["last_change"] = event
         _state["last_error"] = None
         _state["last_self_set"] = {
