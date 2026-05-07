@@ -168,6 +168,20 @@ const validateComponentFiles = componentPaths => {
 };
 
 const agentJobPrompt = job => {
+    const target = job.target || null;
+
+    if (target) {
+        return [
+            AGENT_PROMPT,
+            '',
+            'Target component:',
+            JSON.stringify(target, null, 2),
+            '',
+            'Request:',
+            job.request || job.prompt || ''
+        ].join('\n');
+    }
+
     const componentPath = job.componentPath ? resolveFromRoot(job.componentPath) : null;
     const componentJson = componentPath ? fs.readFileSync(componentPath, 'utf8') : null;
     const canvasJson = fs.readFileSync(INPUT_PATH, 'utf8');
@@ -923,10 +937,10 @@ const readBody = req =>
 
 const appendOutput = async req => {
     const body = JSON.parse(await readBody(req));
-    const prompt = String(body.prompt || '').trim();
-    const isCanvasPrompt = body.scope === 'canvas' || !Object.hasOwn(body, 'componentIndex');
+    const request = String(body.request || body.prompt || '').trim();
+    const isCanvasPrompt = body.scope === 'canvas' || (!Object.hasOwn(body, 'target') && !Object.hasOwn(body, 'componentIndex'));
 
-    if (!prompt) {
+    if (!request) {
         throw new Error('Prompt requires prompt text');
     }
 
@@ -947,16 +961,34 @@ const appendOutput = async req => {
             canvasPath: CANVAS_PATH,
             inputPath: INPUT_PATH,
             selectedComponents: Array.isArray(body.selectedComponents) ? body.selectedComponents : [],
-            prompt
+            request
         });
         return;
     }
 
+    const target = body.target || null;
+    const canonicalTarget = target
+        ? (() => {
+            const targetComponentPath = target.componentPath ? resolveFromRoot(target.componentPath) : null;
+
+            return targetComponentPath
+                ? {
+                    ...readJson(targetComponentPath),
+                    componentPath: targetComponentPath
+                }
+                : target;
+        })()
+        : null;
     const index = Number(body.componentIndex);
-    const leaf = leafComponents()[index];
+    const leaf = canonicalTarget
+        ? {
+            component: canonicalTarget,
+            componentPath: canonicalTarget.componentPath || null
+        }
+        : leafComponents()[index];
 
     if (!leaf) {
-        throw new Error('Prompt requires a valid componentIndex and prompt');
+        throw new Error('Prompt requires a valid target or componentIndex and request');
     }
 
     writeOutputJob({
@@ -964,11 +996,13 @@ const appendOutput = async req => {
         scope: 'component',
         status: 'pending',
         createdAt: new Date().toISOString(),
-        componentPath: leaf.componentPath,
+        componentPath: leaf.componentPath || null,
         file: leaf.component.file || null,
         resources: componentResources(leaf.component),
         data: leaf.component.data || null,
-        prompt
+        target: canonicalTarget,
+        request,
+        prompt: request
     });
 };
 

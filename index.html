@@ -257,13 +257,13 @@
         instanceStyle.id = 'instance-style';
         document.head.append(instanceStyle);
 
-        const submitPrompt = async (componentIndex, prompt) => {
+        const submitPrompt = async (target, request) => {
             const response = await fetch('/output', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ componentIndex, prompt })
+                body: JSON.stringify({ target, request })
             });
 
             if (!response.ok) {
@@ -470,7 +470,7 @@
                 status.textContent = 'Sending';
                 setBusy({ busy: true, job: { prompt } });
 
-                submitPrompt(component.index, prompt)
+                submitPrompt(component, prompt)
                     .then(() => {
                         status.textContent = 'Sent';
                     })
