@@ -61,6 +61,7 @@ let watchTimer;
 let processingDeltas = false;
 let agentProcess;
 let activeJobId;
+let watcherBootstrapProcess;
 
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
@@ -247,7 +248,12 @@ const runAgentOneshot = prompt =>
 
         agentProcess = spawn(AGENT_COMMAND, [...AGENT_ARGS, prompt], {
             cwd: ROOT,
-            env: process.env,
+            env: {
+                ...process.env,
+                LIVE_EDIT_OUTPUT_PATH: OUTPUT_PATH,
+                LIVE_EDIT_INPUT_PATH: INPUT_PATH,
+                LIVE_EDIT_CANVAS_PATH: CANVAS_PATH
+            },
             stdio: ['ignore', 'pipe', 'pipe']
         });
 
@@ -294,6 +300,13 @@ const processOutputJob = async job => {
     const jobId = job.id || 'job-' + Date.now();
     const componentPath = job.componentPath ? resolveFromRoot(job.componentPath) : null;
 
+    console.log('[output] process start', JSON.stringify({
+        id: jobId,
+        scope: job.scope || null,
+        source: job.source || null,
+        event: job.event || null,
+        request: job.request || job.prompt || null
+    }));
     activeJobId = jobId;
     writeOutputJob({
         ...job,
@@ -316,12 +329,20 @@ const processOutputJob = async job => {
             completedAt: new Date().toISOString(),
             response
         });
+        console.log('[output] process done', JSON.stringify({
+            id: jobId,
+            response
+        }));
     } catch (error) {
         updateOutputJob(jobId, {
             status: 'failed',
             failedAt: new Date().toISOString(),
             error: error.message
         });
+        console.error('[output] process failed', JSON.stringify({
+            id: jobId,
+            error: error.message
+        }));
     } finally {
         activeJobId = undefined;
         broadcast();
@@ -330,19 +351,32 @@ const processOutputJob = async job => {
 
 const feedHermesOutput = () => {
     if (activeJobId || agentProcess) {
+        console.log('[output] feed skipped: busy');
         return false;
     }
 
     const job = readOutputJob();
 
     if (!job || (job.status && job.status !== 'pending') || !job.prompt) {
+        console.log('[output] feed skipped: no pending job', JSON.stringify({
+            hasJob: Boolean(job),
+            status: job?.status || null,
+            hasPrompt: Boolean(job?.prompt)
+        }));
         return false;
     }
 
     if (job.scope !== 'canvas' && !job.componentPath) {
+        console.log('[output] feed skipped: missing componentPath');
         return false;
     }
 
+    console.log('[output] feed dispatching', JSON.stringify({
+        id: job.id || null,
+        scope: job.scope || null,
+        source: job.source || null,
+        event: job.event || null
+    }));
     processOutputJob(job).catch(error => {
         console.error('agent job error:', error);
         activeJobId = undefined;
@@ -953,6 +987,10 @@ const appendOutput = async req => {
     }
 
     if (isCanvasPrompt) {
+        console.log('[output] append canvas prompt', JSON.stringify({
+            request,
+            selectedComponents: Array.isArray(body.selectedComponents) ? body.selectedComponents.length : 0
+        }));
         writeOutputJob({
             id: 'output-' + Date.now(),
             scope: 'canvas',
@@ -991,6 +1029,11 @@ const appendOutput = async req => {
         throw new Error('Prompt requires a valid target or componentIndex and request');
     }
 
+    console.log('[output] append component prompt', JSON.stringify({
+        request,
+        componentPath: leaf.componentPath || null,
+        file: leaf.component.file || null
+    }));
     writeOutputJob({
         id: 'output-' + Date.now(),
         scope: 'component',
@@ -1033,6 +1076,45 @@ const streamFile = (req, res, file, type = 'application/octet-stream') => {
         'Cache-Control': 'no-cache'
     });
     fs.createReadStream(file, { start, end }).pipe(res);
+};
+
+const bootstrapVolumeWatcher = () => {
+    if (watcherBootstrapProcess) {
+        return;
+    }
+
+    const pluginPath = path.join(ROOT, 'plugins', 'system-volume-watch', 'plugin.yaml');
+    if (!fs.existsSync(pluginPath)) {
+        console.log('[watcher] plugin source not found, skipping bootstrap');
+        return;
+    }
+
+    const prompt = 'Initialize enabled background watchers and reply with ok.';
+    console.log('[watcher] bootstrapping Hermes watcher');
+    watcherBootstrapProcess = spawn(AGENT_COMMAND, [...AGENT_ARGS, prompt], {
+        cwd: ROOT,
+        env: {
+            ...process.env,
+            LIVE_EDIT_OUTPUT_PATH: OUTPUT_PATH,
+            LIVE_EDIT_INPUT_PATH: INPUT_PATH,
+            LIVE_EDIT_CANVAS_PATH: CANVAS_PATH,
+            HERMES_VOLUME_WATCH_AUTO_DISPATCH: '0'
+        },
+        stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    watcherBootstrapProcess.stdout.on('data', chunk => {
+        process.stdout.write('[watcher] ' + chunk.toString());
+    });
+
+    watcherBootstrapProcess.stderr.on('data', chunk => {
+        process.stderr.write('[watcher] ' + chunk.toString());
+    });
+
+    watcherBootstrapProcess.on('close', code => {
+        console.log('[watcher] bootstrap exit code', code);
+        watcherBootstrapProcess = undefined;
+    });
 };
 
 const staticPath = pathname => {
@@ -1168,6 +1250,7 @@ const server = http.createServer(async (req, res) => {
 ensureCanvasFiles();
 processDeltas();
 watchGraph();
+bootstrapVolumeWatcher();
 feedHermesOutput();
 
 process.on('exit', () => {
