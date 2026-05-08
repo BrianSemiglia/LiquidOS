@@ -113,6 +113,9 @@ def _write_daemon_context(**updates: Any) -> Dict[str, Any]:
     if not context.get("callback_prompt"):
         context.pop("callback_prompt", None)
 
+    if not context.get("component_path"):
+        context.pop("component_path", None)
+
     context["updated_at"] = _now_iso()
     _ensure_state_dir()
     CONTEXT_PATH.write_text(json.dumps(context, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -173,6 +176,46 @@ def _output_path() -> Optional[Path]:
     return Path(raw)
 
 
+def _component_path() -> Optional[Path]:
+    config = _daemon_context()
+    raw = str(config.get("component_path") or "").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    return path if path.is_absolute() else None
+
+
+def _output_lock_path(output_path: Path) -> Path:
+    return output_path.parent / (output_path.name + ".lock")
+
+
+def _with_output_lock(output_path: Path, action):
+    lock_path = _output_lock_path(output_path)
+    deadline = time.time() + 10.0
+
+    while True:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            break
+        except FileExistsError:
+            try:
+                if time.time() > deadline:
+                    lock_path.unlink(missing_ok=True)
+                    deadline = time.time() + 10.0
+            except Exception:
+                pass
+            time.sleep(0.025)
+
+    try:
+        return action()
+    finally:
+        try:
+            lock_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def _default_callback_prompt(event: Dict[str, Any]) -> str:
     volume = event.get("volume", event.get("to"))
     muted = event.get("muted")
@@ -209,15 +252,7 @@ def _write_output_job(event: Dict[str, Any]) -> None:
     if output_path is None:
         return
 
-    supersedes = None
-    try:
-        if output_path.exists():
-            current = json.loads(output_path.read_text(encoding="utf-8"))
-            if isinstance(current, dict) and current.get("status") in {"pending", "running"}:
-                supersedes = str(current.get("id") or "").strip() or None
-                logger.debug("[system-volume-watch] output.json busy; superseding %s", supersedes or "current job")
-    except Exception:
-        pass
+    component_path = _component_path()
 
     prompt = _callback_prompt(event)
     job = {
@@ -229,22 +264,40 @@ def _write_output_job(event: Dict[str, Any]) -> None:
         "prompt": prompt,
         "payload": event,
     }
-    if supersedes:
-        job["supersedes"] = supersedes
+    if component_path is not None:
+        job["componentPath"] = str(component_path)
+        job["componentKey"] = str(component_path)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=output_path.parent,
-        prefix=output_path.name + ".",
-        suffix=".tmp",
-        delete=False,
-    ) as handle:
-        json.dump(job, handle, indent=2, sort_keys=True)
-        handle.write("\n")
-        tmp_path = Path(handle.name)
-    tmp_path.replace(output_path)
+    def _append() -> None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            current = json.loads(output_path.read_text(encoding="utf-8"))
+        except Exception:
+            current = []
+
+        if isinstance(current, list):
+            jobs = [entry for entry in current if isinstance(entry, dict)]
+        elif isinstance(current, dict) and current:
+            jobs = [current]
+        else:
+            jobs = []
+
+        jobs.append(job)
+
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=output_path.parent,
+            prefix=output_path.name + ".",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            json.dump(jobs, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            tmp_path = Path(handle.name)
+        tmp_path.replace(output_path)
+
+    _with_output_lock(output_path, _append)
 
 
 def _daemon_running() -> bool:
@@ -652,6 +705,7 @@ def volume_watch_configure(args: Dict[str, Any], **kwargs: Any) -> str:
     parsed = _parse_args(args)
     callback_prompt = str(parsed.get("callback_prompt", parsed.get("prompt", ""))).strip()
     output_path = str(parsed.get("output_path", "")).strip()
+    component_path = str(parsed.get("component_path", "")).strip()
 
     if not callback_prompt:
         return json.dumps(
@@ -674,7 +728,14 @@ def volume_watch_configure(args: Dict[str, Any], **kwargs: Any) -> str:
             sort_keys=True,
         )
 
-    configured = _write_daemon_context(callback_prompt=callback_prompt, output_path=output_path)
+    if component_path and not Path(component_path).is_absolute():
+        return json.dumps(
+            {"ok": False, "error": "component_path must be absolute when provided", "status": _status_payload()},
+            indent=2,
+            sort_keys=True,
+        )
+
+    configured = _write_daemon_context(callback_prompt=callback_prompt, output_path=output_path, component_path=component_path or None)
     _ensure_watcher_running()
     return json.dumps({"ok": True, "config": configured, "status": _status_payload()}, indent=2, sort_keys=True)
 
@@ -771,13 +832,17 @@ def register(ctx) -> None:
         toolset=PLUGIN_NAME,
         schema={
             "name": "volume_watch_configure",
-            "description": "Configure the system volume watcher callback prompt and output.json path.",
+            "description": "Configure the system volume watcher callback prompt, optional component lane path, and output.json path.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "callback_prompt": {
                         "type": "string",
                         "description": "Prompt to send back into Hermes when volume changes.",
+                    },
+                    "component_path": {
+                        "type": "string",
+                        "description": "Optional absolute path to the component JSON file this watcher should use as its lane key.",
                     },
                     "output_path": {
                         "type": "string",
@@ -803,6 +868,10 @@ def register(ctx) -> None:
                     "callback_prompt": {
                         "type": "string",
                         "description": "Prompt to send back into Hermes when volume changes.",
+                    },
+                    "component_path": {
+                        "type": "string",
+                        "description": "Optional absolute path to the component JSON file this watcher should use as its lane key.",
                     },
                     "output_path": {
                         "type": "string",
