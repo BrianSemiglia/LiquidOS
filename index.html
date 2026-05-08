@@ -183,17 +183,25 @@
         const undoDelta = document.getElementById('undo-delta');
         const redoDelta = document.getElementById('redo-delta');
         const instanceStyle = document.createElement('style');
-
+        const layoutStyle = document.createElement('style');
+        const transitionStyle = document.createElement('style');
         let latestComponents = [];
         let activeComponentIndex = 0;
         let selectionAnchorIndex = 0;
         let selectedComponentIndexes = new Set([0]);
         let statusTimer;
         let scrollSaveTimer;
+        let currentLayout = null;
+        let currentTransition = null;
+        const renderedItemsByIndex = new Map();
+        let latestComponentByIndex = new Map();
 
         instanceStyle.id = 'instance-style';
         document.head.append(instanceStyle);
-
+        layoutStyle.id = 'layout-style';
+        document.head.append(layoutStyle);
+        transitionStyle.id = 'transition-style';
+        document.head.append(transitionStyle);
         const scrollKey = canvasName => 'live-edit-scroll:' + (canvasName || 'default');
 
         const currentScrollKey = () => scrollKey(canvasSelect.value);
@@ -225,6 +233,48 @@
                     behavior: 'auto'
                 });
             });
+        };
+
+        const setLayout = layout => {
+            currentLayout = layout && typeof layout === 'object' ? layout : null;
+            layoutStyle.textContent = currentLayout && typeof currentLayout.css === 'string'
+                ? currentLayout.css
+                : '';
+            const style = currentLayout?.appStyle;
+
+            if (style && typeof style === 'object') {
+                Object.entries(style).forEach(([property, value]) => {
+                    app.style.setProperty(property, String(value));
+                });
+            } else {
+                app.removeAttribute('style');
+            }
+
+            if (currentLayout?.bodyStyle && typeof currentLayout.bodyStyle === 'object') {
+                Object.entries(currentLayout.bodyStyle).forEach(([property, value]) => {
+                    document.body.style.setProperty(property, String(value));
+                });
+            } else {
+                document.body.style.overflow = '';
+                document.body.style.padding = '';
+            }
+        };
+
+        const setTransition = transition => {
+            currentTransition = transition && typeof transition === 'object' ? transition : null;
+            transitionStyle.textContent = currentTransition && typeof currentTransition.css === 'string'
+                ? currentTransition.css
+                : '';
+        };
+
+        const loadJsonResource = async resourcePath => {
+            const response = await fetch(resourcePath, { cache: 'no-store' });
+
+            if (!response.ok) {
+                throw new Error(resourcePath + ' returned ' + response.status);
+            }
+
+            return response.json();
         };
 
         const submitPrompt = async (target, request) => {
@@ -404,6 +454,7 @@
             item.className = 'item';
             item.dataset.componentIndex = component.index;
             item.dataset.componentPath = component.componentPath || '';
+            item.__component = component;
 
             const surface = document.createElement('div');
             surface.className = 'surface';
@@ -440,7 +491,7 @@
                 status.textContent = 'Sending';
                 setBusy({ busy: true, job: { prompt } });
 
-                submitPrompt(component, prompt)
+                submitPrompt(item.__component || component, prompt)
                     .then(() => {
                         status.textContent = 'Sent';
                     })
@@ -453,6 +504,16 @@
             });
 
             return item;
+        };
+
+        const updateComponentItem = (item, component) => {
+            item.__component = component;
+            item.dataset.componentPath = component.componentPath || '';
+            const surface = item.querySelector('.surface');
+            if (surface) {
+                surface.innerHTML = component.html || '';
+                activateSurfaceScripts(surface);
+            }
         };
 
         const syncActiveComponent = components => {
@@ -473,6 +534,52 @@
             if (!selectedComponentIndexes.size && components.length) {
                 selectedComponentIndexes.add(activeComponentIndex);
             }
+        };
+
+        const applyLayout = (items, layout) => {
+            setLayout(layout);
+
+            if (!layout || typeof layout !== 'object') {
+                return;
+            }
+
+            const itemStyles = Array.isArray(layout.items) ? layout.items : [];
+            const byIndex = new Map(itemStyles.map(entry => [entry.index, entry]));
+            const bodyStyle = layout.bodyStyle && typeof layout.bodyStyle === 'object' ? layout.bodyStyle : null;
+
+            if (bodyStyle) {
+                if (typeof bodyStyle.overflow === 'string') {
+                    document.body.style.overflow = bodyStyle.overflow;
+                }
+                if (typeof bodyStyle.padding === 'string') {
+                    document.body.style.padding = bodyStyle.padding;
+                }
+            }
+
+            items.forEach(item => {
+                const layout = byIndex.get(Number(item.dataset.componentIndex));
+
+                if (!layout) {
+                    item.style.position = '';
+                    item.style.left = '';
+                    item.style.top = '';
+                    item.style.width = '';
+                    item.style.transformOrigin = '';
+                    item.style.transform = '';
+                    item.style.animation = '';
+                    item.style.zIndex = '';
+                    return;
+                }
+
+                item.style.position = layout.position || 'absolute';
+                item.style.left = layout.left || '';
+                item.style.top = layout.top || '';
+                item.style.width = layout.width || '';
+                item.style.transformOrigin = layout.transformOrigin || 'center center';
+                item.style.transform = layout.transform || '';
+                item.style.animation = layout.animation || '';
+                item.style.zIndex = layout.zIndex != null ? String(layout.zIndex) : '';
+            });
         };
 
         const orderedIndexes = () =>
@@ -582,6 +689,55 @@
             });
         };
 
+        const renderCanvas = (items, layout) => {
+            const commit = () => {
+                const nextItems = [];
+                const nextIndexes = new Set();
+
+                items.forEach(item => {
+                    const index = Number(item.dataset.componentIndex);
+                    const existing = renderedItemsByIndex.get(index);
+                    const component = latestComponentByIndex.get(index);
+
+                    nextIndexes.add(index);
+
+                    if (existing && component) {
+                        updateComponentItem(existing, component);
+                        nextItems.push(existing);
+                        return;
+                    }
+
+                    nextItems.push(item);
+                    renderedItemsByIndex.set(index, item);
+                    if (component) {
+                        updateComponentItem(item, component);
+                    } else {
+                        activateSurfaceScripts(item.querySelector('.surface'));
+                    }
+                });
+
+                [...renderedItemsByIndex.keys()].forEach(index => {
+                    if (!nextIndexes.has(index)) {
+                        renderedItemsByIndex.get(index)?.remove();
+                        renderedItemsByIndex.delete(index);
+                    }
+                });
+
+                app.replaceChildren(...nextItems);
+                applyLayout(items, layout);
+                applySelection();
+                restoreScrollPosition();
+            };
+
+            if (typeof document.startViewTransition === 'function') {
+                document.startViewTransition(() => {
+                    commit();
+                });
+            } else {
+                commit();
+            }
+        };
+
         const load = async () => {
             const data = await fetch('/input', { cache: 'no-store' }).then(response => {
                 if (!response.ok) {
@@ -596,15 +752,23 @@
             }
 
             latestComponents = data.components;
-            instanceStyle.textContent = typeof data.css === 'string' ? data.css : '';
+            latestComponentByIndex = new Map(latestComponents.map(component => [component.index, component]));
+            const layout = typeof data.layoutPath === 'string' && data.layoutPath.trim()
+                ? await loadJsonResource(data.layoutPath)
+                : typeof data.layout === 'object' && data.layout
+                    ? data.layout
+                    : null;
+            const transition = typeof data.transitionPath === 'string' && data.transitionPath.trim()
+                ? await loadJsonResource(data.transitionPath)
+                : typeof data.transition === 'object' && data.transition
+                    ? data.transition
+                    : null;
             syncActiveComponent(latestComponents);
 
             const items = latestComponents.map(renderComponent);
-
-            app.replaceChildren(...items);
-            items.forEach(item => activateSurfaceScripts(item.querySelector('.surface')));
-            applySelection();
-            restoreScrollPosition();
+            instanceStyle.textContent = typeof data.css === 'string' ? data.css : '';
+            setTransition(transition);
+            renderCanvas(items, layout);
         };
 
         globalText.addEventListener('keydown', event => {

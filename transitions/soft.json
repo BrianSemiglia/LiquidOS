@@ -1,0 +1,4 @@
+{
+  "name": "soft",
+  "css": "#app>.item{transition:transform 240ms ease,opacity 240ms ease,filter 240ms ease;will-change:transform,opacity}"
+}

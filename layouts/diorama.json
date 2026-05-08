@@ -1,0 +1,20 @@
+{
+  "name": "diorama",
+  "css": "#app{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:1rem;padding:1.25rem;box-sizing:border-box;align-items:start;perspective:1400px}#app>.item{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:.5rem;margin:0;max-width:100%}#app>.item:nth-child(3n+1){transform:translateY(0) rotateX(4deg) rotateY(-8deg)}#app>.item:nth-child(3n+2){transform:translateY(.85rem) rotateX(6deg)}#app>.item:nth-child(3n+3){transform:translateY(1.5rem) rotateX(8deg) rotateY(8deg)}#app>.item .surface>*{max-width:100%}",
+  "appStyle": {
+    "position": "relative",
+    "display": "grid",
+    "width": "100%",
+    "height": "auto",
+    "minWidth": "100%",
+    "minHeight": "100vh",
+    "maxWidth": "none",
+    "margin": "0",
+    "padding": "0",
+    "overflow": "visible"
+  },
+  "bodyStyle": {
+    "overflow": "auto",
+    "padding": "0"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "center-grid",
+  "css": "#app{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));grid-auto-flow:row dense;gap:.5rem;padding:.5rem;box-sizing:border-box;align-items:start}#app>.item{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:.5rem;margin:0;max-width:100%}#app>.item .surface>*{max-width:100%}",
+  "appStyle": {
+    "position": "relative",
+    "display": "grid",
+    "width": "100%",
+    "height": "auto",
+    "minWidth": "100%",
+    "minHeight": "100vh",
+    "maxWidth": "none",
+    "margin": "0",
+    "padding": "0",
+    "overflow": "visible"
+  },
+  "bodyStyle": {
+    "overflow": "auto",
+    "padding": "0"
+  }
+}

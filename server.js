@@ -1345,6 +1345,25 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        const sharedAsset = url.pathname.match(/^\/(layouts|transitions)\/([A-Za-z0-9._-]+\.json)$/);
+
+        if (req.method === 'GET' && sharedAsset) {
+            const resolvedPath = resolveConfigPath(path.join(ROOT, sharedAsset[1], sharedAsset[2]));
+
+            if (!resolvedPath.startsWith(ROOT + path.sep) && resolvedPath !== ROOT) {
+                send(res, 403, 'Forbidden');
+                return;
+            }
+
+            if (!fs.existsSync(resolvedPath) || fs.statSync(resolvedPath).isDirectory()) {
+                send(res, 404, 'Not found');
+                return;
+            }
+
+            streamFile(req, res, resolvedPath, 'application/json; charset=utf-8');
+            return;
+        }
+
         const inputFile = url.pathname.match(/^\/input\/(\d+)\/file$/);
 
         if (req.method === 'GET' && inputFile) {

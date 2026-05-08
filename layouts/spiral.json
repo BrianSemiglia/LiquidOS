@@ -1,0 +1,20 @@
+{
+  "name": "spiral",
+  "css": "#app{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem;padding:1rem;box-sizing:border-box;align-items:start}#app>.item{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:.5rem;margin:0;max-width:100%}#app>.item:nth-child(4n+1){transform:translateX(-.5rem) rotate(-1.25deg)}#app>.item:nth-child(4n+2){transform:translateY(.5rem) rotate(.75deg)}#app>.item:nth-child(4n+3){transform:translateX(.5rem) rotate(-.5deg)}#app>.item:nth-child(4n+4){transform:translateY(-.35rem) rotate(1deg)}#app>.item .surface>*{max-width:100%}",
+  "appStyle": {
+    "position": "relative",
+    "display": "grid",
+    "width": "100%",
+    "height": "auto",
+    "minWidth": "100%",
+    "minHeight": "100vh",
+    "maxWidth": "none",
+    "margin": "0",
+    "padding": "0",
+    "overflow": "visible"
+  },
+  "bodyStyle": {
+    "overflow": "auto",
+    "padding": "0"
+  }
+}
