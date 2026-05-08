@@ -55,7 +55,6 @@ const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', [
     'If adding JavaScript to component HTML, place complete <script> tags after the component markup.',
     'When adding a control to a component for an agent-performed action, wire it with data-live-prompt containing the follow-up request; do not implement the action locally unless the user explicitly asks for local behavior.',
     'Label controls as normal user-facing actions. Avoid meta words like realize, materialize, make, generate, agent, prompt, or fulfill unless the user explicitly asked for that wording.',
-    'Perform two separate valid JSON filesystem writes. First, update whichever component JSON files are needed to show a visible loading state and lock relevant controls or inputs, save those files to disk, and parse each changed JSON file before doing side effects, external reads, or longer reasoning.',
     'For component-scoped callbacks, the target component is relevant unless the request clearly identifies another allowed component. For canvas-scoped callbacks, inspect the current canvas config and allowed component files to choose relevant components; use selected components as hints only when they are supplied.',
     'Second, after the work completes, write the resolved or failed state to disk and unlock controls that should be usable again. Do not defer the loading-state write until the final answer.',
     'Do not edit output.json, deltas.json, server.js, or files outside the allowed paths.',
