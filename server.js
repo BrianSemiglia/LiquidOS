@@ -22,6 +22,12 @@ const argValue = (name, fallback) => {
 const resolveConfigPath = value =>
     path.isAbsolute(value) ? value : path.resolve(ROOT, value);
 
+const relativeCanvasPath = value =>
+    path.relative(CANVAS_PATH, value).split(path.sep).join('/');
+
+const componentScopePath = componentPath =>
+    relativeCanvasPath(path.dirname(componentPath));
+
 const CANVASES_ROOT = path.join(ROOT, 'canvases');
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'templates', 'canvas');
 const DEFAULT_CANVAS_PATH = fs.existsSync(path.join(CANVASES_ROOT, 'random-pdfs', 'input.json'))
@@ -36,9 +42,10 @@ const AGENT_COMMAND = argValue('--agent', argValue('--hermes-command', 'hermes')
 const AGENT_ARGS = argValue('--agent-args', argValue('--hermes-args', '--oneshot')).split(' ').filter(Boolean);
 const AGENT_TIMEOUT_MS = Number.parseInt(argValue('--agent-timeout-ms', '300000'), 10);
 const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', [
-    'You are LiquidOS, a just-in-time operating system. You produce and modify components as the user needs.',
+    'You are LiquidOS, a just-in-time operating system.',
     'For component-scoped requests, edit only the allowed component JSON file, the allowed canvas config file, and, when the user request explicitly concerns the represented file, the allowed represented file or resources.',
     'For canvas-scoped requests, edit the allowed canvas config file and any listed component JSON files needed to satisfy the request.',
+    'Treat callbacks as per-component lanes: one component may block its own lane, but one component must not block another; dispatch work to separate component workers when possible.',
     'Prefer component JSON for local UI changes; prefer represented files for content/file changes.',
     'Prefer the canvas config file for layout changes that affect the outer canvas, such as maximize, minimize, hide, show, ordering, or canvas CSS.',
     'Preserve valid JSON and existing component fields unless the request requires changing them.',
@@ -65,6 +72,9 @@ let watchers = [];
 let watchTimer;
 let processingDeltas = false;
 let activeCanvasHermes = null;
+let outputDispatchTimer = null;
+let outputDispatching = false;
+const activeOutputKeys = new Set();
 const ENABLED_HERMES_TOOLSETS = (() => {
     try {
         const result = spawnSync(AGENT_COMMAND, ['plugins', 'list'], {
@@ -95,12 +105,86 @@ const ENABLED_HERMES_TOOLSETS = (() => {
     }
 })();
 
-const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
+const sleepSync = ms => {
+    const shared = new Int32Array(new SharedArrayBuffer(4));
+    Atomics.wait(shared, 0, 0, ms);
+};
+
+const readJson = (file, retries = 8, delayMs = 25) => {
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+        try {
+            return JSON.parse(fs.readFileSync(file, 'utf8'));
+        } catch (error) {
+            lastError = error;
+
+            const transientParseError =
+                error instanceof SyntaxError
+                || /Unexpected end of JSON input/.test(error.message)
+                || /Expected ',' or '}' after property value/.test(error.message);
+
+            if (!transientParseError || attempt === retries || !fs.existsSync(file)) {
+                throw error;
+            }
+
+            sleepSync(delayMs);
+        }
+    }
+
+    throw lastError;
+};
 
 const writeJson = (file, value) => {
     const temp = file + '.' + process.pid + '.tmp';
     fs.writeFileSync(temp, JSON.stringify(value, null, 2) + '\n');
     fs.renameSync(temp, file);
+};
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const outputLockPath = () => OUTPUT_PATH + '.lock';
+
+const withOutputLock = async task => {
+    const lockFile = outputLockPath();
+    let lockFd = null;
+
+    while (lockFd === null) {
+        try {
+            lockFd = fs.openSync(lockFile, 'wx');
+        } catch (error) {
+            if (error.code !== 'EEXIST') {
+                throw error;
+            }
+
+            try {
+                const stat = fs.statSync(lockFile);
+                if (Date.now() - stat.mtimeMs > 10_000) {
+                    fs.unlinkSync(lockFile);
+                }
+            } catch (_) {
+                // Ignore lock cleanup errors and retry.
+            }
+
+            await sleep(25);
+        }
+    }
+
+    try {
+        return await task();
+    } finally {
+        try {
+            fs.closeSync(lockFd);
+        } catch (_) {
+            // Ignore close errors on shutdown paths.
+        }
+
+        try {
+            fs.unlinkSync(lockFile);
+        } catch (_) {
+            // Ignore cleanup failures if another process already cleared it.
+        }
+    }
 };
 
 const ensureCanvasFiles = () => {
@@ -109,7 +193,7 @@ const ensureCanvasFiles = () => {
     }
 
     if (!fs.existsSync(OUTPUT_PATH)) {
-        writeOutputJob(null);
+        writeJson(OUTPUT_PATH, []);
     }
 
     if (!fs.existsSync(DELTAS_PATH)) {
@@ -131,24 +215,106 @@ const setCanvasPath = canvasPath => {
 const outputText = () =>
     fs.existsSync(OUTPUT_PATH) ? fs.readFileSync(OUTPUT_PATH, 'utf8') : '';
 
-const readOutputJob = () => {
+const readOutputJobs = () => {
     const text = outputText().trim();
 
     if (!text) {
-        return null;
+        return [];
     }
 
     const value = JSON.parse(text);
 
     if (Array.isArray(value)) {
+        return value.filter(isObject);
+    }
+
+    return isObject(value) && Object.keys(value).length ? [value] : [];
+};
+
+const readOutputJob = () => {
+    const jobs = readOutputJobs();
+    return [...jobs].reverse().find(job => job.status === 'pending' || job.status === 'running') || jobs[jobs.length - 1] || null;
+};
+
+const outputJobKey = job => {
+    if (!job) {
         return null;
     }
 
-    return isObject(value) && Object.keys(value).length ? value : null;
+    if (job.scope === 'canvas') {
+        return 'canvas';
+    }
+
+    if (typeof job.componentKey === 'string' && job.componentKey.trim()) {
+        return job.componentKey.trim();
+    }
+
+    if (typeof job.componentPath === 'string' && job.componentPath.trim()) {
+        return resolveFromRoot(job.componentPath);
+    }
+
+    if (job.target && typeof job.target === 'object' && typeof job.target.componentPath === 'string' && job.target.componentPath.trim()) {
+        return resolveFromRoot(job.target.componentPath);
+    }
+
+    if (typeof job.file === 'string' && job.file.trim()) {
+        return resolveFromRoot(job.file);
+    }
+
+    return 'canvas';
 };
 
-const writeOutputJob = job => {
-    writeJson(OUTPUT_PATH, job || null);
+const writeOutputJobs = async jobs =>
+    withOutputLock(async () => {
+        writeJson(OUTPUT_PATH, Array.isArray(jobs) ? jobs : []);
+    });
+
+const appendOutputJob = async job =>
+    withOutputLock(async () => {
+        const jobs = readOutputJobs();
+        jobs.push(job);
+        writeJson(OUTPUT_PATH, jobs);
+        return job;
+    });
+
+const updateOutputJob = async (jobId, patch) =>
+    withOutputLock(async () => {
+        const jobs = readOutputJobs();
+        let updated = false;
+        const nextJobs = jobs.map(job => {
+            if (job.id !== jobId) {
+                return job;
+            }
+
+            updated = true;
+            return { ...job, ...patch };
+        });
+
+        if (updated) {
+            writeJson(OUTPUT_PATH, nextJobs);
+        }
+
+        return updated;
+    });
+
+const normalizeOutputJobs = () => {
+    const jobs = readOutputJobs();
+    const normalized = jobs.map(job => (
+        job && job.status === 'running'
+            ? {
+                ...job,
+                status: 'pending',
+                resumedAt: new Date().toISOString(),
+                startedAt: null
+            }
+            : job
+    ));
+
+    if (normalized.length !== jobs.length || JSON.stringify(normalized) !== JSON.stringify(jobs)) {
+        writeJson(OUTPUT_PATH, normalized);
+    } else if (!fs.existsSync(OUTPUT_PATH)) {
+        writeJson(OUTPUT_PATH, []);
+    }
 };
 
 const buildCanvasHermesArgs = () => {
@@ -199,6 +365,17 @@ const buildCanvasHermesEnv = () => ({
 const canvasHermesBootstrapPrompt = () => [
     'Initialize enabled background watchers for this canvas.',
     'If any watcher needs a callback prompt or output path, configure it using the current canvas output file: ' + JSON.stringify(OUTPUT_PATH) + '.',
+    'If a widget needs durable state, follow this process:',
+    '1. Find or create the storage it needs.',
+    '2. Organize that storage into a folder that belongs to the widget.',
+    '3. Use that folder as the widget\'s source of truth.',
+    '4. Read from that storage when handling callbacks.',
+    '5. Make the smallest possible storage change needed for the request, preserving unrelated entries and existing state.',
+    '6. Populate literal components from the stored state.',
+    '7. Write loading and resolved states back through the canvas workflow, not by old-fashioned wiring.',
+    'Treat component callbacks as separate lanes so one component cannot block another.',
+    'If a watcher belongs to a visible widget, configure it with that widget\'s component folder as the lane key so it does not occupy the whole canvas lane.',
+    'Remember that these are not typical apps; they are imaginary just-in-time widgets that only exist through the canvas and the agent.',
     'The callback prompt should make Hermes update the relevant visible component in the canvas, not write raw data back into the output file as the final result.',
     'When a callback benefits from it, use a loading state first and then a resolved state.',
     'Choose the callback prompt yourself.',
@@ -322,31 +499,6 @@ const startCanvasHermesHost = canvasPath => {
     return host;
 };
 
-const updateOutputJob = (jobId, patch) => {
-    const current = readOutputJob();
-
-    if (!current || current.id !== jobId) {
-        return false;
-    }
-
-    writeOutputJob({
-        ...current,
-        ...patch
-    });
-    return true;
-};
-
-const clearStaleOutputJob = () => {
-    const job = readOutputJob();
-
-    if (!job || !['pending', 'running'].includes(job.status)) {
-        return false;
-    }
-
-    writeOutputJob(null);
-    return true;
-};
-
 const componentScripts = html =>
     Array.from(String(html || '').matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi), match => match[1]);
 
@@ -383,16 +535,94 @@ const validateComponentFiles = componentPaths => {
     });
 };
 
-const callbackPromptText = job => {
-    return job.prompt || job.request || '';
+const callbackPromptText = job => job.prompt || job.request || '';
+
+const jobLaneSummary = job => ({
+    id: job.id || null,
+    scope: job.scope || null,
+    componentKey: outputJobKey(job),
+    status: job.status || null,
+    prompt: callbackPromptText(job) || null,
+    startedAt: job.startedAt || null,
+    completedAt: job.completedAt || null
+});
+
+const activeOutputJobs = () =>
+    readOutputJobs().filter(job => ['pending', 'running'].includes(job.status) && callbackPromptText(job));
+
+const dispatchableJobs = jobs => {
+    const ready = [];
+    const reservedKeys = new Set(activeOutputKeys);
+
+    const pendingJobs = jobs
+        .filter(job => job.status === 'pending' && callbackPromptText(job))
+        .slice()
+        .reverse();
+
+    pendingJobs.forEach(job => {
+        const key = outputJobKey(job);
+
+        if (reservedKeys.has(key)) {
+            return;
+        }
+
+        reservedKeys.add(key);
+        ready.push(job);
+    });
+
+    return ready;
 };
 
-const resolvedOutputJob = job => {
-    const promptText = callbackPromptText(job);
+const scheduleOutputDispatch = () => {
+    if (outputDispatchTimer) {
+        return;
+    }
 
-    return promptText
-        ? { ...job, scope: job.scope || (job.componentPath ? 'component' : 'canvas'), prompt: promptText, request: job.request || promptText }
-        : null;
+    outputDispatchTimer = setTimeout(() => {
+        outputDispatchTimer = null;
+        dispatchOutputJobs().catch(error => {
+            console.error('output dispatch error:', error);
+        });
+    }, 25);
+};
+
+const dispatchOutputJobs = async () => {
+    if (outputDispatching) {
+        return false;
+    }
+
+    outputDispatching = true;
+
+    try {
+        while (true) {
+            const jobs = readOutputJobs();
+            const ready = dispatchableJobs(jobs);
+
+            if (!ready.length) {
+                return false;
+            }
+
+            ready.forEach(job => {
+                const laneKey = outputJobKey(job);
+                activeOutputKeys.add(laneKey);
+                processOutputJob(job).catch(error => {
+                    console.error('agent job error:', error);
+                    activeOutputKeys.delete(laneKey);
+                    scheduleOutputDispatch();
+                });
+            });
+
+            if (ready.some(job => outputJobKey(job) === 'canvas')) {
+                return true;
+            }
+
+            if (!readOutputJobs().some(job => job.status === 'pending' && callbackPromptText(job) && !activeOutputKeys.has(outputJobKey(job)))) {
+                return true;
+            }
+        }
+    } finally {
+        outputDispatching = false;
+    }
 };
 
 const agentJobPrompt = job => {
@@ -403,8 +633,14 @@ const agentJobPrompt = job => {
         return [
             AGENT_PROMPT,
             '',
+            'Dispatch lane:',
+            outputJobKey(job),
+            '',
             'Target component:',
-            JSON.stringify(target, null, 2),
+            JSON.stringify({
+                ...target,
+                componentPath: target.componentPath ? componentScopePath(resolveFromRoot(target.componentPath)) : target.componentPath || null
+            }, null, 2),
             '',
             'Request:',
             promptText
@@ -412,9 +648,10 @@ const agentJobPrompt = job => {
     }
 
     const componentPath = job.componentPath ? resolveFromRoot(job.componentPath) : null;
+    const componentFolder = componentPath ? componentScopePath(componentPath) : null;
     const componentJson = componentPath ? fs.readFileSync(componentPath, 'utf8') : null;
     const canvasJson = fs.readFileSync(INPUT_PATH, 'utf8');
-    const canvasComponents = inputEntries().map(entry => entry.componentPath);
+    const canvasComponents = inputEntries().map(entry => componentScopePath(entry.componentPath));
     const representedFile = job.file ? resolveFromRoot(job.file) : null;
     const resources = Object.fromEntries(
         Object.entries(job.resources || {}).map(([name, resource]) => [
@@ -429,20 +666,23 @@ const agentJobPrompt = job => {
     return [
         AGENT_PROMPT,
         '',
+        'Dispatch lane:',
+        outputJobKey(job),
+        '',
         'Callback scope:',
         job.scope || 'component',
         '',
         'Allowed canvas config file for outer layout changes:',
         INPUT_PATH,
         '',
-        'Allowed canvas component JSON files:',
-        JSON.stringify(job.scope === 'canvas' ? canvasComponents : [componentPath].filter(Boolean), null, 2),
+        'Allowed canvas component folders:',
+        JSON.stringify(job.scope === 'canvas' ? canvasComponents : [componentFolder].filter(Boolean), null, 2),
         '',
         'Selected canvas components:',
         JSON.stringify(job.selectedComponents || [], null, 2),
         '',
-        'Allowed component JSON file for this component callback:',
-        componentPath || '(none; this is a canvas callback)',
+        'Allowed component folder for this component callback:',
+        componentFolder || '(none; this is a canvas callback)',
         '',
         'Allowed represented file for content/file changes:',
         representedFile || '(none)',
@@ -524,10 +764,13 @@ const runAgentOneshot = prompt =>
 const processOutputJob = async job => {
     const jobId = job.id || 'job-' + Date.now();
     const componentPath = job.componentPath ? resolveFromRoot(job.componentPath) : null;
+    const laneKey = outputJobKey(job);
+    const isCanvasJob = job.scope === 'canvas' || laneKey === 'canvas';
 
-    writeOutputJob({
+    await updateOutputJob(jobId, {
         ...job,
         id: jobId,
+        componentKey: laneKey,
         status: 'running',
         startedAt: new Date().toISOString()
     });
@@ -536,62 +779,47 @@ const processOutputJob = async job => {
         const response = await runAgentOneshot(agentJobPrompt({ ...job, id: jobId, componentPath }));
 
         validateCanvasConfig();
-        if (job.scope === 'canvas') {
+        if (isCanvasJob) {
             validateComponentFiles(inputEntries().map(entry => entry.componentPath));
-        } else {
+        } else if (componentPath) {
             validateComponentFile(componentPath);
+        } else {
+            throw new Error('Component job is missing a componentPath');
         }
-        updateOutputJob(jobId, {
+        await updateOutputJob(jobId, {
             status: 'done',
             completedAt: new Date().toISOString(),
             response
         });
     } catch (error) {
-        updateOutputJob(jobId, {
+        await updateOutputJob(jobId, {
             status: 'failed',
             failedAt: new Date().toISOString(),
             error: error.message
         });
     } finally {
-        broadcast();
+        activeOutputKeys.delete(laneKey);
+        scheduleOutputDispatch();
     }
 };
 
 const feedHermesOutput = () => {
-    const job = readOutputJob();
-    const resolvedJob = job ? resolvedOutputJob(job) : null;
-    const promptText = resolvedJob ? callbackPromptText(resolvedJob) : '';
-
-    if (!job || (job.status && job.status !== 'pending') || !promptText) {
-        return false;
-    }
-
-    if (resolvedJob.scope !== 'canvas' && !resolvedJob.componentPath) {
-        return false;
-    }
-
-    processOutputJob(resolvedJob).catch(error => {
-        console.error('agent job error:', error);
-    });
-
+    scheduleOutputDispatch();
     return true;
 };
 
-const currentBusyState = () => {
-    const job = readOutputJob();
-    const busy = Boolean(job?.status === 'pending' || job?.status === 'running');
+const currentBusyState = key => {
+    const activeJobs = activeOutputJobs();
+    const componentKey = key ? String(key).trim() : '';
+    const jobs = componentKey
+        ? activeJobs.filter(job => job.scope === 'canvas' || outputJobKey(job) === componentKey)
+        : activeJobs;
+    const job = jobs[jobs.length - 1] || activeJobs[activeJobs.length - 1] || null;
 
     return {
-        busy,
-        job: job
-            ? {
-                id: job.id || null,
-                scope: job.scope || null,
-                status: job.status || null,
-                prompt: job.prompt || job.request || null,
-                startedAt: job.startedAt || null
-            }
-            : null
+        busy: Boolean(jobs.length),
+        job: job ? jobLaneSummary(job) : null,
+        jobs: jobs.map(jobLaneSummary)
     };
 };
 
@@ -1064,8 +1292,25 @@ const leafComponents = () =>
         component: readJson(entry.componentPath)
     }));
 
-const resourceUrl = (index, name) =>
-    '/input/' + index + '/resources/' + encodeURIComponent(name);
+const findLeafComponentByScope = scopePath => {
+    if (!scopePath) {
+        return null;
+    }
+
+    const absolute = resolveFromRoot(scopePath);
+
+    return leafComponents().find(entry =>
+        entry.componentPath === scopePath
+        || entry.componentPath === absolute
+        || componentScopePath(entry.componentPath) === scopePath
+    ) || null;
+};
+
+const resourceUrl = (componentPath, name) =>
+    '/component/' + encodeURIComponent(componentScopePath(componentPath)) + '/resources/' + encodeURIComponent(name);
+
+const componentFileUrl = componentPath =>
+    '/component/' + encodeURIComponent(componentScopePath(componentPath)) + '/file';
 
 const componentResources = component => {
     const resources = Object.fromEntries(
@@ -1085,23 +1330,25 @@ const componentResources = component => {
     return resources;
 };
 
-const renderedResources = (index, resources) =>
+const renderedResources = (componentPath, resources) =>
     Object.fromEntries(
         Object.entries(resources).map(([name, resource]) => [
             name,
             {
                 ...resource,
-                url: resourceUrl(index, name)
+                url: resourceUrl(componentPath, name)
             }
         ])
     );
 
-const renderedHtml = (index, component, resources) =>
+const renderedHtml = (componentPath, component, resources) =>
     (component.css ? '<style>' + String(component.css) + '</style>' : '')
     + String(component.html || '')
-        .replaceAll('data-input-file', 'src="/input/' + index + '/file"')
+        .replaceAll('data-input-file', 'src="' + componentFileUrl(componentPath) + '"')
+        .replace(/\{\{\s*componentPath\s*\}\}/g, componentScopePath(componentPath))
+        .replace(/\{\{\s*componentFolder\s*\}\}/g, componentScopePath(componentPath))
         .replace(/\{\{\s*resources\.(.+?)\.url\s*\}\}/g, (match, name) =>
-            resources[name.trim()] ? resourceUrl(index, name.trim()) : match
+            resources[name.trim()] ? resourceUrl(componentPath, name.trim()) : match
         );
 
 const renderedInput = () => ({
@@ -1113,9 +1360,9 @@ const renderedInput = () => ({
             ...component,
             index,
             componentPath,
-            resources: renderedResources(index, resources),
-            file: component.file ? '/input/' + index + '/file' : undefined,
-            html: renderedHtml(index, component, resources)
+            resources: renderedResources(componentPath, resources),
+            file: component.file ? componentFileUrl(componentPath) : undefined,
+            html: renderedHtml(componentPath, component, resources)
         };
     })
 });
@@ -1123,7 +1370,6 @@ const renderedInput = () => ({
 const watchedFiles = () =>
     Array.from(new Set([
         INPUT_PATH,
-        OUTPUT_PATH,
         DELTAS_PATH,
         ...leafComponents().flatMap(({ componentPath, component }) =>
             [
@@ -1189,26 +1435,19 @@ const appendOutput = async req => {
         throw new Error('Prompt requires prompt text');
     }
 
-    const currentJob = readOutputJob();
-
-    if (currentJob?.status === 'pending' || currentJob?.status === 'running') {
-        const error = new Error('A callback is already running');
-        error.statusCode = 409;
-        throw error;
-    }
-
     if (isCanvasPrompt) {
         console.log('[callback] received canvas prompt', JSON.stringify({
             request,
             selectedComponents: Array.isArray(body.selectedComponents) ? body.selectedComponents.length : 0
         }));
-        writeOutputJob({
-            id: 'output-' + Date.now(),
+        await appendOutputJob({
+            id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
             scope: 'canvas',
             status: 'pending',
             createdAt: new Date().toISOString(),
             canvasPath: CANVAS_PATH,
             inputPath: INPUT_PATH,
+            componentKey: 'canvas',
             selectedComponents: Array.isArray(body.selectedComponents) ? body.selectedComponents : [],
             request,
             prompt: request
@@ -1246,12 +1485,13 @@ const appendOutput = async req => {
         componentPath: leaf.componentPath || null,
         file: leaf.component.file || null
     }));
-    writeOutputJob({
-        id: 'output-' + Date.now(),
+    await appendOutputJob({
+        id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
         scope: 'component',
         status: 'pending',
         createdAt: new Date().toISOString(),
         componentPath: leaf.componentPath || null,
+        componentKey: leaf.componentPath || leaf.component.file || null,
         file: leaf.component.file || null,
         resources: componentResources(leaf.component),
         data: leaf.component.data || null,
@@ -1316,7 +1556,8 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'GET' && url.pathname === '/status') {
-            send(res, 200, JSON.stringify(currentBusyState()), 'application/json; charset=utf-8');
+            const componentPath = url.searchParams.get('componentPath') || '';
+            send(res, 200, JSON.stringify(currentBusyState(componentPath)), 'application/json; charset=utf-8');
             return;
         }
 
@@ -1356,7 +1597,6 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'POST' && url.pathname === '/output') {
             await appendOutput(req);
             feedHermesOutput();
-            broadcast();
             send(res, 204, '');
             return;
         }
@@ -1420,6 +1660,38 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        const componentFile = url.pathname.match(/^\/component\/(.+)\/file$/);
+
+        if (req.method === 'GET' && componentFile) {
+            const componentPath = decodeURIComponent(componentFile[1]);
+            const component = findLeafComponentByScope(componentPath)?.component;
+
+            if (!component?.file) {
+                send(res, 404, 'Component file not found');
+                return;
+            }
+
+            streamFile(req, res, component.file, component.type);
+            return;
+        }
+
+        const componentResource = url.pathname.match(/^\/component\/(.+)\/resources\/(.+)$/);
+
+        if (req.method === 'GET' && componentResource) {
+            const componentPath = decodeURIComponent(componentResource[1]);
+            const component = findLeafComponentByScope(componentPath)?.component;
+            const name = decodeURIComponent(componentResource[2]);
+            const resource = component && componentResources(component)[name];
+
+            if (!resource?.path) {
+                send(res, 404, 'Component resource not found');
+                return;
+            }
+
+            streamFile(req, res, resource.path, resource.mime || resource.type);
+            return;
+        }
+
         const file = staticPath(url.pathname);
 
         if (!file || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
@@ -1440,7 +1712,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 ensureCanvasFiles();
-clearStaleOutputJob();
+normalizeOutputJobs();
 startCanvasHermesHost(CANVAS_PATH);
 processDeltas();
 watchGraph();
