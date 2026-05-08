@@ -195,6 +195,7 @@
         let currentTransition = null;
         const renderedItemsByIndex = new Map();
         let latestComponentByIndex = new Map();
+        let lastCanvasSnapshot = '';
 
         instanceStyle.id = 'instance-style';
         document.head.append(instanceStyle);
@@ -762,6 +763,12 @@
                 throw new Error('/input did not return { components: [...] }');
             }
 
+            const snapshot = JSON.stringify(data);
+
+            if (snapshot === lastCanvasSnapshot) {
+                return;
+            }
+
             latestComponents = data.components;
             latestComponentByIndex = new Map(latestComponents.map(component => [component.index, component]));
             const layout = typeof data.layoutPath === 'string' && data.layoutPath.trim()
@@ -780,6 +787,7 @@
             instanceStyle.textContent = typeof data.css === 'string' ? data.css : '';
             setTransition(transition);
             renderCanvas(items, layout);
+            lastCanvasSnapshot = snapshot;
         };
 
         globalText.addEventListener('keydown', event => {
