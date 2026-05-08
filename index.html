@@ -284,7 +284,7 @@
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ target, request })
+                body: JSON.stringify({ scope: 'component', target, request })
             });
 
             if (!response.ok) {

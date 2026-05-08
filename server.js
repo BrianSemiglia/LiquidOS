@@ -1430,7 +1430,7 @@ const readBody = req =>
 const appendOutput = async req => {
     const body = JSON.parse(await readBody(req));
     const request = String(body.request || body.prompt || '').trim();
-    const isCanvasPrompt = body.scope === 'canvas' || (!Object.hasOwn(body, 'target') && !Object.hasOwn(body, 'componentIndex'));
+    const isCanvasPrompt = body.scope === 'canvas';
 
     if (!request) {
         throw new Error('Prompt requires prompt text');
