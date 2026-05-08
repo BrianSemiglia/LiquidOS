@@ -789,8 +789,7 @@ const processOutputJob = async job => {
         }
         await updateOutputJob(jobId, {
             status: 'done',
-            completedAt: new Date().toISOString(),
-            response
+            completedAt: new Date().toISOString()
         });
     } catch (error) {
         await updateOutputJob(jobId, {
@@ -1430,7 +1429,7 @@ const readBody = req =>
 const appendOutput = async req => {
     const body = JSON.parse(await readBody(req));
     const request = String(body.request || body.prompt || '').trim();
-    const isCanvasPrompt = body.scope === 'canvas';
+    const isCanvasPrompt = !Object.hasOwn(body, 'target') && !Object.hasOwn(body, 'componentIndex');
 
     if (!request) {
         throw new Error('Prompt requires prompt text');
@@ -1443,14 +1442,11 @@ const appendOutput = async req => {
         }));
         await appendOutputJob({
             id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
-            scope: 'canvas',
+            scope: CANVAS_PATH,
             status: 'pending',
             createdAt: new Date().toISOString(),
-            canvasPath: CANVAS_PATH,
-            inputPath: INPUT_PATH,
             componentKey: 'canvas',
             selectedComponents: Array.isArray(body.selectedComponents) ? body.selectedComponents : [],
-            request,
             prompt: request
         });
         return;
@@ -1488,16 +1484,14 @@ const appendOutput = async req => {
     }));
     await appendOutputJob({
         id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
-        scope: 'component',
+        scope: leaf.componentPath || leaf.component.file || null,
         status: 'pending',
         createdAt: new Date().toISOString(),
-        componentPath: leaf.componentPath || null,
         componentKey: leaf.componentPath || leaf.component.file || null,
         file: leaf.component.file || null,
         resources: componentResources(leaf.component),
         data: leaf.component.data || null,
         target: canonicalTarget,
-        request,
         prompt: request
     });
 };
