@@ -849,7 +849,6 @@
             submitCanvasPrompt(prompt)
                 .then(() => {
                     globalText.value = '';
-                    globalStatus.textContent = 'Sent';
                 })
                 .catch(error => {
                     setBusy({ busy: false, job: null });
