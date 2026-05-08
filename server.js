@@ -23,6 +23,7 @@ const resolveConfigPath = value =>
     path.isAbsolute(value) ? value : path.resolve(ROOT, value);
 
 const CANVASES_ROOT = path.join(ROOT, 'canvases');
+const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'templates', 'canvas');
 const DEFAULT_CANVAS_PATH = fs.existsSync(path.join(CANVASES_ROOT, 'random-pdfs', 'input.json'))
     ? path.join(CANVASES_ROOT, 'random-pdfs')
     : ROOT;
@@ -655,11 +656,36 @@ const createCanvas = name => {
     }
 
     fs.mkdirSync(canvasPath, { recursive: true });
+
+    if (fs.existsSync(CANVAS_TEMPLATE_ROOT)) {
+        const copyTemplate = (source, target) => {
+            fs.mkdirSync(target, { recursive: true });
+
+            for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+                if (entry.name === '.gitkeep') {
+                    continue;
+                }
+
+                const sourcePath = path.join(source, entry.name);
+                const targetPath = path.join(target, entry.name);
+
+                if (entry.isDirectory()) {
+                    copyTemplate(sourcePath, targetPath);
+                } else if (entry.isFile()) {
+                    fs.copyFileSync(sourcePath, targetPath);
+                }
+            }
+        };
+
+        copyTemplate(CANVAS_TEMPLATE_ROOT, canvasPath);
+    }
+
+    fs.mkdirSync(path.join(canvasPath, 'components'), { recursive: true });
     writeJson(path.join(canvasPath, 'input.json'), {
         components: [],
         css: 'body{background:#0b1120}'
     });
-    writeJson(path.join(canvasPath, 'output.json'), null);
+    writeJson(path.join(canvasPath, 'output.json'), []);
     writeJson(path.join(canvasPath, 'deltas.json'), []);
     return safeName;
 };
