@@ -5,3 +5,10 @@ package.json
 package-lock.json
 npm-debug.log*
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
