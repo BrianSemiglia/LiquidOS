@@ -5,7 +5,7 @@ const { spawn, spawnSync } = require('child_process');
 const pty = require('node-pty');
 
 const ROOT = __dirname;
-const SERVER_BUILD = 'hermes-output-server-2026-05-07-canvas-host-session';
+const SERVER_BUILD = 'hermes-output-server-2026-05-08-active-canvas-runtime';
 
 const argValue = (name, fallback) => {
     const prefix = name + '=';
@@ -72,9 +72,20 @@ let watchers = [];
 let watchTimer;
 let processingDeltas = false;
 let activeCanvasHermes = null;
+let activeCanvasRuntime = null;
 let outputDispatchTimer = null;
 let outputDispatching = false;
 const activeOutputKeys = new Set();
+
+const logServer = (area, message, details = null) => {
+    const suffix = details ? ' ' + JSON.stringify(details) : '';
+    console.log(`[${new Date().toISOString()}] [${area}] ${message}${suffix}`);
+};
+
+const shortText = value => {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    return text.length > 160 ? text.slice(0, 157) + '...' : text;
+};
 const ENABLED_HERMES_TOOLSETS = (() => {
     try {
         const result = spawnSync(AGENT_COMMAND, ['plugins', 'list'], {
@@ -201,15 +212,67 @@ const ensureCanvasFiles = () => {
     }
 };
 
+const applyCanvasRuntime = runtime => {
+    CANVAS_PATH = runtime.canvasPath;
+    INPUT_PATH = runtime.inputPath;
+    OUTPUT_PATH = runtime.outputPath;
+    DELTAS_PATH = runtime.deltasPath;
+    return runtime;
+};
+
+const createCanvasRuntime = canvasPath => {
+    const resolvedCanvasPath = resolveConfigPath(canvasPath);
+
+    return {
+        canvasPath: resolvedCanvasPath,
+        inputPath: path.join(resolvedCanvasPath, 'input.json'),
+        outputPath: path.join(resolvedCanvasPath, 'output.json'),
+        deltasPath: path.join(resolvedCanvasPath, 'deltas.json'),
+        started: false,
+
+        start() {
+            applyCanvasRuntime(this);
+            this.started = true;
+            ensureCanvasFiles();
+            normalizeOutputJobs();
+            activeOutputKeys.clear();
+            startCanvasHermesHost(this.canvasPath);
+            processDeltas();
+            watchGraph();
+            feedHermesOutput();
+            return this;
+        },
+
+        stop() {
+            if (activeCanvasRuntime !== this) {
+                return this;
+            }
+
+            clearTimeout(watchTimer);
+            watchTimer = null;
+            watchers.forEach(watcher => watcher.close());
+            watchers = [];
+            activeOutputKeys.clear();
+            stopCanvasHermesHost();
+            this.started = false;
+            return this;
+        }
+    };
+};
+
 const setCanvasPath = canvasPath => {
     const nextCanvasPath = resolveConfigPath(canvasPath);
 
-    CANVAS_PATH = nextCanvasPath;
-    INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
-    OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
-    DELTAS_PATH = path.join(CANVAS_PATH, 'deltas.json');
-    ensureCanvasFiles();
-    startCanvasHermesHost(CANVAS_PATH);
+    if (activeCanvasRuntime && activeCanvasRuntime.canvasPath === nextCanvasPath) {
+        return activeCanvasRuntime.start();
+    }
+
+    if (activeCanvasRuntime) {
+        activeCanvasRuntime.stop();
+    }
+
+    activeCanvasRuntime = createCanvasRuntime(nextCanvasPath);
+    return activeCanvasRuntime.start();
 };
 
 const outputText = () =>
@@ -264,6 +327,16 @@ const outputJobKey = job => {
     return 'canvas';
 };
 
+const outputJobSummary = job => ({
+    id: job && job.id ? job.id : null,
+    status: job && job.status ? job.status : null,
+    lane: job ? outputJobKey(job) : null,
+    scope: job && job.scope ? job.scope : null,
+    componentPath: job && job.componentPath ? job.componentPath : null,
+    file: job && job.file ? job.file : null,
+    prompt: job ? shortText(callbackPromptText(job)) : ''
+});
+
 const writeOutputJobs = async jobs =>
     withOutputLock(async () => {
         writeJson(OUTPUT_PATH, Array.isArray(jobs) ? jobs : []);
@@ -274,6 +347,11 @@ const appendOutputJob = async job =>
         const jobs = readOutputJobs();
         jobs.push(job);
         writeJson(OUTPUT_PATH, jobs);
+        logServer('queue', 'job enqueued', {
+            canvas: CANVAS_PATH,
+            depth: jobs.filter(item => item && ['pending', 'running'].includes(item.status)).length,
+            job: outputJobSummary(job)
+        });
         return job;
     });
 
@@ -312,6 +390,10 @@ const normalizeOutputJobs = () => {
 
     if (normalized.length !== jobs.length || JSON.stringify(normalized) !== JSON.stringify(jobs)) {
         writeJson(OUTPUT_PATH, normalized);
+        logServer('queue', 'normalized running jobs', {
+            canvas: CANVAS_PATH,
+            recovered: jobs.filter(job => job && job.status === 'running').length
+        });
     } else if (!fs.existsSync(OUTPUT_PATH)) {
         writeJson(OUTPUT_PATH, []);
     }
@@ -599,15 +681,36 @@ const dispatchOutputJobs = async () => {
             const ready = dispatchableJobs(jobs);
 
             if (!ready.length) {
+                logServer('queue', 'dispatch idle', {
+                    canvas: CANVAS_PATH,
+                    pending: jobs.filter(job => job && job.status === 'pending' && callbackPromptText(job)).length,
+                    running: jobs.filter(job => job && job.status === 'running' && callbackPromptText(job)).length,
+                    activeLanes: Array.from(activeOutputKeys)
+                });
                 return false;
             }
+
+            logServer('queue', 'dispatching jobs', {
+                canvas: CANVAS_PATH,
+                jobs: ready.map(outputJobSummary)
+            });
 
             ready.forEach(job => {
                 const laneKey = outputJobKey(job);
                 activeOutputKeys.add(laneKey);
+                logServer('queue', 'lane reserved', {
+                    lane: laneKey,
+                    job: outputJobSummary(job),
+                    activeLanes: Array.from(activeOutputKeys)
+                });
                 processOutputJob(job).catch(error => {
                     console.error('agent job error:', error);
                     activeOutputKeys.delete(laneKey);
+                    logServer('queue', 'lane released after uncaught job error', {
+                        lane: laneKey,
+                        error: error.message,
+                        activeLanes: Array.from(activeOutputKeys)
+                    });
                     scheduleOutputDispatch();
                 });
             });
@@ -708,11 +811,18 @@ const agentJobPrompt = job => {
     ].join('\n');
 };
 
-const runAgentOneshot = prompt =>
+const runAgentOneshot = (prompt, context = {}) =>
     new Promise((resolve, reject) => {
         let stdout = '';
         let stderr = '';
         let timedOut = false;
+
+        logServer('agent', 'starting oneshot', {
+            command: AGENT_COMMAND,
+            args: AGENT_ARGS,
+            canvas: CANVAS_PATH,
+            job: context.job || null
+        });
 
         const proc = spawn(AGENT_COMMAND, [...AGENT_ARGS, prompt], {
             cwd: ROOT,
@@ -725,8 +835,18 @@ const runAgentOneshot = prompt =>
             stdio: ['ignore', 'pipe', 'pipe']
         });
 
+        logServer('agent', 'spawned oneshot process', {
+            pid: proc.pid,
+            job: context.job || null
+        });
+
         const timeout = setTimeout(() => {
             timedOut = true;
+            logServer('agent', 'timeout; sending SIGTERM', {
+                pid: proc.pid,
+                timeoutMs: AGENT_TIMEOUT_MS,
+                job: context.job || null
+            });
             proc.kill('SIGTERM');
         }, AGENT_TIMEOUT_MS);
 
@@ -742,11 +862,22 @@ const runAgentOneshot = prompt =>
 
         proc.on('error', error => {
             clearTimeout(timeout);
+            logServer('agent', 'oneshot process error', {
+                error: error.message,
+                job: context.job || null
+            });
             reject(error);
         });
 
         proc.on('close', code => {
             clearTimeout(timeout);
+            logServer('agent', 'oneshot process closed', {
+                code,
+                timedOut,
+                stdoutBytes: Buffer.byteLength(stdout),
+                stderrBytes: Buffer.byteLength(stderr),
+                job: context.job || null
+            });
             if (timedOut) {
                 reject(new Error('Agent timed out after ' + AGENT_TIMEOUT_MS + 'ms'));
                 return;
@@ -766,6 +897,13 @@ const processOutputJob = async job => {
     const componentPath = job.componentPath ? resolveFromRoot(job.componentPath) : null;
     const laneKey = outputJobKey(job);
     const isCanvasJob = job.scope === 'canvas' || laneKey === 'canvas';
+    const startedAt = Date.now();
+
+    logServer('queue', 'job claimed', {
+        canvas: CANVAS_PATH,
+        job: outputJobSummary({ ...job, id: jobId, componentPath }),
+        lane: laneKey
+    });
 
     await updateOutputJob(jobId, {
         ...job,
@@ -775,8 +913,19 @@ const processOutputJob = async job => {
         startedAt: new Date().toISOString()
     });
 
+    logServer('queue', 'job marked running', {
+        job: outputJobSummary({ ...job, id: jobId, componentPath, status: 'running' })
+    });
+
     try {
-        const response = await runAgentOneshot(agentJobPrompt({ ...job, id: jobId, componentPath }));
+        const response = await runAgentOneshot(agentJobPrompt({ ...job, id: jobId, componentPath }), {
+            job: outputJobSummary({ ...job, id: jobId, componentPath, status: 'running' })
+        });
+
+        logServer('agent', 'oneshot returned', {
+            jobId,
+            response: shortText(response)
+        });
 
         validateCanvasConfig();
         if (isCanvasJob) {
@@ -790,19 +939,39 @@ const processOutputJob = async job => {
             status: 'done',
             completedAt: new Date().toISOString()
         });
+        logServer('queue', 'job marked done', {
+            jobId,
+            lane: laneKey,
+            durationMs: Date.now() - startedAt
+        });
     } catch (error) {
         await updateOutputJob(jobId, {
             status: 'failed',
             failedAt: new Date().toISOString(),
             error: error.message
         });
+        logServer('queue', 'job marked failed', {
+            jobId,
+            lane: laneKey,
+            durationMs: Date.now() - startedAt,
+            error: error.message
+        });
     } finally {
         activeOutputKeys.delete(laneKey);
+        logServer('queue', 'lane released', {
+            lane: laneKey,
+            jobId,
+            activeLanes: Array.from(activeOutputKeys)
+        });
         scheduleOutputDispatch();
     }
 };
 
 const feedHermesOutput = () => {
+    logServer('queue', 'dispatch requested', {
+        canvas: CANVAS_PATH,
+        activeLanes: Array.from(activeOutputKeys)
+    });
     scheduleOutputDispatch();
     return true;
 };
@@ -858,8 +1027,6 @@ const switchCanvas = name => {
     }
 
     setCanvasPath(canvasPath);
-    processDeltas();
-    watchGraph();
 };
 
 const createCanvas = name => {
@@ -1435,10 +1602,11 @@ const appendOutput = async req => {
     }
 
     if (isCanvasPrompt) {
-        console.log('[callback] received canvas prompt', JSON.stringify({
+        logServer('callback', 'received canvas prompt', {
+            canvas: CANVAS_PATH,
             request,
             selectedComponents: Array.isArray(body.selectedComponents) ? body.selectedComponents.length : 0
-        }));
+        });
         await appendOutputJob({
             id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
             scope: CANVAS_PATH,
@@ -1476,11 +1644,12 @@ const appendOutput = async req => {
         throw new Error('Prompt requires a valid target or componentIndex and request');
     }
 
-    console.log('[callback] received component prompt', JSON.stringify({
+    logServer('callback', 'received component prompt', {
+        canvas: CANVAS_PATH,
         request,
         componentPath: leaf.componentPath || null,
         file: leaf.component.file || null
-    }));
+    });
     await appendOutputJob({
         id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
         scope: leaf.componentPath || leaf.component.file || null,
@@ -1705,24 +1874,25 @@ const server = http.createServer(async (req, res) => {
     }
 });
 
-ensureCanvasFiles();
-normalizeOutputJobs();
-startCanvasHermesHost(CANVAS_PATH);
-processDeltas();
-watchGraph();
-feedHermesOutput();
+setCanvasPath(CANVAS_PATH);
 
-const shutdownCanvasHermes = () => {
-    stopCanvasHermesHost();
+const shutdownCanvasRuntime = () => {
+    if (activeCanvasRuntime) {
+        activeCanvasRuntime.stop();
+        activeCanvasRuntime = null;
+        return true;
+    }
+
+    return stopCanvasHermesHost();
 };
 
-process.on('exit', shutdownCanvasHermes);
+process.on('exit', shutdownCanvasRuntime);
 process.on('SIGINT', () => {
-    shutdownCanvasHermes();
+    shutdownCanvasRuntime();
     process.exit(130);
 });
 process.on('SIGTERM', () => {
-    shutdownCanvasHermes();
+    shutdownCanvasRuntime();
     process.exit(143);
 });
 
