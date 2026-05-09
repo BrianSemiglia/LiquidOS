@@ -1,0 +1,18 @@
+{
+  "name": "intrinsic-wrap",
+  "css": "#app{display:flex;flex-wrap:wrap;align-items:flex-start;align-content:flex-start;gap:1rem;padding:1rem;box-sizing:border-box;width:100%;max-width:none}#app>.item{position:relative;display:block;flex:0 1 auto;width:max-content;max-width:calc(100vw - 2rem);min-width:220px;margin:0}#app>.item>.surface{width:auto;max-width:100%;min-width:0}#app>.item>.surface>*{max-width:100%;box-sizing:border-box}",
+  "appStyle": {
+    "position": "relative",
+    "display": "flex",
+    "width": "100%",
+    "minWidth": "100%",
+    "minHeight": "100vh",
+    "maxWidth": "none",
+    "margin": "0",
+    "overflow": "visible"
+  },
+  "bodyStyle": {
+    "overflow": "auto",
+    "padding": "0"
+  }
+}
