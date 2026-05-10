@@ -37,4 +37,6 @@ callbacks:
   // harness would need to support that
 
 - mac app ✅
+- default home canvas ✅
+- onboarding hermes check ✅
 - persist user data to application support ✅
