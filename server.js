@@ -87,13 +87,13 @@ const localAgentDefinitions = [
         id: 'claude-code',
         label: 'Claude Code',
         command: 'claude',
-        installCommand: 'curl -fsSL https://claude.ai/install.sh | bash'
+        installCommand: 'curl -fsSL https://claude.ai/install.sh | bash && claude'
     },
     {
         id: 'codex',
         label: 'Codex',
         command: 'codex',
-        installCommand: 'npm install -g @openai/codex'
+        installCommand: 'npm install -g @openai/codex && codex'
     }
 ];
 
