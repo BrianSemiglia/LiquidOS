@@ -627,6 +627,32 @@ const validateComponentFiles = componentPaths => {
 
 const callbackPromptText = job => job.prompt || job.request || '';
 
+const commitCanvases = job => {
+    if (spawnSync('git', ['add', '-A'], { cwd: CANVASES_ROOT, stdio: 'inherit' }).status !== 0) {
+        logServer('git', 'failed to stage canvas changes', { jobId: job.id || null });
+        return false;
+    }
+
+    if (spawnSync('git', ['diff', '--cached', '--quiet'], { cwd: CANVASES_ROOT }).status === 0) {
+        logServer('git', 'no canvas changes to commit', { jobId: job.id || null });
+        return false;
+    }
+
+    if (spawnSync('git', ['commit', '-m', [
+        'prompt:',
+        callbackPromptText(job) || '(no prompt)'
+    ].join('\n')], { cwd: CANVASES_ROOT, stdio: 'inherit' }).status !== 0) {
+        logServer('git', 'failed to commit canvas changes', {
+            jobId: job.id || null,
+            prompt: callbackPromptText(job) || null
+        });
+        return false;
+    }
+
+    logServer('git', 'committed canvas changes', { jobId: job.id || null });
+    return true;
+};
+
 const jobLaneSummary = job => ({
     id: job.id || null,
     scope: job.scope || null,
@@ -987,6 +1013,9 @@ const processOutputJob = async job => {
             status: 'done',
             completedAt: new Date().toISOString()
         });
+
+        commitCanvases({ ...job, id: jobId });
+
         logServer('queue', 'job marked done', {
             jobId,
             lane: laneKey,
