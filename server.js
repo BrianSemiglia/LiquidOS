@@ -28,7 +28,7 @@ const relativeCanvasPath = value =>
 const componentScopePath = componentPath =>
     relativeCanvasPath(path.dirname(componentPath));
 
-const CANVASES_ROOT = path.join(ROOT, 'canvases');
+const CANVASES_ROOT = resolveConfigPath(argValue('--canvases', path.join(ROOT, 'canvases')));
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'templates', 'canvas');
 const DEFAULT_CANVAS_PATH = path.join(CANVASES_ROOT, 'home');
 let CANVAS_PATH = resolveConfigPath(argValue('--canvas', DEFAULT_CANVAS_PATH));

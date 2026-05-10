@@ -37,3 +37,4 @@ callbacks:
   // harness would need to support that
 
 - mac app ✅
+- persist user data to application support ✅

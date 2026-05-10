@@ -63,15 +63,7 @@ rsync -a \
   --exclude 'canvases/*' \
   "$PROJECT_ROOT/" "$WEB/"
 
-mkdir -p "$WEB/canvases/home"
-
-cat > "$WEB/canvases/home/input.json" <<'JSON'
-{"components":[],"css":"body{background:#0b1120}"}
-JSON
-printf '[]
-' > "$WEB/canvases/home/output.json"
-printf '[]
-' > "$WEB/canvases/home/deltas.json"
+mkdir -p "$WEB/canvases"
 
 chmod +x "$MACOS/LiquidOS"
 echo "Built: $APP"
