@@ -30,9 +30,7 @@ const componentScopePath = componentPath =>
 
 const CANVASES_ROOT = path.join(ROOT, 'canvases');
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'templates', 'canvas');
-const DEFAULT_CANVAS_PATH = fs.existsSync(path.join(CANVASES_ROOT, 'random-pdfs', 'input.json'))
-    ? path.join(CANVASES_ROOT, 'random-pdfs')
-    : ROOT;
+const DEFAULT_CANVAS_PATH = path.join(CANVASES_ROOT, 'home');
 let CANVAS_PATH = resolveConfigPath(argValue('--canvas', DEFAULT_CANVAS_PATH));
 let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
 let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
