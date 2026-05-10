@@ -1,0 +1,192 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Live Edit</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 2rem;
+            background: #111827;
+            color: #f9fafb;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        #app {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 1rem;
+            align-items: start;
+        }
+
+        .item {
+            display: grid;
+            gap: 0.75rem;
+            min-width: 0;
+        }
+
+        .surface {
+            min-width: 0;
+        }
+
+        .prompt {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 0.5rem;
+            align-items: end;
+        }
+
+        .prompt textarea {
+            width: 100%;
+            min-height: 4.5rem;
+            resize: vertical;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            padding: 0.75rem;
+            background: #020617;
+            color: #f9fafb;
+            font: inherit;
+            line-height: 1.4;
+        }
+
+        .prompt textarea:focus {
+            outline: 2px solid #38bdf8;
+            outline-offset: 2px;
+        }
+
+        .prompt button {
+            height: 2.75rem;
+            border: 0;
+            border-radius: 8px;
+            padding: 0 1rem;
+            background: #14b8a6;
+            color: #042f2e;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 700;
+        }
+
+        .prompt button:disabled {
+            cursor: default;
+            opacity: 0.55;
+        }
+
+        .status {
+            min-height: 1.25rem;
+            color: #93c5fd;
+            font-size: 0.85rem;
+        }
+
+        .error {
+            color: #fecaca;
+        }
+    </style>
+</head>
+<body>
+    <main id="app"></main>
+
+    <script>
+        const app = document.getElementById('app');
+
+        const submitPrompt = async (componentIndex, prompt) => {
+            const response = await fetch('/output', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ componentIndex, prompt })
+            });
+
+            if (!response.ok) {
+                throw new Error('/output returned ' + response.status);
+            }
+        };
+
+        const renderComponent = component => {
+            const item = document.createElement('section');
+            item.className = 'item';
+
+            const surface = document.createElement('div');
+            surface.className = 'surface';
+            surface.innerHTML = component.html || '';
+
+            const form = document.createElement('form');
+            form.className = 'prompt';
+
+            const textarea = document.createElement('textarea');
+            textarea.name = 'prompt';
+            textarea.placeholder = 'Prompt';
+
+            const button = document.createElement('button');
+            button.type = 'submit';
+            button.textContent = 'Send';
+
+            const status = document.createElement('div');
+            status.className = 'status';
+
+            form.append(textarea, button);
+            item.append(surface, form, status);
+
+            form.addEventListener('submit', event => {
+                event.preventDefault();
+
+                const prompt = textarea.value.trim();
+
+                if (!prompt) {
+                    textarea.focus();
+                    return;
+                }
+
+                button.disabled = true;
+                status.className = 'status';
+                status.textContent = 'Sending';
+
+                submitPrompt(component.index, prompt)
+                    .then(() => {
+                        textarea.value = '';
+                        status.textContent = 'Sent';
+                    })
+                    .catch(error => {
+                        status.className = 'status error';
+                        status.textContent = 'Error: ' + error.message;
+                    })
+                    .finally(() => {
+                        button.disabled = false;
+                    });
+            });
+
+            return item;
+        };
+
+        const load = async () => {
+            const data = await fetch('/input', { cache: 'no-store' }).then(response => {
+                if (!response.ok) {
+                    throw new Error('/input returned ' + response.status);
+                }
+
+                return response.json();
+            });
+
+            if (!Array.isArray(data.components)) {
+                throw new Error('/input did not return { components: [...] }');
+            }
+
+            app.replaceChildren(...data.components.map(renderComponent));
+        };
+
+        new EventSource('/events').onmessage = () => {
+            load().catch(error => {
+                app.textContent = 'Error: ' + error.message;
+            });
+        };
+
+        load().catch(error => {
+            app.textContent = 'Error: ' + error.message;
+        });
+    </script>
+</body>
+</html>
