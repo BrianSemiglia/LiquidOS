@@ -34,11 +34,14 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
 
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 840),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window?.title = "LiquidOS"
+        window?.title = ""
+        window?.titleVisibility = .hidden
+        window?.titlebarAppearsTransparent = true
+        window?.styleMask.insert(.fullSizeContentView)
         window?.center()
         window?.contentView = webView
         window?.makeKeyAndOrderFront(nil)
