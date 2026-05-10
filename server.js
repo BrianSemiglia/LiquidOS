@@ -81,6 +81,59 @@ let outputDispatchTimer = null;
 let outputDispatching = false;
 const activeOutputKeys = new Set();
 
+
+const localAgentDefinitions = [
+    {
+        id: 'claude-code',
+        label: 'Claude Code',
+        command: 'claude',
+        installCommand: 'curl -fsSL https://claude.ai/install.sh | bash'
+    },
+    {
+        id: 'codex',
+        label: 'Codex',
+        command: 'codex',
+        installCommand: 'npm install -g @openai/codex'
+    }
+];
+
+const commandExists = command =>
+    spawnSync('which', [command], {
+        cwd: ROOT,
+        env: process.env,
+        encoding: 'utf8'
+    }).status === 0;
+
+const probeLocalAgents = () => {
+    if (!commandExists(AGENT_COMMAND)) {
+        return {
+            hermes: {
+                installed: false,
+                usable: false,
+                command: AGENT_COMMAND
+            },
+            agents: []
+        };
+    }
+
+    return {
+        hermes: {
+            installed: true,
+            usable: true,
+            command: AGENT_COMMAND
+        },
+        agents: [
+            {
+                id: 'hermes',
+                label: 'Hermes',
+                command: AGENT_COMMAND,
+                installed: true,
+                usable: true
+            }
+        ]
+    };
+};
+
 const logServer = (area, message, details = null) => {
     const suffix = details ? ' ' + JSON.stringify(details) : '';
     console.log(`[${new Date().toISOString()}] [${area}] ${message}${suffix}`);
@@ -1866,6 +1919,12 @@ const server = http.createServer(async (req, res) => {
             });
             clients.add(res);
             req.on('close', () => clients.delete(res));
+            return;
+        }
+
+
+        if (req.method === 'GET' && url.pathname === '/agents/probe') {
+            send(res, 200, JSON.stringify(probeLocalAgents()), 'application/json; charset=utf-8');
             return;
         }
 

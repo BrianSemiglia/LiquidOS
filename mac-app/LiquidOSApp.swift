@@ -61,7 +61,19 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         server?.currentDirectoryURL = webRoot
         server?.arguments = ["node", "server.js", "--port", String(port)]
         server?.environment = [
-            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "PATH": [
+                NSHomeDirectory() + "/.local/bin",
+                NSHomeDirectory() + "/.cargo/bin",
+                NSHomeDirectory() + "/.bun/bin",
+                "/opt/homebrew/bin",
+                "/opt/homebrew/sbin",
+                "/usr/local/bin",
+                "/usr/bin",
+                "/bin",
+                "/usr/sbin",
+                "/sbin"
+            ].joined(separator: ":"),
+            "HOME": NSHomeDirectory(),
             "LIQUIDOS_NATIVE": "1"
         ]
 

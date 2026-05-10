@@ -159,10 +159,101 @@
             transform: translateX(-50%);
         }
 
+
+        .agent-setup-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: none;
+            place-items: center;
+            padding: 1.5rem;
+            background: rgba(2, 6, 23, 0.78);
+        }
+
+        .agent-setup-backdrop[data-open="true"] {
+            display: grid;
+        }
+
+        .agent-setup {
+            display: grid;
+            gap: 1rem;
+            width: min(100%, 32rem);
+            padding: 1.25rem;
+            border: 1px solid #334155;
+            border-radius: 14px;
+            background: #0f172a;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.48);
+        }
+
+        .agent-setup h1,
+        .agent-setup h2,
+        .agent-setup p {
+            margin: 0;
+        }
+
+        .agent-setup h1 {
+            font-size: 1.25rem;
+        }
+
+        .agent-setup h2 {
+            font-size: 1rem;
+        }
+
+        .agent-setup-card {
+            display: grid;
+            gap: 0.55rem;
+            padding: 0.9rem;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            background: #020617;
+        }
+
+        .agent-setup-command {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 0.5rem;
+        }
+
+        .agent-setup-command code {
+            overflow: auto;
+            padding: 0.65rem 0.75rem;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            background: #111827;
+            color: #e0f2fe;
+            white-space: nowrap;
+        }
+
+        .agent-setup button {
+            min-height: 2.4rem;
+            border: 0;
+            border-radius: 8px;
+            padding: 0 0.85rem;
+            background: #38bdf8;
+            color: #082f49;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 800;
+        }
+
+        .agent-setup .secondary {
+            border: 1px solid #475569;
+            background: #1e293b;
+            color: #e0f2fe;
+        }
+
+        .agent-picker {
+            display: grid;
+            gap: 0.5rem;
+        }
+
     </style>
 </head>
 <body>
     <main id="app"></main>
+    <div class="agent-setup-backdrop" id="agent-setup-backdrop" data-open="false">
+        <section class="agent-setup" id="agent-setup"></section>
+    </div>
     <div class="global-status" id="global-status"></div>
     <form class="global-prompt" id="global-prompt">
         <div class="canvas-nav" aria-label="Canvas selection">
@@ -189,6 +280,81 @@
         const redoDelta = document.getElementById('redo-delta');
         const workspaceSend = document.getElementById('workspace-send');
         const instanceStyle = document.createElement('style');
+
+        const agentSetupBackdrop = document.getElementById('agent-setup-backdrop');
+        const agentSetup = document.getElementById('agent-setup');
+        let selectedLocalAgent = null;
+
+        const agentInstallOptions = [
+            {
+                id: 'claude-code',
+                label: 'Claude Code',
+                installCommand: 'curl -fsSL https://claude.ai/install.sh | bash'
+            },
+            {
+                id: 'codex',
+                label: 'Codex',
+                installCommand: 'npm install -g @openai/codex'
+            }
+        ];
+
+        const escapeHTML = value => String(value || '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;');
+
+        const copyText = text => navigator.clipboard?.writeText(text).catch(() => {});
+
+        const renderAgentInstall = () => {
+            agentSetupBackdrop.dataset.open = 'true';
+            agentSetup.innerHTML = `
+                <h1>Install a local agent</h1>
+                ${agentInstallOptions.map(agent => `
+                    <div class="agent-setup-card">
+                        <h2>${escapeHTML(agent.label)}</h2>
+                        <div class="agent-setup-command">
+                            <code>${escapeHTML(agent.installCommand)}</code>
+                            <button type="button" class="secondary" data-copy-command="${escapeHTML(agent.installCommand)}">Copy</button>
+                        </div>
+                    </div>
+                `).join('')}
+                <button type="button" id="agent-refresh">Ok, I’ve installed one</button>
+            `;
+            agentSetup.querySelectorAll('[data-copy-command]').forEach(button => {
+                button.addEventListener('click', () => copyText(button.dataset.copyCommand || ''));
+            });
+            document.getElementById('agent-refresh').addEventListener('click', probeAgents);
+        };
+
+        const renderAgentPicker = agents => {
+            agentSetupBackdrop.dataset.open = 'true';
+            agentSetup.innerHTML = `
+                <h1>Choose a local agent</h1>
+                <div class="agent-picker">
+                    ${agents.map(agent => `
+                        <button type="button" data-agent-id="${escapeHTML(agent.id)}">${escapeHTML(agent.label)}</button>
+                    `).join('')}
+                </div>
+            `;
+            agentSetup.querySelectorAll('[data-agent-id]').forEach(button => {
+                button.addEventListener('click', () => {
+                    selectedLocalAgent = agents.find(agent => agent.id === button.dataset.agentId) || null;
+                    agentSetupBackdrop.dataset.open = 'false';
+                });
+            });
+        };
+
+        const probeAgents = () =>
+            fetch('/agents/probe', { cache: 'no-store' })
+                .then(response => response.ok ? response.json() : Promise.reject(new Error('Could not probe agents')))
+                .then(result => {
+                    const agents = (result.agents || []).filter(agent => agent.usable);
+                    selectedLocalAgent = agents[0] || null;
+                    agentSetupBackdrop.dataset.open = agents.length ? 'false' : 'true';
+                    if (!agents.length) renderAgentInstall();
+                })
+                .catch(renderAgentInstall);
         const layoutStyle = document.createElement('style');
         const transitionStyle = document.createElement('style');
         let latestComponents = [];
@@ -969,6 +1135,8 @@
                 app.textContent = 'Error: ' + error.message;
             });
         };
+
+        probeAgents();
 
         load().catch(error => {
             app.textContent = 'Error: ' + error.message;
