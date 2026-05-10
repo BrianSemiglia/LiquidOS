@@ -5,7 +5,7 @@ const { spawn, spawnSync } = require('child_process');
 const pty = require('node-pty');
 
 const ROOT = __dirname;
-const SERVER_BUILD = 'hermes-output-server-2026-05-08-active-canvas-runtime';
+const SERVER_BUILD = 'hermes-output-server-2026-05-08-workspace-hermes';
 
 const argValue = (name, fallback) => {
     const prefix = name + '=';
@@ -43,6 +43,9 @@ const AGENT_ARGS = argValue('--agent-args', argValue('--hermes-args', '--oneshot
 const AGENT_TIMEOUT_MS = Number.parseInt(argValue('--agent-timeout-ms', '300000'), 10);
 const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', [
     'You are LiquidOS, a just-in-time operating system.',
+    'Act as a domain/product assistant first and a code/JSON editor second. Treat JSON, file paths, schemas, and implementation details as storage mechanics, not the subject of the task, unless the user explicitly asks for debugging, implementation, or code review.',
+    'Reason from the user-facing meaning of canvases and components. When the user asks for todos, summaries, dashboards, cleanup, or organization, extract actionable domain content from visible component titles, text, state, prompts, and represented files; do not create JSON reviews, schema reviews, file audits, or Kanban boards unless explicitly requested.',
+    'Prefer updating existing user-facing components that match the request. Create new components only when no suitable component exists or the user asks for a new view.',
     'Prioritize speed and simple solutions unless the task is clearly complex. Your output drives the UI, so faster responses improve the user experience; avoid unnecessary reasoning for straightforward changes.',
     'For component-scoped requests, edit only the allowed component JSON file, the allowed canvas config file, and, when the user request explicitly concerns the represented file, the allowed represented file or resources.',
     'For canvas-scoped requests, edit the allowed canvas config file and any listed component JSON files needed to satisfy the request.',
@@ -64,7 +67,8 @@ const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', [
     'After editing a component, parse the component JSON and syntax-check embedded script blocks.',
     'After editing the canvas config, parse the canvas config JSON.',
     'The user ONLY sees the canvas - they do not see chat messages. ALL communication must be rendered as components.',
-    'Reply with a one-line summary.'
+    'Reply with a one-line summary.',
+    'Each canvas should be under its own git versioning. Git control allows you to rollback based on user requests per canvas.'
 ].join(' ')));
 
 const clients = new Set();
@@ -302,6 +306,10 @@ const readOutputJob = () => {
 const outputJobKey = job => {
     if (!job) {
         return null;
+    }
+
+    if (job.scope === 'workspace') {
+        return 'workspace';
     }
 
     if (job.scope === 'canvas') {
@@ -715,7 +723,7 @@ const dispatchOutputJobs = async () => {
                 });
             });
 
-            if (ready.some(job => outputJobKey(job) === 'canvas')) {
+            if (ready.some(job => ['workspace', 'canvas'].includes(outputJobKey(job)))) {
                 return true;
             }
 
@@ -731,6 +739,38 @@ const dispatchOutputJobs = async () => {
 const agentJobPrompt = job => {
     const target = job.target || null;
     const promptText = callbackPromptText(job);
+
+    if (job.scope === 'workspace') {
+        return [
+            AGENT_PROMPT,
+            '',
+            'You are the top-level Workspace Hermes for this live-edit workspace.',
+            'You may inspect and edit any canvas under the workspace canvases directory.',
+            'Use workspace-level context to understand user-facing content across canvases, not to review the filesystem or JSON structure unless explicitly asked.',
+            'When searching across canvases, infer the domain meaning from component content and represented files. Ignore debug metadata unless it is relevant to the user request.',
+            'Use workspace-level context to coordinate across canvases, but avoid cross-canvas edits unless the user explicitly asks for them.',
+            'For user-visible communication, add or update components on the current active canvas unless the request names a different canvas.',
+            'Do not edit output.json, deltas.json, server.js, package files, or files outside the canvases directory.',
+            '',
+            'Dispatch lane:',
+            outputJobKey(job),
+            '',
+            'Callback scope:',
+            'workspace',
+            '',
+            'Canvases root:',
+            CANVASES_ROOT,
+            '',
+            'Current active canvas:',
+            CANVAS_PATH,
+            '',
+            'Workspace canvas summaries:',
+            JSON.stringify(workspaceCanvasSummaries(), null, 2),
+            '',
+            'User request:',
+            promptText
+        ].join('\n');
+    }
 
     if (target) {
         return [
@@ -896,6 +936,7 @@ const processOutputJob = async job => {
     const jobId = job.id || 'job-' + Date.now();
     const componentPath = job.componentPath ? resolveFromRoot(job.componentPath) : null;
     const laneKey = outputJobKey(job);
+    const isWorkspaceJob = job.scope === 'workspace' || laneKey === 'workspace';
     const isCanvasJob = job.scope === 'canvas' || laneKey === 'canvas';
     const startedAt = Date.now();
 
@@ -927,8 +968,15 @@ const processOutputJob = async job => {
             response: shortText(response)
         });
 
-        validateCanvasConfig();
-        if (isCanvasJob) {
+        if (isWorkspaceJob) {
+            validateWorkspaceCanvases();
+        } else {
+            validateCanvasConfig();
+        }
+
+        if (isWorkspaceJob) {
+            // Workspace validation already checked every known canvas component.
+        } else if (isCanvasJob) {
             validateComponentFiles(inputEntries().map(entry => entry.componentPath));
         } else if (componentPath) {
             validateComponentFile(componentPath);
@@ -1010,6 +1058,66 @@ const availableCanvases = () =>
             })
             .filter(canvas => canvas.valid)
         : [];
+
+
+const readCanvasInputAt = canvasPath =>
+    readJson(path.join(canvasPath, 'input.json'));
+
+const readCanvasJobsAt = canvasPath => {
+    const outputPath = path.join(canvasPath, 'output.json');
+
+    if (!fs.existsSync(outputPath)) {
+        return [];
+    }
+
+    const value = readJson(outputPath);
+    return Array.isArray(value) ? value.filter(isObject) : [];
+};
+
+const canvasComponentPathsAt = canvasPath => {
+    const input = readCanvasInputAt(canvasPath);
+
+    return Array.isArray(input.components)
+        ? input.components.filter(componentPath => typeof componentPath === 'string')
+        : [];
+};
+
+const workspaceCanvasSummaries = () =>
+    availableCanvases().map(canvas => {
+        const jobs = readCanvasJobsAt(canvas.path);
+        const components = canvasComponentPathsAt(canvas.path);
+
+        return {
+            name: canvas.name,
+            current: canvas.current,
+            inputPath: path.join(canvas.path, 'input.json'),
+            outputPath: path.join(canvas.path, 'output.json'),
+            componentCount: components.length,
+            components,
+            activeJobs: jobs
+                .filter(job => job && ['pending', 'running'].includes(job.status))
+                .map(jobLaneSummary)
+        };
+    });
+
+const validateWorkspaceCanvases = () => {
+    availableCanvases().forEach(canvas => {
+        const inputPath = path.join(canvas.path, 'input.json');
+        const input = readJson(inputPath);
+
+        if (!Array.isArray(input.components)) {
+            throw new Error('Canvas config must contain a components array: ' + inputPath);
+        }
+
+        input.components.forEach((componentPath, index) => {
+            if (typeof componentPath !== 'string') {
+                throw new Error('Canvas component path at index ' + index + ' must be a string: ' + inputPath);
+            }
+
+            validateComponentFile(resolveFromRoot(componentPath));
+        });
+    });
+};
 
 const switchCanvas = name => {
     if (!/^[^/][^/]*$/.test(name)) {
@@ -1595,10 +1703,29 @@ const readBody = req =>
 const appendOutput = async req => {
     const body = JSON.parse(await readBody(req));
     const request = String(body.request || body.prompt || '').trim();
-    const isCanvasPrompt = !Object.hasOwn(body, 'target') && !Object.hasOwn(body, 'componentIndex');
+    const isWorkspacePrompt = body.scope === 'workspace' || body.workspace === true;
+    const isCanvasPrompt = !isWorkspacePrompt && !Object.hasOwn(body, 'target') && !Object.hasOwn(body, 'componentIndex');
 
     if (!request) {
         throw new Error('Prompt requires prompt text');
+    }
+
+
+    if (isWorkspacePrompt) {
+        logServer('callback', 'received workspace prompt', {
+            canvas: CANVAS_PATH,
+            request,
+            canvases: availableCanvases().length
+        });
+        await appendOutputJob({
+            id: 'workspace-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+            scope: 'workspace',
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+            componentKey: 'workspace',
+            prompt: request
+        });
+        return;
     }
 
     if (isCanvasPrompt) {
