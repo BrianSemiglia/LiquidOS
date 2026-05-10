@@ -12,3 +12,4 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+/mac-app/build
