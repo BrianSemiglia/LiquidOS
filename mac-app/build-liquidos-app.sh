@@ -60,7 +60,18 @@ rsync -a \
   --exclude '.DS_Store' \
   --exclude 'build' \
   --exclude 'mac-app' \
+  --exclude 'canvases/*' \
   "$PROJECT_ROOT/" "$WEB/"
+
+mkdir -p "$WEB/canvases/home"
+
+cat > "$WEB/canvases/home/input.json" <<'JSON'
+{"components":[],"css":"body{background:#0b1120}"}
+JSON
+printf '[]
+' > "$WEB/canvases/home/output.json"
+printf '[]
+' > "$WEB/canvases/home/deltas.json"
 
 chmod +x "$MACOS/LiquidOS"
 echo "Built: $APP"
