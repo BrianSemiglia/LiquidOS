@@ -60,10 +60,15 @@ rsync -a \
   --exclude '.DS_Store' \
   --exclude 'build' \
   --exclude 'mac-app' \
+  --exclude 'node_modules' \
   --exclude 'canvases/*' \
   "$PROJECT_ROOT/" "$WEB/"
 
 mkdir -p "$WEB/canvases"
+
+if [ -f "$WEB/package.json" ]; then
+  npm install --prefix "$WEB" --omit=dev
+fi
 
 chmod +x "$MACOS/LiquidOS"
 echo "Built: $APP"
