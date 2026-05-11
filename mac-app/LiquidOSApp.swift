@@ -7,7 +7,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
     private var webView: WKWebView?
     private var server: Process?
     private var port: Int = 0
-
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         Self.installMainMenu()
@@ -16,54 +16,95 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         startServer()
         loadWhenReady(attempt: 0)
     }
-
+    
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
-    }
-
-    func applicationWillTerminate(_ notification: Notification) {
+        // Clean up server before terminating
         server?.terminate()
+        // Give the process 2 seconds to terminate gracefully
+        Thread.sleep(forTimeInterval: 2)
+        if server?.isRunning == true {
+            kill(server?.processIdentifier ?? 0, SIGKILL)
+        }
+        return true
     }
-
+    
+    func applicationWillTerminate(_ notification: Notification) {
+        // Double-check: ensure the server is dead
+        if server?.isRunning == true {
+            server?.terminate()
+            sleep(2) // Wait for cleanup
+            if server?.isRunning == true {
+                kill(server?.processIdentifier ?? 0, SIGKILL)
+            }
+        }
+    }
+    
+    deinit {
+        // Catch-all: kill the server if the app is deallocated
+        if server?.isRunning == true {
+            kill(server?.processIdentifier ?? 0, SIGKILL)
+        }
+    }
+    
     private func showWindow() {
         let configuration = WKWebViewConfiguration()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
-
+        
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView?.allowsBackForwardNavigationGestures = true
-
+        
+        // Create a visual effect view for vibrancy
+        let visualEffectView = NSVisualEffectView()
+        visualEffectView.blendingMode = .behindWindow
+        visualEffectView.material = .sidebar
+        visualEffectView.state = .active
+        visualEffectView.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        visualEffectView.autoresizingMask = [.width, .height]
+        
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 840),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window?.title = ""
         window?.titleVisibility = .hidden
+        window?.titlebarAppearsTransparent = true
+        window?.isOpaque = false
+        window?.backgroundColor = .clear
         window?.center()
-        window?.contentView = webView
+        window?.contentView = visualEffectView
+        visualEffectView.addSubview(webView!)
+        webView?.frame = visualEffectView.bounds
+        webView?.autoresizingMask = [.width, .height]
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
-
+    
     private func startServer() {
+        // Kill any lingering Hermes processes on the same port first
+        if let existingPID = Self.getPIDForPort(port) {
+            kill(existingPID, SIGKILL)
+            sleep(1) // Allow OS to release the port
+        }
+        
         guard let webRoot = Bundle.main.resourceURL?.appendingPathComponent("Web") else {
             showError("Missing app resources.")
             return
         }
-
+        
         guard FileManager.default.fileExists(atPath: webRoot.appendingPathComponent("server.js").path) else {
             showError("Missing server.js in app resources.")
             return
         }
-
+        
         do {
             try Self.ensureHomeCanvas(at: Self.canvasesRoot())
         } catch {
             showError("Could not prepare LiquidOS canvases.\n\n" + error.localizedDescription)
             return
         }
-
+        
         server = Process()
         server?.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         server?.currentDirectoryURL = webRoot
@@ -84,20 +125,42 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             "HOME": NSHomeDirectory(),
             "LIQUIDOS_NATIVE": "1"
         ]
-
+        
         do {
             try server?.run()
         } catch {
             showError("Could not start Node. Install Node.js, then reopen LiquidOS.\n\n" + error.localizedDescription)
         }
     }
-
+    
+    private static func getPIDForPort(_ port: Int) -> pid_t? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        task.arguments = ["-t", "-i", ":\(port)"]
+        task.standardOutput = Pipe()
+        task.standardError = Pipe()
+        
+        do {
+            try task.run()
+            task.waitUntilExit()
+            
+            guard task.terminationStatus == 0 else { return nil }
+            
+            let outputData = task.standardOutput as! Pipe
+            let output = String(data: outputData.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            return output.flatMap { Int32($0) }
+        } catch {
+            return nil
+        }
+    }
+    
     private func loadWhenReady(attempt: Int) {
         guard attempt < 80 else {
             showError("LiquidOS server did not start on localhost port \(port).")
             return
         }
-
+        
         URLSession.shared.dataTask(with: URL(string: "http://127.0.0.1:\(port)/")!) { _, response, _ in
             DispatchQueue.main.async {
                 if (response as? HTTPURLResponse)?.statusCode == 200 {
@@ -110,7 +173,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             }
         }.resume()
     }
-
+    
     private func showError(_ message: String) {
         webView?.loadHTMLString("""
         <!doctype html>
@@ -122,19 +185,19 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         </html>
         """, baseURL: nil)
     }
-
+    
     private static func canvasesRoot() -> URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("LiquidOS", isDirectory: true)
             .appendingPathComponent("canvases", isDirectory: true)
     }
-
+    
     private static func ensureHomeCanvas(at canvasesRoot: URL) throws {
         try FileManager.default.createDirectory(
             at: canvasesRoot.appendingPathComponent("home", isDirectory: true),
             withIntermediateDirectories: true
         )
-
+        
         try writeDefaultFile(
             at: canvasesRoot.appendingPathComponent("home/input.json"),
             contents: "{\"components\":[],\"css\":\"body{background:#0b1120}\"}\n"
@@ -148,23 +211,23 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             contents: "[]\n"
         )
     }
-
+    
     private static func writeDefaultFile(at url: URL, contents: String) throws {
         guard !FileManager.default.fileExists(atPath: url.path) else { return }
         try contents.write(to: url, atomically: true, encoding: .utf8)
     }
-
+    
     private static func freePort() -> Int {
         let descriptor = socket(AF_INET, SOCK_STREAM, 0)
         guard descriptor >= 0 else { return 3000 }
         defer { close(descriptor) }
-
+        
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = 0
         address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-
+        
         return withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 guard Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0 else { return 3000 }
@@ -175,12 +238,12 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
                         getsockname(descriptor, $0, &length) == 0
                     }
                 }
-
+                
                 return didReadPort ? Int(UInt16(bigEndian: bound.sin_port)) : 3000
             }
         }
     }
-
+    
     private static func installMainMenu() {
         NSApp.mainMenu = NSMenu()
         NSApp.mainMenu?.addItem(NSMenuItem())
@@ -191,7 +254,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             keyEquivalent: "q"
         )
     }
-
+    
     private static func escapeHTML(_ value: String) -> String {
         value
             .replacingOccurrences(of: "&", with: "&amp;")
