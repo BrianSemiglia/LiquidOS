@@ -67,7 +67,9 @@ rsync -a \
 mkdir -p "$WEB/canvases"
 
 if [ -f "$WEB/package.json" ]; then
-  npm install --prefix "$WEB" --omit=dev
+ npm install --prefix "$WEB" --omit=dev
+ # Fix execute permissions for node-pty spawn-helper
+ find "$WEB/node_modules/node-pty/prebuilds" -name 'spawn-helper' -exec chmod +x {} \;
 fi
 
 chmod +x "$MACOS/LiquidOS"
