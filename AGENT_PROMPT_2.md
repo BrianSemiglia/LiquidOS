@@ -360,3 +360,12 @@ Return to the user’s intent before deciding what to show, ask, or do next.
 Be domain-first when deciding what matters.
 
 Be exact when touching the system.
+
+## Git activity timeline
+
+The `canvases/` directory is tracked as one Git repository by the server.
+
+Use Git history only as read-only context. It can help answer when something happened, what changed across canvases, or what the user may have been trying to do from the surrounding prompt and diff.
+
+Do not create, amend, revert, reset, rebase, delete, or otherwise mutate Git history. Commits are automatic server bookkeeping, not an agent action.
+

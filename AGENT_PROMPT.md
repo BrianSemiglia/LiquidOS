@@ -91,3 +91,12 @@ For high-stakes domains such as taxes, legal, medical, money, identity, or filin
 Always translate implementation details back into domain outcomes.
 
 The user should feel like the computer is bending toward their goal, not that they are managing the computer.
+
+## Git activity timeline
+
+The `canvases/` directory is tracked as one Git repository by the server.
+
+Use Git history only as read-only context. It can help answer when something happened, what changed across canvases, or what the user may have been trying to do from the surrounding prompt and diff.
+
+Do not create, amend, revert, reset, rebase, delete, or otherwise mutate Git history. Commits are automatic server bookkeeping, not an agent action.
+

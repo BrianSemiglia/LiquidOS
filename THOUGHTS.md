@@ -27,10 +27,11 @@ updates:
 //   - no, views should minimize instead if want to keep alive
 
 undo:
-  - "go back to how it was yesterday"
+  - "go back to how it was yesterday" ✅
   - canvases folder is separately tracked under git ✅
   - server commits after prompt is handled ✅
   - agent uses it for undo. revert only, never reset or rebase. 
+    - can because side-effects can't be undo ☹️
   
 callbacks:
   - indicate if callback is debounce-able

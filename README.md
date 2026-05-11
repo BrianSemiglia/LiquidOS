@@ -14,7 +14,7 @@ output.json
 deltas.json
 ```
 
-The prompt bar can switch canvases, create a new canvas, send canvas-scoped prompts, and undo/redo JSON Patch deltas.
+The prompt bar can switch canvases, create a new canvas, and send canvas-scoped or workspace-scoped prompts. The whole `canvases/` folder is tracked as one Git repo so activity across canvases has a single timeline.
 
 ## Listening components and plugins
 
@@ -30,7 +30,7 @@ When a component or plugin needs to listen to an external thing, keep the shape 
 
 3. Choose the bridge back into the canvas.
    - For this repo, `output.json` is the easiest proof-of-concept bridge because the server already watches it.
-   - `deltas.json` is for undo/redo history, not for live event delivery.
+   - `deltas.json` is legacy state. Undo/redo controls have been removed. Git history is now a read-only activity timeline under `canvases/`.
 
 4. Keep loop-safety in mind.
    - If the plugin can also trigger the same thing it is watching, suppress self-caused changes for a short window.

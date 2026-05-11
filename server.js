@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
+const { createGitTimeline } = require('./gitTimeline');
 const pty = require('node-pty');
 
 const ROOT = __dirname;
@@ -66,13 +67,12 @@ const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', [
     'After editing the canvas config, parse the canvas config JSON.',
     'The user ONLY sees the canvas - they do not see chat messages. ALL communication must be rendered as components.',
     'Reply with a one-line summary.',
-    'Each canvas should be under its own git versioning. Git control allows you to rollback based on user requests per canvas.'
+    'The canvases directory is under Git control as a read-only activity timeline for the agent. Commits are made automatically by the server after successful work. You may inspect Git history to answer questions like when something happened, what changed, or what the user may have been trying to do, but do not create, amend, revert, reset, rebase, or otherwise mutate Git history.'
 ].join(' ')));
 
 const clients = new Set();
 let watchers = [];
 let watchTimer;
-let processingDeltas = false;
 let activeCanvasHermes = null;
 let activeCanvasRuntime = null;
 let outputDispatchTimer = null;
@@ -289,10 +289,10 @@ const createCanvasRuntime = canvasPath => {
             applyCanvasRuntime(this);
             this.started = true;
             ensureCanvasFiles();
+            ensureCanvasesGitRepo();
             normalizeOutputJobs();
             activeOutputKeys.clear();
             startCanvasHermesHost(this.canvasPath);
-            processDeltas();
             watchGraph();
             feedHermesOutput();
             return this;
@@ -678,31 +678,12 @@ const validateComponentFiles = componentPaths => {
 
 const callbackPromptText = job => job.prompt || job.request || '';
 
-const commitCanvases = job => {
-    if (spawnSync('git', ['add', '-A'], { cwd: CANVASES_ROOT, stdio: 'inherit' }).status !== 0) {
-        logServer('git', 'failed to stage canvas changes', { jobId: job.id || null });
-        return false;
-    }
 
-    if (spawnSync('git', ['diff', '--cached', '--quiet'], { cwd: CANVASES_ROOT }).status === 0) {
-        logServer('git', 'no canvas changes to commit', { jobId: job.id || null });
-        return false;
-    }
-
-    if (spawnSync('git', ['commit', '-m', [
-        'prompt:',
-        callbackPromptText(job) || '(no prompt)'
-    ].join('\n')], { cwd: CANVASES_ROOT, stdio: 'inherit' }).status !== 0) {
-        logServer('git', 'failed to commit canvas changes', {
-            jobId: job.id || null,
-            prompt: callbackPromptText(job) || null
-        });
-        return false;
-    }
-
-    logServer('git', 'committed canvas changes', { jobId: job.id || null });
-    return true;
-};
+const { ensureCanvasesGitRepo, commitCanvases } = createGitTimeline({
+    canvasesRoot: CANVASES_ROOT,
+    currentCanvasPath: () => CANVAS_PATH,
+    logServer
+});
 
 const jobLaneSummary = job => ({
     id: job.id || null,
@@ -827,7 +808,8 @@ const agentJobPrompt = job => {
             'When searching across canvases, infer the domain meaning from component content and represented files. Ignore debug metadata unless it is relevant to the user request.',
             'Use workspace-level context to coordinate across canvases, but avoid cross-canvas edits unless the user explicitly asks for them.',
             'For user-visible communication, add or update components on the current active canvas unless the request names a different canvas.',
-            'Do not edit output.json, deltas.json, server.js, package files, or files outside the canvases directory.',
+            'Do not edit output.json, deltas.json, server.js, package files, Git metadata, or files outside the canvases directory.',
+            'The canvases Git history is read-only context. Use it for recall and timeline questions only; commits are created automatically by the server.',
             '',
             'Dispatch lane:',
             outputJobKey(job),
@@ -1524,103 +1506,6 @@ const ensurePatchBefores = patchSet =>
         return { ...patch, ops };
     });
 
-const processDeltas = () => {
-    if (processingDeltas || !fs.existsSync(DELTAS_PATH)) {
-        return false;
-    }
-
-    processingDeltas = true;
-
-    try {
-        const deltas = readJson(DELTAS_PATH);
-        let changed = false;
-
-        if (!Array.isArray(deltas)) {
-            throw new Error('deltas.json must be an array');
-        }
-
-        deltas.forEach(delta => {
-            if (delta.format !== 'json-patch') {
-                return;
-            }
-
-            try {
-                if (delta.status === 'pending') {
-                    delta.patches = ensurePatchBefores(delta.patches || []);
-                    applyPatchSet(delta.patches);
-                    delta.status = 'applied';
-                    delta.appliedAt = new Date().toISOString();
-                    changed = true;
-                    return;
-                }
-
-                if (delta.status === 'rollback-pending') {
-                    const rollbackPatches = (delta.patches || []).map(patch => ({
-                        ...patch,
-                        ops: inverseOps(patch.ops || [])
-                    }));
-                    applyPatchSet(rollbackPatches);
-                    delta.status = 'rolled-back';
-                    delta.rolledBackAt = new Date().toISOString();
-                    changed = true;
-                    return;
-                }
-
-                if (delta.status === 'reapply-pending') {
-                    applyPatchSet(delta.patches || []);
-                    delta.status = 'applied';
-                    delta.reappliedAt = new Date().toISOString();
-                    changed = true;
-                }
-            } catch (error) {
-                delta.status = 'failed';
-                delta.error = error.message;
-                delta.failedAt = new Date().toISOString();
-                changed = true;
-            }
-        });
-
-        if (changed) {
-            writeJson(DELTAS_PATH, deltas);
-        }
-
-        return changed;
-    } finally {
-        processingDeltas = false;
-    }
-};
-
-const requestDeltaStep = direction => {
-    const deltas = fs.existsSync(DELTAS_PATH) ? readJson(DELTAS_PATH) : [];
-
-    if (!Array.isArray(deltas)) {
-        throw new Error('deltas.json must be an array');
-    }
-
-    const toStatus = direction === 'undo' ? 'rollback-pending' : 'reapply-pending';
-    const candidates = deltas.filter(delta =>
-        delta.format === 'json-patch'
-        && delta.status === (direction === 'undo' ? 'applied' : 'rolled-back')
-    );
-    const target = direction === 'undo'
-        ? candidates[candidates.length - 1]
-        : candidates.sort((a, b) =>
-            String(b.rolledBackAt || '').localeCompare(String(a.rolledBackAt || ''))
-        )[0];
-
-    if (!target) {
-        const error = new Error(direction === 'undo' ? 'Nothing to undo' : 'Nothing to redo');
-        error.statusCode = 409;
-        throw error;
-    }
-
-    target.status = toStatus;
-    target.requestedAt = new Date().toISOString();
-    writeJson(DELTAS_PATH, deltas);
-
-    return processDeltas();
-};
-
 const inputEntries = () => {
     const input = readJson(INPUT_PATH);
 
@@ -1742,13 +1627,7 @@ const scheduleWatchRefresh = () => {
     clearTimeout(watchTimer);
     watchTimer = setTimeout(() => {
         try {
-            const deltasChanged = processDeltas();
             watchGraph();
-
-            if (deltasChanged) {
-                scheduleWatchRefresh();
-            }
-
             feedHermesOutput();
         } catch (error) {
             console.error('watch error:', error.message);
@@ -1962,6 +1841,7 @@ const server = http.createServer(async (req, res) => {
             const name = createCanvas(body.name);
 
             switchCanvas(name);
+            commitCanvases({ scope: 'workspace', prompt: 'create canvas: ' + name });
             broadcast();
             send(res, 201, JSON.stringify({
                 current: canvasName(CANVAS_PATH),
@@ -1977,15 +1857,6 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        if (req.method === 'POST' && (url.pathname === '/deltas/undo' || url.pathname === '/deltas/redo')) {
-            const direction = url.pathname.endsWith('/undo') ? 'undo' : 'redo';
-
-            requestDeltaStep(direction);
-            watchGraph();
-            broadcast();
-            send(res, 200, JSON.stringify({ ok: true, direction }), 'application/json; charset=utf-8');
-            return;
-        }
 
         const sharedAsset = url.pathname.match(/^\/(layouts|transitions)\/([A-Za-z0-9._-]+\.json)$/);
 

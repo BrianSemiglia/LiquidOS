@@ -64,24 +64,21 @@
             bottom: 1rem;
             z-index: 20;
             display: grid;
-            grid-template-columns: auto auto minmax(12rem, 1fr) auto auto;
-            gap: 0.5rem;
-            width: min(calc(100vw - 2rem), 54rem);
-            padding: 0.75rem;
-            border: 1px solid #334155;
-            border-radius: 8px;
-            background: rgba(15, 23, 42, 0.96);
-            box-shadow: 0 18px 50px rgba(0, 0, 0, 0.38);
+            grid-template-columns: auto auto minmax(14rem, 1fr) auto auto;
+            gap: 0.45rem;
+            align-items: center;
+            width: min(calc(100vw - 2rem), 58rem);
+            padding: 0.55rem;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 22px;
+            background: rgba(34, 34, 35, 0.72);
+            box-shadow:
+                0 24px 70px rgba(0, 0, 0, 0.44),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(32px) saturate(1.35);
+            -webkit-backdrop-filter: blur(32px) saturate(1.35);
             transform: translateX(-50%);
-        }
-
-        .global-prompt textarea {
-            min-width: 0;
-            border: 1px solid #475569;
-            border-radius: 6px;
-            background: #020617;
-            color: #f9fafb;
-            font: inherit;
+            -webkit-font-smoothing: antialiased;
         }
 
         .canvas-nav {
@@ -90,71 +87,95 @@
             min-width: 0;
         }
 
+        .canvas-nav select,
+        .global-prompt textarea {
+            min-width: 0;
+            height: 2.45rem;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 15px;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.92);
+            font: inherit;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.08),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+        }
+
         .canvas-nav select {
             min-width: 8rem;
             max-width: 12rem;
-            height: 2.75rem;
-            border: 1px solid #475569;
-            border-radius: 6px;
-            background: #020617;
-            color: #f9fafb;
-            font: inherit;
-            padding: 0 0.55rem;
-        }
-
-        .canvas-nav button {
-            min-width: 3.4rem;
-            background: #1e293b;
-            color: #e0f2fe;
-            border: 1px solid #475569;
+            padding: 0 0.65rem;
         }
 
         .global-prompt textarea {
-            height: 2.75rem;
-            min-height: 2.75rem;
+            min-height: 2.45rem;
             max-height: 8rem;
             resize: vertical;
-            padding: 0.65rem 0.75rem;
-            line-height: 1.25;
+            padding: 0.6rem 0.75rem;
+            line-height: 1.2;
+        }
+
+        .canvas-nav select:focus,
+        .global-prompt textarea:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.28);
+            background: rgba(255, 255, 255, 0.11);
+        }
+
+        .global-prompt textarea::placeholder {
+            color: rgba(255, 255, 255, 0.38);
         }
 
         .global-prompt button {
-            height: 2.75rem;
-            border: 0;
-            border-radius: 6px;
-            padding: 0 1rem;
-            background: #38bdf8;
-            color: #082f49;
-            cursor: pointer;
+            height: 2.45rem;
+            border: 1px solid rgba(255, 255, 255, 0.13);
+            border-radius: 15px;
+            padding: 0 0.85rem;
+            background: rgba(255, 255, 255, 0.10);
+            color: rgba(255, 255, 255, 0.82);
+            cursor: default;
             font: inherit;
-            font-weight: 800;
+            font-weight: 650;
+            letter-spacing: -0.01em;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.08),
+                0 1px 2px rgba(0, 0, 0, 0.18);
+        }
+
+        .global-prompt button[type="submit"] {
+            background: rgba(255, 255, 255, 0.70);
+            color: rgba(20, 20, 21, 0.92);
+            border-color: rgba(255, 255, 255, 0.24);
+        }
+
+        .global-prompt button:hover:not(:disabled),
+        .canvas-nav select:hover,
+        .global-prompt textarea:hover {
+            background-color: rgba(255, 255, 255, 0.14);
+        }
+
+        .global-prompt button[type="submit"]:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.78);
+        }
+
+        .global-prompt button:active:not(:disabled) {
+            transform: translateY(1px);
         }
 
         .global-prompt button:disabled {
             cursor: default;
-            opacity: 0.55;
+            opacity: 0.45;
         }
 
-        .delta-nav {
-            display: flex;
-            gap: 0.35rem;
-        }
-
-        .delta-nav button {
-            min-width: 4.25rem;
-            background: #1e293b;
-            color: #e0f2fe;
-            border: 1px solid #475569;
-        }
 
         .global-status {
             position: fixed;
             left: 50%;
             bottom: 5.2rem;
             z-index: 21;
-            width: min(calc(100vw - 2rem), 54rem);
+            width: min(calc(100vw - 2rem), 58rem);
             min-height: 1rem;
-            color: #bae6fd;
+            color: rgba(255, 255, 255, 0.62);
             font-size: 0.8rem;
             transform: translateX(-50%);
         }
@@ -260,10 +281,6 @@
             <select id="canvas-select" aria-label="Canvas"></select>
             <button type="button" id="new-canvas">New</button>
         </div>
-        <div class="delta-nav" aria-label="Delta navigation">
-            <button type="button" id="undo-delta">Undo</button>
-            <button type="button" id="redo-delta">Redo</button>
-        </div>
         <textarea id="global-text" placeholder="Prompt the canvas"></textarea>
         <button type="submit">Send</button>
         <button type="button" id="workspace-send">Workspace</button>
@@ -276,8 +293,6 @@
         const globalStatus = document.getElementById('global-status');
         const canvasSelect = document.getElementById('canvas-select');
         const newCanvas = document.getElementById('new-canvas');
-        const undoDelta = document.getElementById('undo-delta');
-        const redoDelta = document.getElementById('redo-delta');
         const workspaceSend = document.getElementById('workspace-send');
         const instanceStyle = document.createElement('style');
 
@@ -524,135 +539,6 @@
 
             setBusy({ busy: true, job: { prompt: '[workspace] ' + prompt } });
             watchBusy();
-        };
-
-        const stepDelta = async direction => {
-            const button = direction === 'undo' ? undoDelta : redoDelta;
-            const response = await fetch('/deltas/' + direction, {
-                method: 'POST'
-            });
-
-            if (!response.ok) {
-                throw new Error('/deltas/' + direction + ' returned ' + response.status);
-            }
-
-            return response.json();
-        };
-
-        const runDeltaStep = direction => {
-            const button = direction === 'undo' ? undoDelta : redoDelta;
-
-            button.disabled = true;
-            globalStatus.className = 'global-status';
-            globalStatus.textContent = direction === 'undo' ? 'Undoing' : 'Redoing';
-
-            stepDelta(direction)
-                .then(() => {
-                    globalStatus.textContent = direction === 'undo' ? 'Undone' : 'Redone';
-                })
-                .catch(error => {
-                    globalStatus.className = 'global-status error';
-                    globalStatus.textContent = 'Error: ' + error.message;
-                })
-                .finally(() => {
-                    button.disabled = false;
-                });
-        };
-
-        const renderCanvasOptions = data => {
-            canvasSelect.replaceChildren(...data.canvases.map(canvas => {
-                const option = document.createElement('option');
-
-                option.value = canvas.name;
-                option.textContent = canvas.name;
-                return option;
-            }));
-            canvasSelect.value = data.current || '';
-        };
-
-        const loadCanvases = async () => {
-            const data = await fetch('/canvases', { cache: 'no-store' }).then(response => {
-                if (!response.ok) {
-                    throw new Error('/canvases returned ' + response.status);
-                }
-
-                return response.json();
-            });
-
-            renderCanvasOptions(data);
-            return data;
-        };
-
-        const switchCanvas = async name => {
-            saveScrollPosition();
-            const data = await fetch('/canvas', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ name })
-            }).then(response => {
-                if (!response.ok) {
-                    throw new Error('/canvas returned ' + response.status);
-                }
-
-                return response.json();
-            });
-
-            renderCanvasOptions(data);
-            await load();
-        };
-
-        const createCanvas = async name => {
-            saveScrollPosition();
-            const data = await fetch('/canvases', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ name })
-            }).then(response => {
-                if (!response.ok) {
-                    throw new Error('/canvases returned ' + response.status);
-                }
-
-                return response.json();
-            });
-
-            renderCanvasOptions(data);
-            await load();
-        };
-
-        const setBusy = state => {
-            globalStatus.className = state.busy ? 'global-status' : 'global-status';
-            globalStatus.textContent = state.job?.prompt ? 'Agent working: ' + state.job.prompt : (state.busy ? 'Agent working' : '');
-            globalForm.querySelector('button[type="submit"]').disabled = Boolean(state.busy);
-            workspaceSend.disabled = Boolean(state.busy);
-        };
-
-        const refreshStatus = async () => {
-            const state = await fetch('/status', { cache: 'no-store' }).then(response => {
-                if (!response.ok) {
-                    throw new Error('/status returned ' + response.status);
-                }
-
-                return response.json();
-            });
-
-            setBusy(state);
-            return state;
-        };
-
-        const watchBusy = () => {
-            clearInterval(statusTimer);
-            refreshStatus().catch(() => {});
-            statusTimer = setInterval(() => {
-                refreshStatus().then(state => {
-                    if (!state.busy) {
-                        clearInterval(statusTimer);
-                    }
-                }).catch(() => {});
-            }, 900);
         };
 
         const renderComponent = component => {
@@ -1003,13 +889,6 @@
             }
         });
 
-        undoDelta.addEventListener('click', () => {
-            runDeltaStep('undo');
-        });
-
-        redoDelta.addEventListener('click', () => {
-            runDeltaStep('redo');
-        });
 
         canvasSelect.addEventListener('change', () => {
             globalStatus.className = 'global-status';
