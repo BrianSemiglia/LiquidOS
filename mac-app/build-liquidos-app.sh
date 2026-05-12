@@ -66,47 +66,55 @@ rsync -a \
 
 mkdir -p "$WEB/canvases"
 
-if command -v hermes >/dev/null 2>&1; then
-  HERMES_SOURCE_ROOT="$(dirname "$(dirname "$(dirname "$(realpath "$(command -v hermes)")")")")"
-  HERMES_BUNDLE_ROOT="$WEB/Hermes"
-  HERMES_PYTHON_PREFIX="/opt/homebrew/Cellar/python@3.11/3.11.15_1"
+PYTHON_VERSION="3.11"
+HERMES_SOURCE_ARCHIVE="$MAC_ROOT/vendor/hermes-agent-8e2eb4b511967a0ad776c0c667f6914072e1b7ec.tar.gz"
 
-  if ! command -v uv >/dev/null 2>&1; then
-    echo "Error: uv is required to build the bundled Hermes artifact." >&2
-    exit 1
-  fi
+if ! command -v uv >/dev/null 2>&1; then
+  echo "Error: uv is required to build the bundled Hermes artifact." >&2
+  exit 1
+fi
 
-  HERMES_BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/liquidos-hermes-build.XXXXXX")"
-  trap 'rm -rf "$HERMES_BUILD_ROOT"' EXIT
+if [ ! -f "$HERMES_SOURCE_ARCHIVE" ]; then
+  echo "Error: bundled Hermes source archive is missing: $HERMES_SOURCE_ARCHIVE" >&2
+  exit 1
+fi
 
-  mkdir -p "$HERMES_BUNDLE_ROOT"
-  (
-    cd "$HERMES_SOURCE_ROOT"
-    uv build --wheel --out-dir "$HERMES_BUILD_ROOT/dist"
-  )
-  uv venv "$HERMES_BUILD_ROOT/venv" --python 3.11
-  uv pip install --python "$HERMES_BUILD_ROOT/venv/bin/python" "$HERMES_BUILD_ROOT"/dist/hermes_agent-*.whl
+HERMES_BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/liquidos-hermes-build.XXXXXX")"
+HERMES_SOURCE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/liquidos-hermes-source.XXXXXX")"
+trap 'rm -rf "$HERMES_BUILD_ROOT" "$HERMES_SOURCE_ROOT"' EXIT
 
-  rsync -a "$HERMES_PYTHON_PREFIX/" "$HERMES_BUNDLE_ROOT/python/"
-  mkdir -p "$HERMES_BUNDLE_ROOT/site-packages"
-  rsync -a "$HERMES_BUILD_ROOT/venv/lib/python3.11/site-packages/" "$HERMES_BUNDLE_ROOT/site-packages/"
+HERMES_BUNDLE_ROOT="$WEB/Hermes"
 
-  cat > "$HERMES_BUNDLE_ROOT/hermes" <<'SH'
+tar -xzf "$HERMES_SOURCE_ARCHIVE" -C "$HERMES_SOURCE_ROOT"
+
+uv python install --managed-python "$PYTHON_VERSION"
+UV_MANAGED_PYTHON_BIN="$(uv python find --managed-python "$PYTHON_VERSION")"
+UV_MANAGED_PYTHON_PREFIX="$(dirname "$(dirname "$UV_MANAGED_PYTHON_BIN")")"
+
+uv venv "$HERMES_BUILD_ROOT/venv" --python "$UV_MANAGED_PYTHON_BIN"
+(
+  cd "$HERMES_SOURCE_ROOT/hermes-agent"
+  uv build --wheel --out-dir "$HERMES_BUILD_ROOT/dist"
+)
+uv pip install --python "$HERMES_BUILD_ROOT/venv/bin/python" "$HERMES_BUILD_ROOT"/dist/hermes_agent-*.whl
+
+mkdir -p "$HERMES_BUNDLE_ROOT"
+mkdir -p "$HERMES_BUNDLE_ROOT/python"
+rsync -a "$UV_MANAGED_PYTHON_PREFIX/" "$HERMES_BUNDLE_ROOT/python/"
+mkdir -p "$HERMES_BUNDLE_ROOT/site-packages"
+rsync -a "$HERMES_BUILD_ROOT/venv/lib/python3.11/site-packages/" "$HERMES_BUNDLE_ROOT/site-packages/"
+
+cat > "$HERMES_BUNDLE_ROOT/hermes" <<'SH'
 #!/bin/sh
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
-export PYTHONHOME="$DIR/python/Frameworks/Python.framework/Versions/3.11"
 export PYTHONPATH="$DIR/site-packages${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONNOUSERSITE=1
 export HERMES_HOME="$HOME/Library/Application Support/LiquidOS/Hermes"
 mkdir -p "$HERMES_HOME"
 exec "$DIR/python/bin/python3.11" -m hermes_cli.main "$@"
 SH
-  chmod +x "$HERMES_BUNDLE_ROOT/hermes"
-else
-  echo "Error: hermes is required to build the bundled fallback artifact." >&2
-  exit 1
-fi
+chmod +x "$HERMES_BUNDLE_ROOT/hermes"
 
 if [ -f "$WEB/package.json" ]; then
  npm install --prefix "$WEB" --omit=dev
