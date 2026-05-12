@@ -98,13 +98,6 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             return
         }
         
-        do {
-            try Self.ensureHomeCanvas(at: Self.canvasesRoot())
-        } catch {
-            showError("Could not prepare LiquidOS canvases.\n\n" + error.localizedDescription)
-            return
-        }
-        
         server = Process()
         server?.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         server?.currentDirectoryURL = webRoot
@@ -125,6 +118,26 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             "HOME": NSHomeDirectory(),
             "LIQUIDOS_NATIVE": "1"
         ]
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+
+        server?.standardOutput = outputPipe
+        server?.standardError = errorPipe
+
+        outputPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
+                print(text, terminator: "")
+            }
+        }
+
+        errorPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
+                FileHandle.standardError.write(Data(text.utf8))
+            }
+        }
         
         do {
             try server?.run()
@@ -190,31 +203,6 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("LiquidOS", isDirectory: true)
             .appendingPathComponent("canvases", isDirectory: true)
-    }
-    
-    private static func ensureHomeCanvas(at canvasesRoot: URL) throws {
-        try FileManager.default.createDirectory(
-            at: canvasesRoot.appendingPathComponent("home", isDirectory: true),
-            withIntermediateDirectories: true
-        )
-        
-        try writeDefaultFile(
-            at: canvasesRoot.appendingPathComponent("home/input.json"),
-            contents: "{\"components\":[],\"css\":\"body{background:#0b1120}\"}\n"
-        )
-        try writeDefaultFile(
-            at: canvasesRoot.appendingPathComponent("home/output.json"),
-            contents: "[]\n"
-        )
-        try writeDefaultFile(
-            at: canvasesRoot.appendingPathComponent("home/deltas.json"),
-            contents: "[]\n"
-        )
-    }
-    
-    private static func writeDefaultFile(at url: URL, contents: String) throws {
-        guard !FileManager.default.fileExists(atPath: url.path) else { return }
-        try contents.write(to: url, atomically: true, encoding: .utf8)
     }
     
     private static func freePort() -> Int {

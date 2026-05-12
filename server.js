@@ -6,7 +6,7 @@ const { createGitTimeline } = require('./gitTimeline');
 const pty = require('node-pty');
 
 const ROOT = __dirname;
-const SERVER_BUILD = 'hermes-output-server-2026-05-08-workspace-hermes';
+const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
 
 const argValue = (name, fallback) => {
     const prefix = name + '=';
@@ -23,6 +23,24 @@ const argValue = (name, fallback) => {
 const resolveConfigPath = value =>
     path.isAbsolute(value) ? value : path.resolve(ROOT, value);
 
+const resolveCanvasReference = value => {
+    if (!value) {
+        return value;
+    }
+
+    if (path.isAbsolute(value)) {
+        return value;
+    }
+
+    const canvasRelative = path.resolve(CANVAS_PATH, value);
+
+    if (fs.existsSync(canvasRelative)) {
+        return canvasRelative;
+    }
+
+    return resolveFromRoot(value);
+};
+
 const relativeCanvasPath = value =>
     path.relative(CANVAS_PATH, value).split(path.sep).join('/');
 
@@ -36,6 +54,83 @@ let CANVAS_PATH = resolveConfigPath(argValue('--canvas', DEFAULT_CANVAS_PATH));
 let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
 let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
 let DELTAS_PATH = path.join(CANVAS_PATH, 'deltas.json');
+
+const copyTemplateDirectory = (source, target) => {
+    fs.mkdirSync(target, { recursive: true });
+
+    for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+        if (entry.name === '.gitkeep') {
+            continue;
+        }
+
+        const sourcePath = path.join(source, entry.name);
+        const targetPath = path.join(target, entry.name);
+
+        if (entry.isDirectory()) {
+            copyTemplateDirectory(sourcePath, targetPath);
+        } else if (entry.isFile() && !fs.existsSync(targetPath)) {
+            fs.copyFileSync(sourcePath, targetPath);
+        }
+    }
+};
+
+const writeDefaultFile = (filePath, contents) => {
+    if (!fs.existsSync(filePath)) {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, contents);
+    }
+};
+
+const ensureCanvasDefaults = name => {
+    const canvasPath = path.join(CANVASES_ROOT, name);
+
+    fs.mkdirSync(canvasPath, { recursive: true });
+
+    if (fs.existsSync(CANVAS_TEMPLATE_ROOT)) {
+        copyTemplateDirectory(CANVAS_TEMPLATE_ROOT, canvasPath);
+    }
+
+    fs.mkdirSync(path.join(canvasPath, 'components'), { recursive: true });
+
+    writeDefaultFile(
+        path.join(canvasPath, 'input.json'),
+        JSON.stringify({ components: [], css: 'body{background:#0b1120}' }, null, 2) + '\n'
+    );
+    writeDefaultFile(path.join(canvasPath, 'output.json'), '[]\n');
+    writeDefaultFile(path.join(canvasPath, 'deltas.json'), '[]\n');
+    writeDefaultFile(
+        path.join(canvasPath, 'canvas.html'),
+        `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blank Canvas</title>
+  <style>
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: #0b1120;
+    }
+  </style>
+</head>
+<body></body>
+</html>
+`
+    );
+
+    return canvasPath;
+};
+
+fs.mkdirSync(CANVASES_ROOT, { recursive: true });
+ensureCanvasDefaults('home');
+
+if (!fs.existsSync(path.join(CANVAS_PATH, 'input.json'))) {
+    CANVAS_PATH = DEFAULT_CANVAS_PATH;
+    INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
+    OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
+    DELTAS_PATH = path.join(CANVAS_PATH, 'deltas.json');
+}
 const PORT = Number.parseInt(argValue('--port', '3000'), 10);
 const AGENT_COMMAND = argValue('--agent', argValue('--hermes-command', 'hermes'));
 const AGENT_ARGS = argValue('--agent-args', argValue('--hermes-args', '--oneshot')).split(' ').filter(Boolean);
@@ -135,6 +230,14 @@ const probeLocalAgents = () => {
 const logServer = (area, message, details = null) => {
     const suffix = details ? ' ' + JSON.stringify(details) : '';
     console.log(`[${new Date().toISOString()}] [${area}] ${message}${suffix}`);
+};
+
+const writeProcessOutput = (label, chunk, stream = process.stdout) => {
+    String(chunk).split(/(?<=\n)/).forEach(line => {
+        if (line.length) {
+            stream.write(`${label} ${line}`);
+        }
+    });
 };
 
 const shortText = value => {
@@ -253,7 +356,7 @@ const withOutputLock = async task => {
     }
 };
 
-const ensureCanvasFiles = () => {
+const ensureActiveCanvasFiles = () => {
     if (!fs.existsSync(INPUT_PATH)) {
         throw new Error('Canvas input.json not found: ' + INPUT_PATH);
     }
@@ -288,7 +391,7 @@ const createCanvasRuntime = canvasPath => {
         start() {
             applyCanvasRuntime(this);
             this.started = true;
-            ensureCanvasFiles();
+            ensureActiveCanvasFiles();
             ensureCanvasesGitRepo();
             normalizeOutputJobs();
             activeOutputKeys.clear();
@@ -359,9 +462,6 @@ const outputJobKey = job => {
         return null;
     }
 
-    if (job.scope === 'workspace') {
-        return 'workspace';
-    }
 
     if (job.scope === 'canvas') {
         return 'canvas';
@@ -372,11 +472,11 @@ const outputJobKey = job => {
     }
 
     if (typeof job.componentPath === 'string' && job.componentPath.trim()) {
-        return resolveFromRoot(job.componentPath);
+        return resolveCanvasReference(job.componentPath);
     }
 
     if (job.target && typeof job.target === 'object' && typeof job.target.componentPath === 'string' && job.target.componentPath.trim()) {
-        return resolveFromRoot(job.target.componentPath);
+        return resolveCanvasReference(job.target.componentPath);
     }
 
     if (typeof job.file === 'string' && job.file.trim()) {
@@ -578,6 +678,7 @@ const startCanvasHermesHost = canvasPath => {
 
     host.proc.onData(data => {
         host.outputTail = (host.outputTail + data).slice(-16384);
+        writeProcessOutput('[hermes-host]', data);
 
         if (!host.bootstrapSent && (host.outputTail.includes('Ctrl+C cancel') || host.outputTail.includes('msg=interrupt'))) {
             try {
@@ -672,7 +773,7 @@ const validateCanvasConfig = () => {
 
 const validateComponentFiles = componentPaths => {
     componentPaths.forEach(componentPath => {
-        validateComponentFile(resolveFromRoot(componentPath));
+        validateComponentFile(resolveCanvasReference(componentPath));
     });
 };
 
@@ -781,7 +882,7 @@ const dispatchOutputJobs = async () => {
                 });
             });
 
-            if (ready.some(job => ['workspace', 'canvas'].includes(outputJobKey(job)))) {
+            if (ready.some(job => outputJobKey(job) === 'canvas')) {
                 return true;
             }
 
@@ -798,39 +899,6 @@ const agentJobPrompt = job => {
     const target = job.target || null;
     const promptText = callbackPromptText(job);
 
-    if (job.scope === 'workspace') {
-        return [
-            AGENT_PROMPT,
-            '',
-            'You are the top-level Workspace Hermes for this live-edit workspace.',
-            'You may inspect and edit any canvas under the workspace canvases directory.',
-            'Use workspace-level context to understand user-facing content across canvases, not to review the filesystem or JSON structure unless explicitly asked.',
-            'When searching across canvases, infer the domain meaning from component content and represented files. Ignore debug metadata unless it is relevant to the user request.',
-            'Use workspace-level context to coordinate across canvases, but avoid cross-canvas edits unless the user explicitly asks for them.',
-            'For user-visible communication, add or update components on the current active canvas unless the request names a different canvas.',
-            'Do not edit output.json, deltas.json, server.js, package files, Git metadata, or files outside the canvases directory.',
-            'The canvases Git history is read-only context. Use it for recall and timeline questions only; commits are created automatically by the server.',
-            '',
-            'Dispatch lane:',
-            outputJobKey(job),
-            '',
-            'Callback scope:',
-            'workspace',
-            '',
-            'Canvases root:',
-            CANVASES_ROOT,
-            '',
-            'Current active canvas:',
-            CANVAS_PATH,
-            '',
-            'Workspace canvas summaries:',
-            JSON.stringify(workspaceCanvasSummaries(), null, 2),
-            '',
-            'User request:',
-            promptText
-        ].join('\n');
-    }
-
     if (target) {
         return [
             AGENT_PROMPT,
@@ -841,7 +909,7 @@ const agentJobPrompt = job => {
             'Target component:',
             JSON.stringify({
                 ...target,
-                componentPath: target.componentPath ? componentScopePath(resolveFromRoot(target.componentPath)) : target.componentPath || null
+                componentPath: target.componentPath ? componentScopePath(resolveCanvasReference(target.componentPath)) : target.componentPath || null
             }, null, 2),
             '',
             'Request:',
@@ -849,7 +917,7 @@ const agentJobPrompt = job => {
         ].join('\n');
     }
 
-    const componentPath = job.componentPath ? resolveFromRoot(job.componentPath) : null;
+    const componentPath = job.componentPath ? resolveCanvasReference(job.componentPath) : null;
     const componentFolder = componentPath ? componentScopePath(componentPath) : null;
     const componentJson = componentPath ? fs.readFileSync(componentPath, 'utf8') : null;
     const canvasJson = fs.readFileSync(INPUT_PATH, 'utf8');
@@ -951,12 +1019,12 @@ const runAgentOneshot = (prompt, context = {}) =>
 
         proc.stdout.on('data', chunk => {
             stdout += chunk;
-            process.stdout.write(chunk);
+            writeProcessOutput(`[hermes-oneshot:${context.job || 'manual'}:stdout]`, chunk);
         });
 
         proc.stderr.on('data', chunk => {
             stderr += chunk;
-            process.stderr.write(chunk);
+            writeProcessOutput(`[hermes-oneshot:${context.job || 'manual'}:stderr]`, chunk, process.stderr);
         });
 
         proc.on('error', error => {
@@ -993,9 +1061,8 @@ const runAgentOneshot = (prompt, context = {}) =>
 
 const processOutputJob = async job => {
     const jobId = job.id || 'job-' + Date.now();
-    const componentPath = job.componentPath ? resolveFromRoot(job.componentPath) : null;
+    const componentPath = job.componentPath ? resolveCanvasReference(job.componentPath) : null;
     const laneKey = outputJobKey(job);
-    const isWorkspaceJob = job.scope === 'workspace' || laneKey === 'workspace';
     const isCanvasJob = job.scope === 'canvas' || laneKey === 'canvas';
     const startedAt = Date.now();
 
@@ -1027,15 +1094,9 @@ const processOutputJob = async job => {
             response: shortText(response)
         });
 
-        if (isWorkspaceJob) {
-            validateWorkspaceCanvases();
-        } else {
-            validateCanvasConfig();
-        }
+        validateCanvasConfig();
 
-        if (isWorkspaceJob) {
-            // Workspace validation already checked every known canvas component.
-        } else if (isCanvasJob) {
+        if (isCanvasJob) {
             validateComponentFiles(inputEntries().map(entry => entry.componentPath));
         } else if (componentPath) {
             validateComponentFile(componentPath);
@@ -1125,62 +1186,6 @@ const availableCanvases = () =>
 const readCanvasInputAt = canvasPath =>
     readJson(path.join(canvasPath, 'input.json'));
 
-const readCanvasJobsAt = canvasPath => {
-    const outputPath = path.join(canvasPath, 'output.json');
-
-    if (!fs.existsSync(outputPath)) {
-        return [];
-    }
-
-    const value = readJson(outputPath);
-    return Array.isArray(value) ? value.filter(isObject) : [];
-};
-
-const canvasComponentPathsAt = canvasPath => {
-    const input = readCanvasInputAt(canvasPath);
-
-    return Array.isArray(input.components)
-        ? input.components.filter(componentPath => typeof componentPath === 'string')
-        : [];
-};
-
-const workspaceCanvasSummaries = () =>
-    availableCanvases().map(canvas => {
-        const jobs = readCanvasJobsAt(canvas.path);
-        const components = canvasComponentPathsAt(canvas.path);
-
-        return {
-            name: canvas.name,
-            current: canvas.current,
-            inputPath: path.join(canvas.path, 'input.json'),
-            outputPath: path.join(canvas.path, 'output.json'),
-            componentCount: components.length,
-            components,
-            activeJobs: jobs
-                .filter(job => job && ['pending', 'running'].includes(job.status))
-                .map(jobLaneSummary)
-        };
-    });
-
-const validateWorkspaceCanvases = () => {
-    availableCanvases().forEach(canvas => {
-        const inputPath = path.join(canvas.path, 'input.json');
-        const input = readJson(inputPath);
-
-        if (!Array.isArray(input.components)) {
-            throw new Error('Canvas config must contain a components array: ' + inputPath);
-        }
-
-        input.components.forEach((componentPath, index) => {
-            if (typeof componentPath !== 'string') {
-                throw new Error('Canvas component path at index ' + index + ' must be a string: ' + inputPath);
-            }
-
-            validateComponentFile(resolveFromRoot(componentPath));
-        });
-    });
-};
-
 const switchCanvas = name => {
     if (!/^[^/][^/]*$/.test(name)) {
         const error = new Error('Invalid canvas name');
@@ -1211,46 +1216,13 @@ const createCanvas = name => {
         throw error;
     }
 
-    const canvasPath = path.join(CANVASES_ROOT, safeName);
-
-    if (fs.existsSync(canvasPath)) {
+    if (fs.existsSync(path.join(CANVASES_ROOT, safeName))) {
         const error = new Error('Canvas already exists: ' + safeName);
         error.statusCode = 409;
         throw error;
     }
 
-    fs.mkdirSync(canvasPath, { recursive: true });
-
-    if (fs.existsSync(CANVAS_TEMPLATE_ROOT)) {
-        const copyTemplate = (source, target) => {
-            fs.mkdirSync(target, { recursive: true });
-
-            for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
-                if (entry.name === '.gitkeep') {
-                    continue;
-                }
-
-                const sourcePath = path.join(source, entry.name);
-                const targetPath = path.join(target, entry.name);
-
-                if (entry.isDirectory()) {
-                    copyTemplate(sourcePath, targetPath);
-                } else if (entry.isFile()) {
-                    fs.copyFileSync(sourcePath, targetPath);
-                }
-            }
-        };
-
-        copyTemplate(CANVAS_TEMPLATE_ROOT, canvasPath);
-    }
-
-    fs.mkdirSync(path.join(canvasPath, 'components'), { recursive: true });
-    writeJson(path.join(canvasPath, 'input.json'), {
-        components: [],
-        css: 'body{background:#0b1120}'
-    });
-    writeJson(path.join(canvasPath, 'output.json'), []);
-    writeJson(path.join(canvasPath, 'deltas.json'), []);
+    ensureCanvasDefaults(safeName);
     return safeName;
 };
 
@@ -1520,7 +1492,7 @@ const inputEntries = () => {
 
         return {
             index,
-            componentPath: resolveFromRoot(componentPath)
+            componentPath: resolveCanvasReference(componentPath)
         };
     });
 };
@@ -1536,7 +1508,7 @@ const findLeafComponentByScope = scopePath => {
         return null;
     }
 
-    const absolute = resolveFromRoot(scopePath);
+    const absolute = resolveCanvasReference(scopePath);
 
     return leafComponents().find(entry =>
         entry.componentPath === scopePath
@@ -1662,30 +1634,12 @@ const readBody = req =>
 const appendOutput = async req => {
     const body = JSON.parse(await readBody(req));
     const request = String(body.request || body.prompt || '').trim();
-    const isWorkspacePrompt = body.scope === 'workspace' || body.workspace === true;
-    const isCanvasPrompt = !isWorkspacePrompt && !Object.hasOwn(body, 'target') && !Object.hasOwn(body, 'componentIndex');
+    const isCanvasPrompt = !Object.hasOwn(body, 'target') && !Object.hasOwn(body, 'componentIndex');
 
     if (!request) {
         throw new Error('Prompt requires prompt text');
     }
 
-
-    if (isWorkspacePrompt) {
-        logServer('callback', 'received workspace prompt', {
-            canvas: CANVAS_PATH,
-            request,
-            canvases: availableCanvases().length
-        });
-        await appendOutputJob({
-            id: 'workspace-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
-            scope: 'workspace',
-            status: 'pending',
-            createdAt: new Date().toISOString(),
-            componentKey: 'workspace',
-            prompt: request
-        });
-        return;
-    }
 
     if (isCanvasPrompt) {
         logServer('callback', 'received canvas prompt', {
@@ -1708,7 +1662,7 @@ const appendOutput = async req => {
     const target = body.target || null;
     const canonicalTarget = target
         ? (() => {
-            const targetComponentPath = target.componentPath ? resolveFromRoot(target.componentPath) : null;
+            const targetComponentPath = target.componentPath ? resolveCanvasReference(target.componentPath) : null;
 
             return targetComponentPath
                 ? {
@@ -1841,7 +1795,7 @@ const server = http.createServer(async (req, res) => {
             const name = createCanvas(body.name);
 
             switchCanvas(name);
-            commitCanvases({ scope: 'workspace', prompt: 'create canvas: ' + name });
+            commitCanvases({ scope: 'canvas', prompt: 'create canvas: ' + name });
             broadcast();
             send(res, 201, JSON.stringify({
                 current: canvasName(CANVAS_PATH),
@@ -1980,7 +1934,7 @@ process.on('SIGTERM', () => {
     process.exit(143);
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
     console.log('Build: ' + SERVER_BUILD);
     console.log('Server at http://localhost:' + PORT);
     console.log('Canvas: ' + CANVAS_PATH);
