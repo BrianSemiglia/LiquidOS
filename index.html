@@ -285,6 +285,7 @@
         <button type="submit">Send</button>
     </form>
 
+    <script src="/hermesOnboarding.js"></script>
     <script>
         const app = document.getElementById('app');
         const globalForm = document.getElementById('global-prompt');
@@ -293,81 +294,6 @@
         const canvasSelect = document.getElementById('canvas-select');
         const newCanvas = document.getElementById('new-canvas');
         const instanceStyle = document.createElement('style');
-
-        const agentSetupBackdrop = document.getElementById('agent-setup-backdrop');
-        const agentSetup = document.getElementById('agent-setup');
-        let selectedLocalAgent = null;
-
-        const agentInstallOptions = [
-            {
-                id: 'claude-code',
-                label: 'Claude Code',
-                installCommand: 'curl -fsSL https://claude.ai/install.sh | bash && claude'
-            },
-            {
-                id: 'codex',
-                label: 'Codex',
-                installCommand: 'npm install -g @openai/codex && codex'
-            }
-        ];
-
-        const escapeHTML = value => String(value || '')
-            .replaceAll('&', '&amp;')
-            .replaceAll('<', '&lt;')
-            .replaceAll('>', '&gt;')
-            .replaceAll('"', '&quot;');
-
-        const copyText = text => navigator.clipboard?.writeText(text).catch(() => {});
-
-        const renderAgentInstall = () => {
-            agentSetupBackdrop.dataset.open = 'true';
-            agentSetup.innerHTML = `
-                <h1>Install a local agent</h1>
-                ${agentInstallOptions.map(agent => `
-                    <div class="agent-setup-card">
-                        <h2>${escapeHTML(agent.label)}</h2>
-                        <div class="agent-setup-command">
-                            <code>${escapeHTML(agent.installCommand)}</code>
-                            <button type="button" class="secondary" data-copy-command="${escapeHTML(agent.installCommand)}">Copy</button>
-                        </div>
-                    </div>
-                `).join('')}
-                <button type="button" id="agent-refresh">Ok, I’ve installed one</button>
-            `;
-            agentSetup.querySelectorAll('[data-copy-command]').forEach(button => {
-                button.addEventListener('click', () => copyText(button.dataset.copyCommand || ''));
-            });
-            document.getElementById('agent-refresh').addEventListener('click', probeAgents);
-        };
-
-        const renderAgentPicker = agents => {
-            agentSetupBackdrop.dataset.open = 'true';
-            agentSetup.innerHTML = `
-                <h1>Choose a local agent</h1>
-                <div class="agent-picker">
-                    ${agents.map(agent => `
-                        <button type="button" data-agent-id="${escapeHTML(agent.id)}">${escapeHTML(agent.label)}</button>
-                    `).join('')}
-                </div>
-            `;
-            agentSetup.querySelectorAll('[data-agent-id]').forEach(button => {
-                button.addEventListener('click', () => {
-                    selectedLocalAgent = agents.find(agent => agent.id === button.dataset.agentId) || null;
-                    agentSetupBackdrop.dataset.open = 'false';
-                });
-            });
-        };
-
-        const probeAgents = () =>
-            fetch('/agents/probe', { cache: 'no-store' })
-                .then(response => response.ok ? response.json() : Promise.reject(new Error('Could not probe agents')))
-                .then(result => {
-                    const agents = (result.agents || []).filter(agent => agent.usable);
-                    selectedLocalAgent = agents[0] || null;
-                    agentSetupBackdrop.dataset.open = agents.length ? 'false' : 'true';
-                    if (!agents.length) renderAgentInstall();
-                })
-                .catch(renderAgentInstall);
         const layoutStyle = document.createElement('style');
         const transitionStyle = document.createElement('style');
         let latestComponents = [];
@@ -414,6 +340,17 @@
 
             setBusy(await response.json());
         };
+
+        const hermesOnboarding = typeof window.createHermesOnboarding === 'function'
+            ? window.createHermesOnboarding({
+                refreshStatus,
+                globalStatus
+            })
+            : {
+                probe: async () => {},
+                render: () => {}
+            };
+        hermesOnboarding.probe().catch(() => {});
 
         const watchBusy = () => {
             refreshStatus().catch(error => {
@@ -893,6 +830,47 @@
             lastCanvasSnapshot = snapshot;
         };
 
+        const loadCanvases = async () => {
+            const response = await fetch('/canvases', { cache: 'no-store' });
+
+            if (!response.ok) {
+                throw new Error('/canvases returned ' + response.status);
+            }
+
+            const data = await response.json();
+            const canvases = Array.isArray(data.canvases) ? data.canvases : [];
+            const current = typeof data.current === 'string' ? data.current : '';
+
+            canvasSelect.replaceChildren(...canvases.map(canvas => {
+                const option = document.createElement('option');
+                option.value = canvas.name || '';
+                option.textContent = canvas.name || '';
+                option.selected = option.value === current;
+                return option;
+            }));
+
+            if (current && canvasSelect.value !== current) {
+                canvasSelect.value = current;
+            }
+        };
+
+        const switchCanvas = async name => {
+            const response = await fetch('/canvas', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ name })
+            });
+
+            if (!response.ok) {
+                throw new Error('/canvas returned ' + response.status);
+            }
+
+            await load();
+            await loadCanvases();
+        };
+
         globalText.addEventListener('keydown', event => {
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
@@ -1006,8 +984,6 @@
                 app.textContent = 'Error: ' + error.message;
             });
         };
-
-        probeAgents();
 
         load().catch(error => {
             app.textContent = 'Error: ' + error.message;

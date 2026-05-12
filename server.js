@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { createGitTimeline } = require('./gitTimeline');
+const { createHermesBootstrap } = require('./hermesBootstrap');
 const pty = require('node-pty');
 
 const ROOT = __dirname;
@@ -165,6 +166,11 @@ const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', [
     'The canvases directory is under Git control as a read-only activity timeline for the agent. Commits are made automatically by the server after successful work. You may inspect Git history to answer questions like when something happened, what changed, or what the user may have been trying to do, but do not create, amend, revert, reset, rebase, or otherwise mutate Git history.'
 ].join(' ')));
 
+const hermesBootstrap = createHermesBootstrap({
+    root: ROOT,
+    agentCommand: AGENT_COMMAND
+});
+
 const clients = new Set();
 let watchers = [];
 let watchTimer;
@@ -173,59 +179,6 @@ let activeCanvasRuntime = null;
 let outputDispatchTimer = null;
 let outputDispatching = false;
 const activeOutputKeys = new Set();
-
-
-const localAgentDefinitions = [
-    {
-        id: 'claude-code',
-        label: 'Claude Code',
-        command: 'claude',
-        installCommand: 'curl -fsSL https://claude.ai/install.sh | bash && claude'
-    },
-    {
-        id: 'codex',
-        label: 'Codex',
-        command: 'codex',
-        installCommand: 'npm install -g @openai/codex && codex'
-    }
-];
-
-const commandExists = command =>
-    spawnSync('which', [command], {
-        cwd: ROOT,
-        env: process.env,
-        encoding: 'utf8'
-    }).status === 0;
-
-const probeLocalAgents = () => {
-    if (!commandExists(AGENT_COMMAND)) {
-        return {
-            hermes: {
-                installed: false,
-                usable: false,
-                command: AGENT_COMMAND
-            },
-            agents: []
-        };
-    }
-
-    return {
-        hermes: {
-            installed: true,
-            usable: true,
-            command: AGENT_COMMAND
-        },
-        agents: [
-            {
-                id: 'hermes',
-                label: 'Hermes',
-                command: AGENT_COMMAND,
-                installed: true,
-                usable: true
-            }
-        ]
-    };
-};
 
 const logServer = (area, message, details = null) => {
     const suffix = details ? ' ' + JSON.stringify(details) : '';
@@ -395,7 +348,9 @@ const createCanvasRuntime = canvasPath => {
             ensureCanvasesGitRepo();
             normalizeOutputJobs();
             activeOutputKeys.clear();
-            startCanvasHermesHost(this.canvasPath);
+            if (hermesBootstrap.currentHermesBootstrapState().configured) {
+                startCanvasHermesHost(this.canvasPath);
+            }
             watchGraph();
             feedHermesOutput();
             return this;
@@ -559,7 +514,7 @@ const normalizeOutputJobs = () => {
 };
 
 const buildCanvasHermesArgs = () => {
-    const liveArgs = [];
+    const liveArgs = [...hermesBootstrap.selectedHermesLaunchArgs()];
 
     for (let index = 0; index < AGENT_ARGS.length; index += 1) {
         const arg = AGENT_ARGS[index];
@@ -598,6 +553,7 @@ const buildCanvasHermesArgs = () => {
 
 const buildCanvasHermesEnv = () => ({
     ...process.env,
+    ...hermesBootstrap.selectedHermesLaunchEnv(),
     LIVE_EDIT_OUTPUT_PATH: OUTPUT_PATH,
     LIVE_EDIT_INPUT_PATH: INPUT_PATH,
     LIVE_EDIT_CANVAS_PATH: CANVAS_PATH
@@ -651,6 +607,11 @@ const startCanvasHermesHost = canvasPath => {
 
     if (activeCanvasHermes && activeCanvasHermes.canvasPath === resolvedCanvasPath && !activeCanvasHermes.exited) {
         return activeCanvasHermes;
+    }
+
+    if (!hermesBootstrap.currentHermesBootstrapState().configured) {
+        console.log('[hermes-host] waiting for Hermes model selection before start');
+        return null;
     }
 
     stopCanvasHermesHost();
@@ -986,15 +947,16 @@ const runAgentOneshot = (prompt, context = {}) =>
 
         logServer('agent', 'starting oneshot', {
             command: AGENT_COMMAND,
-            args: AGENT_ARGS,
+            args: [...hermesBootstrap.selectedHermesLaunchArgs(), ...AGENT_ARGS],
             canvas: CANVAS_PATH,
             job: context.job || null
         });
 
-        const proc = spawn(AGENT_COMMAND, [...AGENT_ARGS, prompt], {
+        const proc = spawn(AGENT_COMMAND, [...hermesBootstrap.selectedHermesLaunchArgs(), ...AGENT_ARGS, prompt], {
             cwd: ROOT,
             env: {
                 ...process.env,
+                ...hermesBootstrap.selectedHermesLaunchEnv(),
                 LIVE_EDIT_OUTPUT_PATH: OUTPUT_PATH,
                 LIVE_EDIT_INPUT_PATH: INPUT_PATH,
                 LIVE_EDIT_CANVAS_PATH: CANVAS_PATH
@@ -1755,7 +1717,27 @@ const server = http.createServer(async (req, res) => {
 
 
         if (req.method === 'GET' && url.pathname === '/agents/probe') {
-            send(res, 200, JSON.stringify(probeLocalAgents()), 'application/json; charset=utf-8');
+            send(res, 200, JSON.stringify(hermesBootstrap.probeLocalAgents()), 'application/json; charset=utf-8');
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/agents/select') {
+            const body = JSON.parse(await readBody(req));
+            const result = hermesBootstrap.selectHermesBackend(body.id);
+
+            if (!result.ok) {
+                send(res, result.statusCode, JSON.stringify({ error: result.error }), 'application/json; charset=utf-8');
+                return;
+            }
+
+            startCanvasHermesHost(CANVAS_PATH);
+            feedHermesOutput();
+            broadcast();
+            send(res, 200, JSON.stringify({
+                ok: true,
+                hermes: result.hermes,
+                selected: result.selected
+            }), 'application/json; charset=utf-8');
             return;
         }
 
