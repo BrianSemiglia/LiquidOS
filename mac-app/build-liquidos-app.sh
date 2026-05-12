@@ -99,6 +99,8 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 export PYTHONHOME="$DIR/python/Frameworks/Python.framework/Versions/3.11"
 export PYTHONPATH="$DIR/hermes-agent:$DIR/site-packages${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONNOUSERSITE=1
+export HERMES_HOME="$HOME/Library/Application Support/LiquidOS/Hermes"
+mkdir -p "$HERMES_HOME"
 exec "$DIR/python/bin/python3.11" -m hermes_cli.main "$@"
 SH
   chmod +x "$HERMES_BUNDLE_ROOT/hermes"
