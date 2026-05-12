@@ -1,24 +1,23 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-INSTANCE_NAME="$1"
+INSTANCE_NAME="${1:-}"
+CANVASES_DIR="${2:-${CANVASES_ROOT:-}}"
 
 if [ -z "$INSTANCE_NAME" ]; then
-    echo "Usage: $0 <instance-name>"
+    echo "Usage: $0 <instance-name> [canvases-root]"
     echo ""
-    echo "Creates a new canvas instance under canvases/<instance-name>/"
+    echo "Creates a new canvas instance."
+    echo "Uses [canvases-root], CANVASES_ROOT, or the nearest ./canvases folder."
     exit 1
 fi
 
-# Project root: where server.js lives
-# Try current directory first, then search upward
 PROJECT_ROOT=""
 if [ -f "server.js" ]; then
     PROJECT_ROOT="$(pwd)"
 else
-    # Search upward for server.js
     DIR="$(pwd)"
-    for i in {1..5}; do
+    for _ in 1 2 3 4 5; do
         if [ -f "$DIR/server.js" ]; then
             PROJECT_ROOT="$DIR"
             break
@@ -27,63 +26,93 @@ else
     done
 fi
 
-if [ -z "$PROJECT_ROOT" ]; then
-    echo "Error: Could not find server.js in current directory or parents."
-    echo "Please run from your project root directory."
+if [ -z "$CANVASES_DIR" ]; then
+    if [ -n "$PROJECT_ROOT" ]; then
+        CANVASES_DIR="$PROJECT_ROOT/canvases"
+    elif [ -d "canvases" ]; then
+        CANVASES_DIR="$(pwd)/canvases"
+    else
+        CANVASES_DIR="$(pwd)"
+    fi
+fi
+
+SAFE_NAME="$(printf '%s' "$INSTANCE_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//')"
+
+if [ -z "$SAFE_NAME" ]; then
+    echo "Error: canvas name is required."
     exit 1
 fi
 
-CANVASES_DIR="$PROJECT_ROOT/canvases"
-INSTANCE_DIR="$CANVASES_DIR/$INSTANCE_NAME"
+INSTANCE_DIR="$CANVASES_DIR/$SAFE_NAME"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMPLATE_DIR=""
 
-echo "Project root: $PROJECT_ROOT"
-echo "Creating canvas instance: $INSTANCE_DIR"
-echo ""
+for CANDIDATE in \
+    "$PROJECT_ROOT/templates/canvas" \
+    "$SCRIPT_DIR/../templates/canvas" \
+    "$HOME/.hermes/skills/canvas-instance-creator/templates/canvas"; do
+    if [ -n "$CANDIDATE" ] && [ -d "$CANDIDATE" ]; then
+        TEMPLATE_DIR="$CANDIDATE"
+        break
+    fi
+done
 
-# Create instance directory structure
+if [ -e "$INSTANCE_DIR" ]; then
+    echo "Error: canvas already exists: $INSTANCE_DIR"
+    exit 1
+fi
+
+echo "Canvases root: $CANVASES_DIR"
+echo "Creating canvas: $INSTANCE_DIR"
+
 mkdir -p "$INSTANCE_DIR/components"
 
-# Create input.json with empty components array
-cat > "$INSTANCE_DIR/input.json" << 'EOF_JSON'
+if [ -n "$TEMPLATE_DIR" ]; then
+    cp -R "$TEMPLATE_DIR/." "$INSTANCE_DIR/"
+    mkdir -p "$INSTANCE_DIR/components"
+fi
+
+if [ ! -f "$INSTANCE_DIR/input.json" ]; then
+    cat > "$INSTANCE_DIR/input.json" <<'JSON'
 {
-  "components": []
+  "components": [],
+  "css": "body{background:#0b1120}"
 }
-EOF_JSON
-
-# Create output.json as empty array
-cat > "$INSTANCE_DIR/output.json" << 'EOF_JSON'
-[]
-EOF_JSON
-
-# Copy canvas.html from live-canvas-server template
-TEMPLATE_DIR="$HOME/.hermes/skills/software-development/live-canvas-server/templates"
-if [ -f "$TEMPLATE_DIR/index.html" ]; then
-    cp "$TEMPLATE_DIR/index.html" "$INSTANCE_DIR/canvas.html"
-    echo "Created: $INSTANCE_DIR/canvas.html (from template)"
-else
-    echo "Warning: index.html template not found at $TEMPLATE_DIR"
-    echo "Please copy canvas.html from an existing instance or create it manually."
+JSON
 fi
 
-# Copy to server root as index.html (follows convention: http://localhost:PORT/ works directly)
-if [ -f "$PROJECT_ROOT/index.html" ]; then
-    echo "Warning: index.html already exists at project root, skipping copy"
-    echo "  (Manual step: cp $INSTANCE_DIR/canvas.html $PROJECT_ROOT/index.html)"
-else
-    cp "$INSTANCE_DIR/canvas.html" "$PROJECT_ROOT/index.html"
-    echo "Copied to: $PROJECT_ROOT/index.html (serves at http://localhost:PORT/)"
+if [ ! -f "$INSTANCE_DIR/output.json" ]; then
+    printf '[]\n' > "$INSTANCE_DIR/output.json"
 fi
 
-echo ""
-echo "Canvas instance created successfully!"
-echo ""
-echo "  Instance directory: $INSTANCE_DIR"
-echo ""
-echo "Next steps:"
-echo "  1. Add component JSON files to: $INSTANCE_DIR/components/"
-echo "  2. Update $INSTANCE_DIR/input.json with component paths"
-echo "  3. Copy canvas.html to project root to serve at http://localhost:xxxx/"
-echo "     cp $INSTANCE_DIR/canvas.html $PROJECT_ROOT/index.html"
-echo "  4. Start the server:"
-echo "     node $PROJECT_ROOT/server.js --input $INSTANCE_DIR/input.json --output $INSTANCE_DIR/output.json --port 3000"
-echo "  5. Open in browser: http://localhost:3000/"
+if [ ! -f "$INSTANCE_DIR/deltas.json" ]; then
+    printf '[]\n' > "$INSTANCE_DIR/deltas.json"
+fi
+
+if [ ! -f "$INSTANCE_DIR/canvas.html" ]; then
+    cat > "$INSTANCE_DIR/canvas.html" <<'HTML'
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blank Canvas</title>
+  <style>
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: #0b1120;
+    }
+  </style>
+</head>
+<body></body>
+</html>
+HTML
+fi
+
+echo "Created:"
+echo "  $INSTANCE_DIR/input.json"
+echo "  $INSTANCE_DIR/output.json"
+echo "  $INSTANCE_DIR/deltas.json"
+echo "  $INSTANCE_DIR/canvas.html"
+echo "  $INSTANCE_DIR/components/"
