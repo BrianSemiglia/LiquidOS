@@ -14,7 +14,7 @@ output.json
 deltas.json
 ```
 
-The prompt bar can switch canvases, create a new canvas, and send canvas-scoped or workspace-scoped prompts. The whole `canvases/` folder is tracked as one Git repo so activity across canvases has a single timeline.
+The prompt bar can switch canvases, create a new canvas, and send canvas-scoped prompts. The whole `canvases/` folder is tracked as one Git repo so activity across canvases has a single timeline.
 
 ## Listening components and plugins
 

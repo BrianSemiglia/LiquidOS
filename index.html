@@ -283,7 +283,6 @@
         </div>
         <textarea id="global-text" placeholder="Prompt the canvas"></textarea>
         <button type="submit">Send</button>
-        <button type="button" id="workspace-send">Workspace</button>
     </form>
 
     <script>
@@ -293,7 +292,6 @@
         const globalStatus = document.getElementById('global-status');
         const canvasSelect = document.getElementById('canvas-select');
         const newCanvas = document.getElementById('new-canvas');
-        const workspaceSend = document.getElementById('workspace-send');
         const instanceStyle = document.createElement('style');
 
         const agentSetupBackdrop = document.getElementById('agent-setup-backdrop');
@@ -393,6 +391,36 @@
         const scrollKey = canvasName => 'live-edit-scroll:' + (canvasName || 'default');
 
         const currentScrollKey = () => scrollKey(canvasSelect.value);
+
+        const setBusy = state => {
+            const job = state?.job?.prompt ? String(state.job.prompt) : '';
+
+            globalForm.dataset.busy = state?.busy ? 'true' : 'false';
+            globalStatus.className = state?.busy ? 'global-status busy' : 'global-status';
+            globalStatus.textContent = state?.busy
+                ? 'Working' + (job ? ': ' + job : '')
+                : '';
+
+            globalForm.querySelector('button[type="submit"]').disabled = Boolean(state?.busy);
+            updatePromptChromeSpace();
+        };
+
+        const refreshStatus = async () => {
+            const response = await fetch('/status', { cache: 'no-store' });
+
+            if (!response.ok) {
+                throw new Error('/status returned ' + response.status);
+            }
+
+            setBusy(await response.json());
+        };
+
+        const watchBusy = () => {
+            refreshStatus().catch(error => {
+                globalStatus.className = 'global-status error';
+                globalStatus.textContent = 'Error: ' + error.message;
+            });
+        };
 
         const saveScrollPosition = () => {
             try {
@@ -521,23 +549,6 @@
             }
 
             setBusy({ busy: true, job: { prompt } });
-            watchBusy();
-        };
-
-        const submitWorkspacePrompt = async prompt => {
-            const response = await fetch('/output', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ scope: 'workspace', prompt })
-            });
-
-            if (!response.ok) {
-                throw new Error('/output returned ' + response.status);
-            }
-
-            setBusy({ busy: true, job: { prompt: '[workspace] ' + prompt } });
             watchBusy();
         };
 
@@ -923,30 +934,11 @@
                 });
         });
 
-        workspaceSend.addEventListener('click', () => {
-            const prompt = globalText.value.trim();
-
-            if (!prompt) {
-                return;
-            }
-
-            globalText.value = '';
-            globalStatus.className = 'global-status';
-            globalStatus.textContent = 'Workspace Hermes working';
-            workspaceSend.disabled = true;
-
-            submitWorkspacePrompt(prompt).catch(error => {
-                globalStatus.className = 'global-status error';
-                globalStatus.textContent = 'Error: ' + error.message;
-                workspaceSend.disabled = false;
-            });
-        });
-
         globalForm.addEventListener('submit', event => {
             event.preventDefault();
 
             const prompt = globalText.value.trim();
-            const button = globalForm.querySelector('button');
+            const button = globalForm.querySelector('button[type="submit"]');
 
             if (!prompt) {
                 globalText.focus();

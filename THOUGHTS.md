@@ -41,3 +41,5 @@ callbacks:
 - default home canvas ✅
 - onboarding hermes check ✅
 - persist user data to application support ✅
+
+- tell agent that user is not technical and won't understand technical terms. 
