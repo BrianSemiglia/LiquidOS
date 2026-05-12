@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0",
+    "playwright": "^1.60.0"
+  }
+}

@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const { spawnSync } = require('child_process');
 
 const createHermesBootstrap = ({ root, agentCommand }) => {
@@ -22,11 +24,13 @@ const createHermesBootstrap = ({ root, agentCommand }) => {
     let selectedHermesBackend = null;
 
     const commandExists = command =>
-        spawnSync('which', [command], {
-            cwd: root,
-            env: process.env,
-            encoding: 'utf8'
-        }).status === 0;
+        command && (path.isAbsolute(command)
+            ? fs.existsSync(command)
+            : spawnSync('which', [command], {
+                cwd: root,
+                env: process.env,
+                encoding: 'utf8'
+            }).status === 0);
 
     const readHermesConfiguredModel = () => {
         if (!commandExists(agentCommand)) {

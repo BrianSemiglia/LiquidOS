@@ -101,7 +101,18 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         server = Process()
         server?.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         server?.currentDirectoryURL = webRoot
-        server?.arguments = ["node", "server.js", "--port", String(port), "--canvases", Self.canvasesRoot().path]
+        let environment = Self.serverEnvironment()
+        let hermesCommand = Self.resolvedHermesCommand(environment: environment)
+        server?.arguments = [
+            "node",
+            "server.js",
+            "--port",
+            String(port),
+            "--canvases",
+            Self.canvasesRoot().path,
+            "--agent",
+            hermesCommand
+        ]
         server?.environment = [
             "PATH": [
                 NSHomeDirectory() + "/.local/bin",
@@ -117,7 +128,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             ].joined(separator: ":"),
             "HOME": NSHomeDirectory(),
             "LIQUIDOS_NATIVE": "1"
-        ]
+        ].merging(environment) { _, new in new }
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -203,6 +214,71 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("LiquidOS", isDirectory: true)
             .appendingPathComponent("canvases", isDirectory: true)
+    }
+
+    private static func serverEnvironment() -> [String: String] {
+        var environment: [String: String] = [:]
+        if let bundledHermes = bundledHermesExecutablePath() {
+            environment["LIQUIDOS_BUNDLED_HERMES"] = bundledHermes
+        }
+        return environment
+    }
+
+    private static func bundledHermesExecutablePath() -> String? {
+        guard let resourceURL = Bundle.main.resourceURL else {
+            return nil
+        }
+
+        let candidate = resourceURL.appendingPathComponent("Web/Hermes/hermes")
+        return FileManager.default.isExecutableFile(atPath: candidate.path) ? candidate.path : nil
+    }
+
+    private static func resolvedHermesCommand(environment: [String: String]) -> String {
+        if Self.commandExists("hermes", environment: environment) {
+            return "hermes"
+        }
+
+        if let bundledHermes = environment["LIQUIDOS_BUNDLED_HERMES"], Self.commandExists(bundledHermes, environment: environment) {
+            return bundledHermes
+        }
+
+        return "hermes"
+    }
+
+    private static func commandExists(_ command: String, environment: [String: String]) -> Bool {
+        if command.hasPrefix("/") {
+            return FileManager.default.isExecutableFile(atPath: command)
+        }
+
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        task.arguments = ["which", command]
+        task.environment = [
+            "PATH": [
+                NSHomeDirectory() + "/.local/bin",
+                NSHomeDirectory() + "/.cargo/bin",
+                NSHomeDirectory() + "/.bun/bin",
+                "/opt/homebrew/bin",
+                "/opt/homebrew/sbin",
+                "/usr/local/bin",
+                "/usr/bin",
+                "/bin",
+                "/usr/sbin",
+                "/sbin"
+            ].joined(separator: ":"),
+            "HOME": NSHomeDirectory(),
+            "LIQUIDOS_NATIVE": "1"
+        ].merging(environment) { _, new in new }
+        task.standardOutput = Pipe()
+        task.standardError = Pipe()
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+            return task.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
     
     private static func freePort() -> Int {

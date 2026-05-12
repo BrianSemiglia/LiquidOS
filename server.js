@@ -133,7 +133,46 @@ if (!fs.existsSync(path.join(CANVAS_PATH, 'input.json'))) {
     DELTAS_PATH = path.join(CANVAS_PATH, 'deltas.json');
 }
 const PORT = Number.parseInt(argValue('--port', '3000'), 10);
-const AGENT_COMMAND = argValue('--agent', argValue('--hermes-command', 'hermes'));
+const commandExists = command => {
+    if (!command) {
+        return false;
+    }
+
+    if (path.isAbsolute(command)) {
+        return fs.existsSync(command);
+    }
+
+    const result = spawnSync('which', [command], {
+        cwd: ROOT,
+        env: process.env,
+        encoding: 'utf8'
+    });
+
+    return result.status === 0;
+};
+
+const resolveHermesCommand = () => {
+    const explicitCommand = argValue('--agent', argValue('--hermes-command', '')).trim();
+
+    if (explicitCommand) {
+        return explicitCommand;
+    }
+
+    if (commandExists('hermes')) {
+        return 'hermes';
+    }
+
+    const bundledHermes = String(process.env.LIQUIDOS_BUNDLED_HERMES || '').trim();
+
+    if (bundledHermes && commandExists(bundledHermes)) {
+        return bundledHermes;
+    }
+
+    return 'hermes';
+};
+
+const AGENT_COMMAND = resolveHermesCommand();
+const AGENT_SOURCE = path.isAbsolute(AGENT_COMMAND) ? 'bundled' : 'global';
 const AGENT_ARGS = argValue('--agent-args', argValue('--hermes-args', '--oneshot')).split(' ').filter(Boolean);
 const AGENT_TIMEOUT_MS = Number.parseInt(argValue('--agent-timeout-ms', '300000'), 10);
 const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', [
@@ -217,6 +256,7 @@ const pushAgentDebugLine = (label, chunk) => {
 const setCurrentAgentDebug = next => {
     agentDebugState.current = {
         ...next,
+        source: next.source || AGENT_SOURCE,
         at: new Date().toISOString()
     };
 };

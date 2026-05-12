@@ -480,11 +480,13 @@
             const hermes = state && typeof state.hermes === 'object' ? state.hermes : {};
             const lines = Array.isArray(state?.lines) ? state.lines : [];
 
+            const sourceLabel = current.source === 'bundled'
+                ? 'Bundled Hermes'
+                : current.source === 'global'
+                    ? 'Global Hermes'
+                    : '';
             const backendParts = [];
 
-            if (current.command) {
-                backendParts.push(current.command);
-            }
             if (current.provider) {
                 backendParts.push(current.provider);
             }
@@ -497,6 +499,9 @@
             debugCurrentAgent.textContent = current.status
                 ? current.status.charAt(0).toUpperCase() + current.status.slice(1)
                 : 'Idle';
+            if (sourceLabel && current.status === 'running') {
+                debugCurrentAgent.textContent += ' · ' + sourceLabel;
+            }
             debugCurrentBackend.textContent = backendParts.length ? backendParts.join(' · ') : 'Unavailable';
             debugCurrentCanvas.textContent = state && state.canvas ? state.canvas : 'Unknown';
             debugOutput.textContent = lines.length
