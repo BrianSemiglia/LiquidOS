@@ -68,31 +68,61 @@ mkdir -p "$WEB/canvases"
 
 if command -v hermes >/dev/null 2>&1; then
   HERMES_SOURCE_ROOT="$(dirname "$(dirname "$(dirname "$(realpath "$(command -v hermes)")")")")"
-  HERMES_VENV_ROOT="$HERMES_SOURCE_ROOT/venv"
-  HERMES_SITE_PACKAGES="$HERMES_VENV_ROOT/lib/python3.11/site-packages"
-  HERMES_PYTHON_PREFIX="/opt/homebrew/Cellar/python@3.11/3.11.15_1"
-  HERMES_PYTHON_RUNTIME="$WEB/Hermes/python"
   HERMES_BUNDLE_ROOT="$WEB/Hermes"
+  HERMES_PYTHON_PREFIX="/opt/homebrew/Cellar/python@3.11/3.11.15_1"
 
-  mkdir -p "$HERMES_BUNDLE_ROOT"
-  rsync -a \
-    --exclude '.git' \
-    --exclude '.github' \
-    --exclude '.DS_Store' \
-    --exclude '__pycache__' \
-    --exclude 'build' \
-    --exclude 'dist' \
-    --exclude 'node_modules' \
-    --exclude 'venv' \
-    --exclude 'tests' \
-    --exclude 'docs' \
-    "$HERMES_SOURCE_ROOT/" "$HERMES_BUNDLE_ROOT/hermes-agent/"
+  if command -v uv >/dev/null 2>&1; then
+    HERMES_BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/liquidos-hermes-build.XXXXXX")"
+    trap 'rm -rf "$HERMES_BUILD_ROOT"' EXIT
 
-  rsync -a "$HERMES_PYTHON_PREFIX/" "$HERMES_PYTHON_RUNTIME/"
-  mkdir -p "$HERMES_BUNDLE_ROOT/site-packages"
-  rsync -a "$HERMES_SITE_PACKAGES/" "$HERMES_BUNDLE_ROOT/site-packages/"
+    mkdir -p "$HERMES_BUNDLE_ROOT"
+    (
+      cd "$HERMES_SOURCE_ROOT"
+      uv build --wheel --out-dir "$HERMES_BUILD_ROOT/dist"
+    )
+    uv venv "$HERMES_BUILD_ROOT/venv" --python 3.11
+    uv pip install --python "$HERMES_BUILD_ROOT/venv/bin/python" "$HERMES_BUILD_ROOT"/dist/hermes_agent-*.whl
 
-  cat > "$HERMES_BUNDLE_ROOT/hermes" <<'SH'
+    rsync -a "$HERMES_PYTHON_PREFIX/" "$HERMES_BUNDLE_ROOT/python/"
+    mkdir -p "$HERMES_BUNDLE_ROOT/site-packages"
+    rsync -a "$HERMES_BUILD_ROOT/venv/lib/python3.11/site-packages/" "$HERMES_BUNDLE_ROOT/site-packages/"
+
+    cat > "$HERMES_BUNDLE_ROOT/hermes" <<'SH'
+#!/bin/sh
+set -e
+DIR="$(cd "$(dirname "$0")" && pwd)"
+export PYTHONHOME="$DIR/python/Frameworks/Python.framework/Versions/3.11"
+export PYTHONPATH="$DIR/site-packages${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONNOUSERSITE=1
+export HERMES_HOME="$HOME/Library/Application Support/LiquidOS/Hermes"
+mkdir -p "$HERMES_HOME"
+exec "$DIR/python/bin/python3.11" -m hermes_cli.main "$@"
+SH
+    chmod +x "$HERMES_BUNDLE_ROOT/hermes"
+  else
+    HERMES_VENV_ROOT="$HERMES_SOURCE_ROOT/venv"
+    HERMES_SITE_PACKAGES="$HERMES_VENV_ROOT/lib/python3.11/site-packages"
+
+    echo "Warning: uv not found; falling back to source-tree Hermes bundle."
+    mkdir -p "$HERMES_BUNDLE_ROOT"
+    rsync -a \
+      --exclude '.git' \
+      --exclude '.github' \
+      --exclude '.DS_Store' \
+      --exclude '__pycache__' \
+      --exclude 'build' \
+      --exclude 'dist' \
+      --exclude 'node_modules' \
+      --exclude 'venv' \
+      --exclude 'tests' \
+      --exclude 'docs' \
+      "$HERMES_SOURCE_ROOT/" "$HERMES_BUNDLE_ROOT/hermes-agent/"
+
+    rsync -a "$HERMES_PYTHON_PREFIX/" "$HERMES_BUNDLE_ROOT/python/"
+    mkdir -p "$HERMES_BUNDLE_ROOT/site-packages"
+    rsync -a "$HERMES_SITE_PACKAGES/" "$HERMES_BUNDLE_ROOT/site-packages/"
+
+    cat > "$HERMES_BUNDLE_ROOT/hermes" <<'SH'
 #!/bin/sh
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -103,7 +133,8 @@ export HERMES_HOME="$HOME/Library/Application Support/LiquidOS/Hermes"
 mkdir -p "$HERMES_HOME"
 exec "$DIR/python/bin/python3.11" -m hermes_cli.main "$@"
 SH
-  chmod +x "$HERMES_BUNDLE_ROOT/hermes"
+    chmod +x "$HERMES_BUNDLE_ROOT/hermes"
+  fi
 else
   echo "Warning: hermes not found on PATH; app will rely on a bundled fallback if present."
 fi
