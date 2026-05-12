@@ -383,7 +383,7 @@
         <section class="debug-summary">
             <dl>
                 <div>
-                    <dt>Current agent</dt>
+                    <dt>Agent</dt>
                     <dd id="debug-current-agent">Loading</dd>
                 </div>
                 <div>
@@ -494,8 +494,8 @@
                 backendParts.push(hermes.model);
             }
 
-            debugCurrentAgent.textContent = current.label
-                ? current.label + (current.status ? ' · ' + current.status : '')
+            debugCurrentAgent.textContent = current.status
+                ? current.status.charAt(0).toUpperCase() + current.status.slice(1)
                 : 'Idle';
             debugCurrentBackend.textContent = backendParts.length ? backendParts.join(' · ') : 'Unavailable';
             debugCurrentCanvas.textContent = state && state.canvas ? state.canvas : 'Unknown';
