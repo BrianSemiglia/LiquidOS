@@ -10,11 +10,14 @@
 
         :root {
             --prompt-chrome-space: 8rem;
+            --debug-rail-width: 22rem;
+            --debug-rail-gap: 1rem;
         }
 
         body {
             margin: 0;
             padding: 2rem 2rem var(--prompt-chrome-space);
+            padding-left: calc(var(--debug-rail-width) + var(--debug-rail-gap) + 1rem);
             background: #111827;
             color: #f9fafb;
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -60,14 +63,14 @@
 
         .global-prompt {
             position: fixed;
-            left: 50%;
+            left: calc(50% + (var(--debug-rail-width) + var(--debug-rail-gap)) / 2);
             bottom: 1rem;
             z-index: 20;
             display: grid;
             grid-template-columns: auto auto minmax(14rem, 1fr) auto auto;
             gap: 0.45rem;
             align-items: center;
-            width: min(calc(100vw - 2rem), 58rem);
+            width: min(calc(100vw - var(--debug-rail-width) - var(--debug-rail-gap) - 2rem), 58rem);
             padding: 0.55rem;
             border: 1px solid rgba(255, 255, 255, 0.14);
             border-radius: 22px;
@@ -170,14 +173,97 @@
 
         .global-status {
             position: fixed;
-            left: 50%;
+            left: calc(50% + (var(--debug-rail-width) + var(--debug-rail-gap)) / 2);
             bottom: 5.2rem;
             z-index: 21;
-            width: min(calc(100vw - 2rem), 58rem);
+            width: min(calc(100vw - var(--debug-rail-width) - var(--debug-rail-gap) - 2rem), 58rem);
             min-height: 1rem;
             color: rgba(255, 255, 255, 0.62);
             font-size: 0.8rem;
             transform: translateX(-50%);
+        }
+
+        .debug-rail {
+            position: fixed;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            z-index: 25;
+            display: grid;
+            grid-template-rows: auto auto 1fr;
+            gap: 1rem;
+            width: var(--debug-rail-width);
+            padding: 1rem;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(8, 15, 30, 0.84);
+            color: rgba(255, 255, 255, 0.94);
+            backdrop-filter: blur(20px) saturate(1.1);
+            -webkit-backdrop-filter: blur(20px) saturate(1.1);
+            overflow: hidden;
+        }
+
+        .debug-rail h2,
+        .debug-rail h3,
+        .debug-rail p,
+        .debug-rail dl {
+            margin: 0;
+        }
+
+        .debug-rail h2 {
+            font-size: 0.95rem;
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+
+        .debug-summary {
+            display: grid;
+            gap: 0.5rem;
+            padding: 0.8rem;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .debug-summary dl {
+            display: grid;
+            gap: 0.35rem;
+            margin: 0;
+            padding: 0;
+        }
+
+        .debug-summary div {
+            display: grid;
+            gap: 0.15rem;
+        }
+
+        .debug-summary dt {
+            color: rgba(255, 255, 255, 0.52);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }
+
+        .debug-summary dd {
+            color: rgba(255, 255, 255, 0.92);
+            font-size: 0.85rem;
+            margin: 0;
+            word-break: break-word;
+        }
+
+        .debug-output {
+            margin: 0;
+            min-height: 0;
+            padding: 0.85rem;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            border-radius: 12px;
+            background: rgba(2, 6, 23, 0.85);
+            color: rgba(226, 232, 240, 0.92);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            font-size: 0.72rem;
+            line-height: 1.4;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
         }
 
 
@@ -268,10 +354,50 @@
             gap: 0.5rem;
         }
 
+        @media (max-width: 1100px) {
+            :root {
+                --debug-rail-width: 0px;
+                --debug-rail-gap: 0px;
+            }
+
+            body {
+                padding-left: 2rem;
+            }
+
+            .debug-rail {
+                display: none;
+            }
+
+            .global-prompt,
+            .global-status {
+                left: 50%;
+            }
+        }
+
     </style>
 </head>
 <body>
     <main id="app"></main>
+    <aside class="debug-rail" id="debug-rail">
+        <h2>Debug</h2>
+        <section class="debug-summary">
+            <dl>
+                <div>
+                    <dt>Current agent</dt>
+                    <dd id="debug-current-agent">Loading</dd>
+                </div>
+                <div>
+                    <dt>Provider</dt>
+                    <dd id="debug-current-backend">Loading</dd>
+                </div>
+                <div>
+                    <dt>Canvas</dt>
+                    <dd id="debug-current-canvas">Loading</dd>
+                </div>
+            </dl>
+        </section>
+        <pre class="debug-output" id="debug-output"></pre>
+    </aside>
     <div class="agent-setup-backdrop" id="agent-setup-backdrop" data-open="false">
         <section class="agent-setup" id="agent-setup"></section>
     </div>
@@ -293,6 +419,10 @@
         const globalStatus = document.getElementById('global-status');
         const canvasSelect = document.getElementById('canvas-select');
         const newCanvas = document.getElementById('new-canvas');
+        const debugCurrentAgent = document.getElementById('debug-current-agent');
+        const debugCurrentBackend = document.getElementById('debug-current-backend');
+        const debugCurrentCanvas = document.getElementById('debug-current-canvas');
+        const debugOutput = document.getElementById('debug-output');
         const instanceStyle = document.createElement('style');
         const layoutStyle = document.createElement('style');
         const transitionStyle = document.createElement('style');
@@ -339,6 +469,53 @@
             }
 
             setBusy(await response.json());
+        };
+
+        const renderDebugPanel = state => {
+            if (!debugCurrentAgent || !debugCurrentBackend || !debugCurrentCanvas || !debugOutput) {
+                return;
+            }
+
+            const current = state && typeof state.current === 'object' ? state.current : {};
+            const hermes = state && typeof state.hermes === 'object' ? state.hermes : {};
+            const lines = Array.isArray(state?.lines) ? state.lines : [];
+
+            const backendParts = [];
+
+            if (current.command) {
+                backendParts.push(current.command);
+            }
+            if (current.provider) {
+                backendParts.push(current.provider);
+            }
+            if (current.model) {
+                backendParts.push(current.model);
+            } else if (hermes.model) {
+                backendParts.push(hermes.model);
+            }
+
+            debugCurrentAgent.textContent = current.label
+                ? current.label + (current.status ? ' · ' + current.status : '')
+                : 'Idle';
+            debugCurrentBackend.textContent = backendParts.length ? backendParts.join(' · ') : 'Unavailable';
+            debugCurrentCanvas.textContent = state && state.canvas ? state.canvas : 'Unknown';
+            debugOutput.textContent = lines.length
+                ? lines.map(line => {
+                    const stamp = line.at ? String(line.at).slice(11, 19) : '??:??:??';
+                    return '[' + stamp + '] ' + (line.label || 'log') + ' ' + (line.text || '');
+                }).join('\n')
+                : 'No agent output yet.';
+            debugOutput.scrollTop = debugOutput.scrollHeight;
+        };
+
+        const loadDebugPanel = async () => {
+            const response = await fetch('/debug/agent', { cache: 'no-store' });
+
+            if (!response.ok) {
+                throw new Error('/debug/agent returned ' + response.status);
+            }
+
+            renderDebugPanel(await response.json());
         };
 
         const hermesOnboarding = typeof window.createHermesOnboarding === 'function'
@@ -980,10 +1157,17 @@
 
         new EventSource('/events').onmessage = () => {
             refreshStatus().catch(() => {});
+            loadDebugPanel().catch(() => {});
             load().catch(error => {
                 app.textContent = 'Error: ' + error.message;
             });
         };
+
+        loadDebugPanel().catch(error => {
+            if (debugOutput) {
+                debugOutput.textContent = 'Error: ' + error.message;
+            }
+        });
 
         load().catch(error => {
             app.textContent = 'Error: ' + error.message;
@@ -993,6 +1177,10 @@
             globalStatus.textContent = 'Error: ' + error.message;
         });
         watchBusy();
+
+        setInterval(() => {
+            loadDebugPanel().catch(() => {});
+        }, 1000);
     </script>
 </body>
 </html>

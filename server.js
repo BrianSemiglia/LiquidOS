@@ -179,6 +179,52 @@ let activeCanvasRuntime = null;
 let outputDispatchTimer = null;
 let outputDispatching = false;
 const activeOutputKeys = new Set();
+const agentDebugState = {
+    current: {
+        kind: 'idle',
+        label: 'Idle',
+        status: 'waiting'
+    },
+    lines: []
+};
+
+const stripAnsi = value =>
+    String(value || '')
+        .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
+        .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, '')
+        .replace(/\r/g, '');
+
+const pushAgentDebugLine = (label, chunk) => {
+    String(chunk).split(/(?<=\n)/).forEach(line => {
+        const text = stripAnsi(line).trimEnd();
+
+        if (!text) {
+            return;
+        }
+
+        agentDebugState.lines.push({
+            at: new Date().toISOString(),
+            label,
+            text
+        });
+
+        if (agentDebugState.lines.length > 300) {
+            agentDebugState.lines.splice(0, agentDebugState.lines.length - 300);
+        }
+    });
+};
+
+const setCurrentAgentDebug = next => {
+    agentDebugState.current = {
+        ...next,
+        at: new Date().toISOString()
+    };
+};
+
+const currentAgentDebugSnapshot = () => ({
+    current: agentDebugState.current,
+    lines: agentDebugState.lines.slice(-200)
+});
 
 const logServer = (area, message, details = null) => {
     const suffix = details ? ' ' + JSON.stringify(details) : '';
@@ -189,6 +235,7 @@ const writeProcessOutput = (label, chunk, stream = process.stdout) => {
     String(chunk).split(/(?<=\n)/).forEach(line => {
         if (line.length) {
             stream.write(`${label} ${line}`);
+            pushAgentDebugLine(label, line);
         }
     });
 };
@@ -599,6 +646,20 @@ const stopCanvasHermesHost = () => {
         console.error('[hermes-host] failed to stop:', error.message);
     }
 
+    setCurrentAgentDebug({
+        kind: 'hermes-host',
+        label: 'Hermes host',
+        command: AGENT_COMMAND,
+        status: 'stopped',
+        canvas: path.relative(CANVASES_ROOT, host.canvasPath),
+        startedAt: host.startedAt,
+        exitedAt: new Date().toISOString(),
+        exitCode: host.exitCode,
+        signal: host.signal,
+        provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
+        model: hermesBootstrap.currentHermesBootstrapState().model || null
+    });
+
     return true;
 };
 
@@ -611,6 +672,14 @@ const startCanvasHermesHost = canvasPath => {
 
     if (!hermesBootstrap.currentHermesBootstrapState().configured) {
         console.log('[hermes-host] waiting for Hermes model selection before start');
+        setCurrentAgentDebug({
+            kind: 'idle',
+            label: 'Idle',
+            command: AGENT_COMMAND,
+            status: 'waiting for Hermes model selection',
+            provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
+            model: hermesBootstrap.currentHermesBootstrapState().model || null
+        });
         return null;
     }
 
@@ -636,6 +705,18 @@ const startCanvasHermesHost = canvasPath => {
         outputTail: '',
         bootstrapSent: false
     };
+
+    setCurrentAgentDebug({
+        kind: 'hermes-host',
+        label: 'Hermes host',
+        command: AGENT_COMMAND,
+        status: 'running',
+        canvas: path.relative(CANVASES_ROOT, host.canvasPath),
+        startedAt: host.startedAt,
+        pid: host.proc.pid || null,
+        provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
+        model: hermesBootstrap.currentHermesBootstrapState().model || null
+    });
 
     host.proc.onData(data => {
         host.outputTail = (host.outputTail + data).slice(-16384);
@@ -685,6 +766,15 @@ const startCanvasHermesHost = canvasPath => {
         if (activeCanvasHermes === host) {
             activeCanvasHermes = null;
         }
+
+        setCurrentAgentDebug({
+            kind: 'idle',
+            label: 'Idle',
+            command: AGENT_COMMAND,
+            status: 'waiting',
+            provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
+            model: hermesBootstrap.currentHermesBootstrapState().model || null
+        });
 
         if (!host.stopped && CANVAS_PATH === host.canvasPath) {
             setTimeout(() => {
@@ -964,6 +1054,18 @@ const runAgentOneshot = (prompt, context = {}) =>
             stdio: ['ignore', 'pipe', 'pipe']
         });
 
+        setCurrentAgentDebug({
+            kind: 'oneshot',
+            label: 'Hermes oneshot',
+            command: AGENT_COMMAND,
+            status: 'running',
+            job: context.job || null,
+            pid: proc.pid || null,
+            startedAt: new Date().toISOString(),
+            provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
+            model: hermesBootstrap.currentHermesBootstrapState().model || null
+        });
+
         logServer('agent', 'spawned oneshot process', {
             pid: proc.pid,
             job: context.job || null
@@ -995,6 +1097,15 @@ const runAgentOneshot = (prompt, context = {}) =>
                 error: error.message,
                 job: context.job || null
             });
+            setCurrentAgentDebug({
+                kind: 'idle',
+                label: 'Idle',
+                command: AGENT_COMMAND,
+                status: 'error',
+                error: error.message,
+                provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
+                model: hermesBootstrap.currentHermesBootstrapState().model || null
+            });
             reject(error);
         });
 
@@ -1008,14 +1119,42 @@ const runAgentOneshot = (prompt, context = {}) =>
                 job: context.job || null
             });
             if (timedOut) {
+                setCurrentAgentDebug({
+                    kind: 'idle',
+                    label: 'Idle',
+                    command: AGENT_COMMAND,
+                    status: 'timed out',
+                    provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
+                    model: hermesBootstrap.currentHermesBootstrapState().model || null
+                });
                 reject(new Error('Agent timed out after ' + AGENT_TIMEOUT_MS + 'ms'));
                 return;
             }
 
             if (code !== 0) {
+                setCurrentAgentDebug({
+                    kind: 'idle',
+                    label: 'Idle',
+                    command: AGENT_COMMAND,
+                    status: 'failed',
+                    exitCode: code,
+                    provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
+                    model: hermesBootstrap.currentHermesBootstrapState().model || null
+                });
                 reject(new Error('Agent exited with code ' + code + (stderr.trim() ? ': ' + stderr.trim() : '')));
                 return;
             }
+
+            setCurrentAgentDebug({
+                kind: 'hermes-host',
+                label: 'Hermes host',
+                command: AGENT_COMMAND,
+                status: activeCanvasHermes ? 'running' : 'idle',
+                canvas: activeCanvasHermes ? path.relative(CANVASES_ROOT, activeCanvasHermes.canvasPath) : null,
+                startedAt: activeCanvasHermes ? activeCanvasHermes.startedAt : null,
+                provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
+                model: hermesBootstrap.currentHermesBootstrapState().model || null
+            });
 
             resolve(stdout.trim());
         });
@@ -1718,6 +1857,15 @@ const server = http.createServer(async (req, res) => {
 
         if (req.method === 'GET' && url.pathname === '/agents/probe') {
             send(res, 200, JSON.stringify(hermesBootstrap.probeLocalAgents()), 'application/json; charset=utf-8');
+            return;
+        }
+
+        if (req.method === 'GET' && url.pathname === '/debug/agent') {
+            send(res, 200, JSON.stringify({
+                ...currentAgentDebugSnapshot(),
+                hermes: hermesBootstrap.currentHermesBootstrapState(),
+                canvas: canvasName(CANVAS_PATH)
+            }), 'application/json; charset=utf-8');
             return;
         }
 
