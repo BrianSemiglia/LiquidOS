@@ -126,7 +126,6 @@ const hermesBootstrap = createHermesBootstrap({
 });
 
 const clients = new Set();
-const debugClients = new Set();
 let watchers = [];
 let watchTimer;
 let activeCanvasRuntime = null;
@@ -148,26 +147,23 @@ const stripAnsi = value =>
         .replace(/\r/g, '');
 
 const pushAgentDebugLine = (label, chunk) => {
-    String(chunk)
-        .replace(/\r\n/g, '\n')
-        .split('\n')
-        .forEach(line => {
-            const text = stripAnsi(String(line).split('\r').pop()).trimEnd();
+    String(chunk).split(/(?<=\n)/).forEach(line => {
+        const text = stripAnsi(String(line)).trimEnd();
 
-            if (!text.trim()) {
-                return;
-            }
+        if (!text.trim()) {
+            return;
+        }
 
-            agentDebugState.lines.push({
-                at: new Date().toISOString(),
-                label,
-                text
-            });
-
-            if (agentDebugState.lines.length > 300) {
-                agentDebugState.lines.splice(0, agentDebugState.lines.length - 300);
-            }
+        agentDebugState.lines.push({
+            at: new Date().toISOString(),
+            label,
+            text
         });
+
+        if (agentDebugState.lines.length > 300) {
+            agentDebugState.lines.splice(0, agentDebugState.lines.length - 300);
+        }
+    });
 };
 
 const setCurrentAgentDebug = next => {
@@ -180,7 +176,8 @@ const setCurrentAgentDebug = next => {
 
 const currentAgentDebugSnapshot = () => ({
     current: agentDebugState.current,
-    lines: agentDebugState.lines.slice(-200)
+    lines: agentDebugState.lines.slice(-200),
+    transcript: hermesHost ? hermesHost.snapshot().transcript : ''
 });
 
 const logServer = (area, message, details = null) => {
@@ -229,7 +226,7 @@ const writeProcessOutput = (label, chunk, stream = process.stdout) => {
         stream.write(`${label} ${line}`);
         pushAgentDebugLine(label, line);
         appendHermesLog(HERMES_AGENT_LOG_PATH, `${label} ${cleanLine.trimEnd()}`);
-        emitDebugEvent({ type: 'debug-line', line: agentDebugState.lines[agentDebugState.lines.length - 1] || null });
+        broadcast({ type: 'debug-line', line: agentDebugState.lines[agentDebugState.lines.length - 1] || null });
     });
 };
 
@@ -932,14 +929,6 @@ const broadcast = payload => {
     clients.forEach(res => res.write('data: ' + message + '\n\n'));
 };
 
-const emitDebugEvent = payload => {
-    const message = JSON.stringify(payload);
-    debugClients.forEach(res => {
-        res.write('event: ' + payload.type + '\n');
-        res.write('data: ' + message + '\n\n');
-    });
-};
-
 const scheduleWatchRefresh = () => {
     clearTimeout(watchTimer);
     watchTimer = setTimeout(() => {
@@ -1077,19 +1066,6 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-
-        if (req.method === 'GET' && url.pathname === '/debug/agent/stream') {
-            res.writeHead(200, {
-                'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                Connection: 'keep-alive'
-            });
-            debugClients.add(res);
-            res.write('event: debug-ready\n');
-            res.write('data: {"type":"debug-ready"}\n\n');
-            req.on('close', () => debugClients.delete(res));
-            return;
-        }
 
         if (req.method === 'GET' && url.pathname === '/agents/probe') {
             send(res, 200, JSON.stringify(hermesBootstrap.probeLocalAgents()), 'application/json; charset=utf-8');

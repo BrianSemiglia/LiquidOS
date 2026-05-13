@@ -463,7 +463,6 @@
         let currentTransition = null;
         let debugResizePointerId = null;
         let debugResizeFrame = null;
-        let debugLines = [];
         const livePromptInFlight = new Set();
         const renderedItemsByIndex = new Map();
         let latestComponentByIndex = new Map();
@@ -532,7 +531,8 @@
 
             const current = state && typeof state.current === 'object' ? state.current : {};
             const hermes = state && typeof state.hermes === 'object' ? state.hermes : {};
-            debugLines = Array.isArray(state?.lines) ? state.lines.slice(-200) : [];
+            const lines = Array.isArray(state?.lines) ? state.lines : [];
+            const transcript = typeof state?.transcript === 'string' ? state.transcript.trimEnd() : '';
 
             const sourceLabel = current.source === 'bundled'
                 ? 'Bundled Hermes'
@@ -558,58 +558,14 @@
             }
             debugCurrentBackend.textContent = backendParts.length ? backendParts.join(' · ') : 'Unavailable';
             debugCurrentCanvas.textContent = state && state.canvas ? state.canvas : 'Unknown';
-            renderDebugLines();
-        };
-
-
-        const renderDebugLines = () => {
-            if (!debugOutput) {
-                return;
-            }
-
-            debugOutput.textContent = debugLines.length
-                ? debugLines.map(line => {
+            debugOutput.textContent = transcript
+                || (lines.length
+                ? lines.map(line => {
                     const stamp = line.at ? String(line.at).slice(11, 19) : '??:??:??';
                     return '[' + stamp + '] ' + (line.label || 'log') + ' ' + (line.text || '');
-                }).join('\\n')
-                : 'No agent output yet.';
+                }).join('\n')
+                : 'No agent output yet.');
             debugOutput.scrollTop = debugOutput.scrollHeight;
-        };
-
-        const appendDebugLine = line => {
-            if (!line) {
-                return;
-            }
-
-            debugLines.push(line);
-            if (debugLines.length > 300) {
-                debugLines.splice(0, debugLines.length - 300);
-            }
-            renderDebugLines();
-        };
-
-        const startDebugStream = () => {
-            const stream = new EventSource('/debug/agent/stream');
-
-            stream.addEventListener('debug-line', event => {
-                try {
-                    appendDebugLine(JSON.parse(event.data).line);
-                } catch (error) {
-                    appendDebugLine({
-                        at: new Date().toISOString(),
-                        label: '[debug-stream]',
-                        text: 'Malformed debug event: ' + error.message
-                    });
-                }
-            });
-
-            stream.onerror = () => {
-                appendDebugLine({
-                    at: new Date().toISOString(),
-                    label: '[debug-stream]',
-                    text: 'Disconnected; browser will retry.'
-                });
-            };
         };
 
         const loadDebugPanel = async () => {
@@ -1225,18 +1181,17 @@
 
         new EventSource('/events').onmessage = () => {
             refreshStatus().catch(() => {});
+            loadDebugPanel().catch(() => {});
             load().catch(error => {
                 app.textContent = 'Error: ' + error.message;
             });
         };
 
-        loadDebugPanel()
-            .then(startDebugStream)
-            .catch(error => {
-                if (debugOutput) {
-                    debugOutput.textContent = 'Error: ' + error.message;
-                }
-            });
+        loadDebugPanel().catch(error => {
+            if (debugOutput) {
+                debugOutput.textContent = 'Error: ' + error.message;
+            }
+        });
 
         load().catch(error => {
             app.textContent = 'Error: ' + error.message;
@@ -1247,6 +1202,9 @@
         });
         watchBusy();
 
+        setInterval(() => {
+            loadDebugPanel().catch(() => {});
+        }, 1000);
     </script>
 </body>
 </html>

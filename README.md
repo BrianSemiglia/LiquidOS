@@ -11,10 +11,16 @@ The server expects each canvas directory to contain:
 ```text
 input.json
 output.json
-deltas.json
 ```
 
 The prompt bar can switch canvases, create a new canvas, and send canvas-scoped prompts. The whole `canvases/` folder is tracked as one Git repo so activity across canvases has a single timeline.
+
+There are two canvas roots on purpose:
+
+- `canvases/` in the repo is the standalone server/default development root.
+- `~/Library/Application Support/LiquidOS/canvases` is the Mac app's live root, because `mac-app/LiquidOSApp.swift` launches the server with `--canvases` pointing there.
+
+If you are editing the running Mac app, update the Application Support canvas. If you are working on the standalone server or the repo snapshot, update the repo `canvases/` tree.
 
 ## Listening components and plugins
 
@@ -30,7 +36,6 @@ When a component or plugin needs to listen to an external thing, keep the shape 
 
 3. Choose the bridge back into the canvas.
    - For this repo, `output.json` is the easiest proof-of-concept bridge because the server already watches it.
-   - `deltas.json` is legacy state. Undo/redo controls have been removed. Git history is now a read-only activity timeline under `canvases/`.
 
 4. Keep loop-safety in mind.
    - If the plugin can also trigger the same thing it is watching, suppress self-caused changes for a short window.

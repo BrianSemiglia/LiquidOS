@@ -13,6 +13,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         Self.installMainMenu()
         port = Self.freePort()
         showWindow()
+        showStartingScreen()
         startServer()
         loadWhenReady(attempt: 0)
     }
@@ -180,7 +181,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
     }
     
     private func loadWhenReady(attempt: Int) {
-        guard attempt < 80 else {
+        guard attempt < 400 else {
             showError("LiquidOS server did not start on localhost port \(port).")
             return
         }
@@ -196,6 +197,21 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
                 }
             }
         }.resume()
+    }
+
+    private func showStartingScreen() {
+        webView?.loadHTMLString("""
+        <!doctype html>
+        <html>
+        <body style="margin:0;min-height:100vh;display:grid;place-items:center;font: -apple-system-body;background:linear-gradient(180deg,#111827,#f9fafb);color:#111827;">
+          <div style="max-width:32rem;padding:32px 28px;border-radius:24px;background:rgba(255,255,255,0.78);box-shadow:0 24px 80px rgba(15,23,42,0.14);backdrop-filter:blur(18px);">
+            <div style="font-size:0.8rem;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#2563eb;">LiquidOS</div>
+            <h1 style="margin:10px 0 8px;font-size:2rem;line-height:1.05;">Starting up</h1>
+            <p style="margin:0;color:#374151;line-height:1.5;">Loading the canvas and Hermes host. If the server needs a moment, this screen stays put until it is ready.</p>
+          </div>
+        </body>
+        </html>
+        """, baseURL: nil)
     }
     
     private func showError(_ message: String) {
@@ -309,14 +325,62 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
     }
     
     private static func installMainMenu() {
-        NSApp.mainMenu = NSMenu()
-        NSApp.mainMenu?.addItem(NSMenuItem())
-        NSApp.mainMenu?.item(at: 0)?.submenu = NSMenu()
-        NSApp.mainMenu?.item(at: 0)?.submenu?.addItem(
-            withTitle: "Quit LiquidOS",
-            action: #selector(NSApplication.terminate(_:)),
-            keyEquivalent: "q"
-        )
+        let mainMenu = NSMenu()
+        NSApp.mainMenu = mainMenu
+
+        let appMenuItem = NSMenuItem()
+        appMenuItem.submenu = NSMenu(title: "LiquidOS")
+        appMenuItem.submenu?.addItem(withTitle: "About LiquidOS", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenuItem.submenu?.addItem(NSMenuItem.separator())
+        appMenuItem.submenu?.addItem(withTitle: "Hide LiquidOS", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenuItem.submenu?.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h").keyEquivalentModifierMask = [.command, .option]
+        appMenuItem.submenu?.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenuItem.submenu?.addItem(NSMenuItem.separator())
+        appMenuItem.submenu?.addItem(withTitle: "Quit LiquidOS", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        mainMenu.addItem(appMenuItem)
+
+        let fileMenuItem = NSMenuItem()
+        fileMenuItem.submenu = NSMenu(title: "File")
+        fileMenuItem.submenu?.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        fileMenuItem.submenu?.addItem(withTitle: "New Window", action: #selector(LiquidOSApp.newWindow(_:)), keyEquivalent: "n")
+        mainMenu.addItem(fileMenuItem)
+
+        let editMenuItem = NSMenuItem()
+        editMenuItem.submenu = NSMenu(title: "Edit")
+        editMenuItem.submenu?.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenuItem.submenu?.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenuItem.submenu?.addItem(NSMenuItem.separator())
+        editMenuItem.submenu?.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenuItem.submenu?.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenuItem.submenu?.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenuItem.submenu?.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        mainMenu.addItem(editMenuItem)
+
+        let viewMenuItem = NSMenuItem()
+        viewMenuItem.submenu = NSMenu(title: "View")
+        viewMenuItem.submenu?.addItem(withTitle: "Reload", action: #selector(WKWebView.reload(_:)), keyEquivalent: "r")
+        viewMenuItem.submenu?.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f").keyEquivalentModifierMask = [.command, .control]
+        mainMenu.addItem(viewMenuItem)
+
+        let windowMenuItem = NSMenuItem()
+        windowMenuItem.submenu = NSMenu(title: "Window")
+        windowMenuItem.submenu?.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenuItem.submenu?.addItem(withTitle: "Zoom", action: #selector(NSWindow.zoom(_:)), keyEquivalent: "")
+        windowMenuItem.submenu?.addItem(NSMenuItem.separator())
+        windowMenuItem.submenu?.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        mainMenu.addItem(windowMenuItem)
+
+        let helpMenuItem = NSMenuItem()
+        helpMenuItem.submenu = NSMenu(title: "Help")
+        helpMenuItem.submenu?.addItem(withTitle: "LiquidOS Help", action: nil, keyEquivalent: "")
+        mainMenu.addItem(helpMenuItem)
+
+        NSApp.windowsMenu = windowMenuItem.submenu
+        NSApp.helpMenu = helpMenuItem.submenu
+    }
+
+    @objc private func newWindow(_ sender: Any?) {
+        showWindow()
     }
     
     private static func escapeHTML(_ value: String) -> String {

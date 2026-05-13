@@ -33,6 +33,14 @@ When building canvas components that reference source files (MP3s, PDFs, apps, i
 
 Create component JSONs that point to the original files in their current location. The interface should be a view layer only — the source data remains untouched.
 
+## Loading-First Updates
+
+When creating or updating a component instance, the very first visible response should be a loading-state version of the same large component shell.
+
+Keep the component in place while the update is in progress. Do not replace it with a smaller placeholder or remove it from the canvas. After the loading state is shown, complete the work and then swap in the success, error, or final result state.
+
+This applies to add and update flows where the user is waiting for a component to be produced or changed.
+
 ## Quick Start
 
 Use the creation script (run from your project root where `server.js` lives):

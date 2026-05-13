@@ -108,10 +108,14 @@ cat > "$HERMES_BUNDLE_ROOT/hermes" <<'SH'
 #!/bin/sh
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
+WEB_ROOT="$(cd "$DIR/.." && pwd)"
 export PYTHONPATH="$DIR/site-packages${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONNOUSERSITE=1
 export HERMES_HOME="$HOME/Library/Application Support/LiquidOS/Hermes"
 mkdir -p "$HERMES_HOME"
+if [ -f "$WEB_ROOT/.hermes/SOUL.md" ]; then
+  cp -f "$WEB_ROOT/.hermes/SOUL.md" "$HERMES_HOME/SOUL.md"
+fi
 exec "$DIR/python/bin/python3.11" -m hermes_cli.main "$@"
 SH
 chmod +x "$HERMES_BUNDLE_ROOT/hermes"

@@ -85,10 +85,6 @@ if [ ! -f "$INSTANCE_DIR/output.json" ]; then
     printf '[]\n' > "$INSTANCE_DIR/output.json"
 fi
 
-if [ ! -f "$INSTANCE_DIR/deltas.json" ]; then
-    printf '[]\n' > "$INSTANCE_DIR/deltas.json"
-fi
-
 if [ ! -f "$INSTANCE_DIR/canvas.html" ]; then
     cat > "$INSTANCE_DIR/canvas.html" <<'HTML'
 <!doctype html>
@@ -113,6 +109,5 @@ fi
 echo "Created:"
 echo "  $INSTANCE_DIR/input.json"
 echo "  $INSTANCE_DIR/output.json"
-echo "  $INSTANCE_DIR/deltas.json"
 echo "  $INSTANCE_DIR/canvas.html"
 echo "  $INSTANCE_DIR/components/"
