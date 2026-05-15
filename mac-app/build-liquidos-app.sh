@@ -63,6 +63,11 @@ rsync -a \
   --exclude 'canvases/*' \
   "$PROJECT_ROOT/" "$RESOURCES/"
 
+if [ -d "$MAC_ROOT/.hermes" ]; then
+  mkdir -p "$RESOURCES/.hermes"
+  rsync -a "$MAC_ROOT/.hermes/" "$RESOURCES/.hermes/"
+fi
+
 mkdir -p "$RESOURCES/canvases"
 
 PYTHON_VERSION="3.11"

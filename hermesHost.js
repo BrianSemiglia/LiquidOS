@@ -198,12 +198,12 @@ const createHermesHost = ({
         }
 
         const liveArgs = ['chat', ...buildCanvasHermesArgs()];
-        logServer('hermes-host', 'start args=' + JSON.stringify(liveArgs));
+        logServer('hermes-host', 'cwd=' + canvasesRoot + ' start args=' + JSON.stringify(liveArgs));
 
         const host = {
             canvasPath: resolvedCanvasPath,
             proc: pty.spawn(agentCommand, liveArgs, {
-                cwd: root,
+                cwd: canvasesRoot,
                 env: buildCanvasHermesEnv(),
                 cols: 180,
                 rows: 60,

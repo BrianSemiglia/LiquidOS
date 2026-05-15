@@ -43,7 +43,7 @@ const createAgentProviders = ({
             let stderr = '';
             let timedOut = false;
             const outputLabel = 'codex-exec-process';
-            const liveWorkdir = context.canvasPath || root;
+            const liveWorkdir = canvasesRoot;
             const liveArgs = [
                 'exec',
                 '--sandbox',
@@ -51,8 +51,6 @@ const createAgentProviders = ({
                 '--skip-git-repo-check',
                 '--cd',
                 liveWorkdir,
-                '--add-dir',
-                canvasesRoot,
                 prompt
             ];
 

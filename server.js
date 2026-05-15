@@ -68,15 +68,35 @@ const HERMES_HOME = process.env.HERMES_HOME || path.join(os.homedir(), 'Library/
 const HERMES_LOGS_DIR = path.join(HERMES_HOME, 'logs');
 const HERMES_AGENT_LOG_PATH = path.join(HERMES_LOGS_DIR, 'agent.log');
 const HERMES_ERRORS_LOG_PATH = path.join(HERMES_LOGS_DIR, 'errors.log');
-const HERMES_SOURCE_SOUL_PATH = path.join(ROOT, '.hermes', 'SOUL.md');
-const HERMES_RUNTIME_SOUL_PATH = path.join(HERMES_HOME, 'SOUL.md');
+const SOUL_SOURCE_PATH = path.join(ROOT, '.hermes', 'SOUL.md');
+const SOUL_RUNTIME_PATH = path.join(HERMES_HOME, 'SOUL.md');
+const COMPONENT_SKILL_RELATIVE_PATH = path.join('.hermes', 'skills', 'component-instance-creator-updater', 'SKILL.md');
+const COMPONENT_SKILL_SOURCE_PATH = path.join(ROOT, COMPONENT_SKILL_RELATIVE_PATH);
 
 fs.mkdirSync(HERMES_LOGS_DIR, { recursive: true });
 
-if (fs.existsSync(HERMES_SOURCE_SOUL_PATH)) {
+if (fs.existsSync(SOUL_SOURCE_PATH)) {
     fs.mkdirSync(HERMES_HOME, { recursive: true });
-    fs.copyFileSync(HERMES_SOURCE_SOUL_PATH, HERMES_RUNTIME_SOUL_PATH);
+    fs.copyFileSync(SOUL_SOURCE_PATH, SOUL_RUNTIME_PATH);
 }
+
+const readSoulPrompt = () =>
+    fs.existsSync(SOUL_SOURCE_PATH)
+        ? fs.readFileSync(SOUL_SOURCE_PATH, 'utf8').trim()
+        : '';
+
+const syncRuntimeComponentSkill = targetRoot => {
+    if (!fs.existsSync(COMPONENT_SKILL_SOURCE_PATH)) {
+        throw new Error(`Missing component skill source: ${COMPONENT_SKILL_SOURCE_PATH}`);
+    }
+
+    const sourceDir = path.dirname(COMPONENT_SKILL_SOURCE_PATH);
+    const destinationDir = path.join(targetRoot, path.dirname(COMPONENT_SKILL_RELATIVE_PATH));
+
+    fs.rmSync(destinationDir, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(destinationDir), { recursive: true });
+    fs.cpSync(sourceDir, destinationDir, { recursive: true });
+};
 
 fs.mkdirSync(CANVASES_ROOT, { recursive: true });
 
@@ -129,14 +149,7 @@ const AGENT_SOURCE = path.isAbsolute(HERMES_AGENT_COMMAND) ? 'bundled' : 'global
 const AGENT_MODE = argValue('--agent-mode', argValue('--hermes-mode', 'oneshot')).trim() || 'oneshot';
 const AGENT_ARGS = argValue('--agent-args', argValue('--hermes-args', '')).split(' ').filter(Boolean);
 const AGENT_TIMEOUT_MS = Number.parseInt(argValue('--agent-timeout-ms', '300000'), 10);
-const RUNTIME_KIND = String(process.env.LIQUIDOS_RUNTIME_KIND || (process.env.LIQUIDOS_NATIVE === '1' ? 'mac-app' : 'standalone')).trim() || 'standalone';
 const LIVE_CANVAS_ROOT = String(process.env.LIQUIDOS_LIVE_CANVAS_ROOT || CANVASES_ROOT).trim() || CANVASES_ROOT;
-const BASE_AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', ''));
-const RUNTIME_AGENT_PROMPT = [
-    BASE_AGENT_PROMPT,
-    `Runtime: ${RUNTIME_KIND === 'mac-app' ? 'LiquidOS Mac app' : 'standalone repo server'}`,
-    `Live canvas root: ${LIVE_CANVAS_ROOT}`
-].filter(Boolean).join('\n');
 const hermesBootstrap = createHermesBootstrap({
     root: ROOT,
     agentCommand: HERMES_AGENT_COMMAND
@@ -370,6 +383,16 @@ const writeJson = (file, value) => {
     fs.renameSync(temp, file);
 };
 
+const clearOutputJson = () => {
+    try {
+        writeJson(OUTPUT_PATH, []);
+    } catch (error) {
+        logHermesError('shutdown', error, {
+            message: 'failed to clear output.json during shutdown'
+        });
+    }
+};
+
 const canvasFiles = createCanvasFiles({
     fs,
     canvasesRoot: CANVASES_ROOT,
@@ -417,6 +440,8 @@ const createCanvasRuntime = canvasPath => {
 
         start() {
             applyCanvasRuntime(this);
+            syncRuntimeComponentSkill(LIVE_CANVAS_ROOT);
+            syncRuntimeComponentSkill(CANVAS_PATH);
             this.started = true;
             ensureActiveCanvasFiles();
             ensureCanvasesGitRepo();
@@ -502,13 +527,56 @@ const { ensureCanvasesGitRepo, commitCanvases } = createGitTimeline({
 });
 
 const promptBuilder = createPromptBuilder({
-    basePrompt: RUNTIME_AGENT_PROMPT,
     getCanvasPath: () => CANVAS_PATH,
     outputJobKey: job => outputQueue.outputJobKey(job),
     callbackPromptText,
     componentScopePath: canvasGraph.componentScopePath,
     resolveCanvasReference
 });
+
+const buildAgentPrompt = job => {
+    const jobPrompt = promptBuilder.buildJobPrompt(job);
+
+        return [
+            readSoulPrompt(),
+            String.raw`
+# Component Creation/Updating
+
+## Workflow
+
+1. Prompt arrives.
+2. Agent creates or finds existing component and writes a loading version of it to disk inside \`<canvas>/components\<component_name>\view.json\`.
+3. Agent adds component path to \`./input.json\`
+3. Agent begins work.
+4. Agent partially completes work and overwrites the component to reflect its progress.
+5. Agent continues work.
+6. Agent partially completes work and overwrites the component to reflect its progress.
+7. Agent completes work and overwrites the component to reflect the final state.
+8. Agent responds as done.
+
+## Example
+
+<canvas>/components/hello-world/view.json:
+{
+  "title": "Hello World",
+  "html": "<h1>Hello, world.</h1>",
+  "css": "h1{font-family:system-ui}"
+
+}
+
+<canvas>/input.json
+{
+  "components": [
+    "components/hello-world/view.json"
+  ]
+}
+
+`.trim(),
+            jobPrompt
+        ].filter(Boolean).join('\n\n');
+
+    return jobPrompt;
+};
 
 const spawnHermesPromptProcess = (prompt, context = {}) =>
     new Promise((resolve, reject) => {
@@ -679,7 +747,7 @@ const processOutputJob = async job => {
     });
 
     try {
-        const response = await runQueuedAgentJob(promptBuilder.buildAgentJobPrompt({ ...job, id: jobId, componentPath }), {
+        const response = await runQueuedAgentJob(buildAgentPrompt({ ...job, id: jobId, componentPath }), {
             job: outputQueue.outputJobSummary({ ...job, id: jobId, componentPath, status: 'running' }),
             canvasPath: CANVAS_PATH,
             inputPath: INPUT_PATH,
@@ -1407,10 +1475,13 @@ const shutdownCanvasRuntime = () => {
     if (activeCanvasRuntime) {
         activeCanvasRuntime.stop();
         activeCanvasRuntime = null;
+        clearOutputJson();
         return true;
     }
 
-    return hermesHost.stopCanvasHermesHost();
+    const stopped = hermesHost.stopCanvasHermesHost();
+    clearOutputJson();
+    return stopped;
 };
 
 process.on('exit', shutdownCanvasRuntime);
