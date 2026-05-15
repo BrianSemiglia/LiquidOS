@@ -1257,12 +1257,6 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        if (req.method === 'GET' && url.pathname === '/status') {
-            const componentPath = url.searchParams.get('componentPath') || '';
-            send(res, 200, JSON.stringify(outputQueue.currentBusyState(componentPath)), 'application/json; charset=utf-8');
-            return;
-        }
-
         if (req.method === 'GET' && url.pathname === '/canvases') {
             send(res, 200, JSON.stringify({
                 current: canvasName(CANVAS_PATH),

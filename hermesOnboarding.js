@@ -1,5 +1,5 @@
 (() => {
-    window.createHermesOnboarding = ({ refreshStatus, globalStatus }) => {
+    window.createHermesOnboarding = ({ globalStatus }) => {
         const agentSetupBackdrop = document.getElementById('agent-setup-backdrop');
         const agentSetup = document.getElementById('agent-setup');
 
@@ -69,7 +69,6 @@
                             onboardingState.hermesConfigured = Boolean(result?.hermes?.configured);
                             agentSetupBackdrop.dataset.open = 'false';
                             agentSetup.innerHTML = '';
-                            refreshStatus().catch(() => {});
                         })
                         .catch(error => {
                             globalStatus.className = 'global-status error';

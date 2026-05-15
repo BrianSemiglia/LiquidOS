@@ -522,16 +522,6 @@
             updatePromptChromeSpace();
         };
 
-        const refreshStatus = async () => {
-            const response = await fetch('/status', { cache: 'no-store' });
-
-            if (!response.ok) {
-                throw new Error('/status returned ' + response.status);
-            }
-
-            setBusy(await response.json());
-        };
-
         const renderDebugPanel = state => {
             if (!debugCurrentAgent || !debugCurrentBackend || !debugCurrentCanvas || !debugOutput) {
                 return;
@@ -637,7 +627,6 @@
 
         const hermesOnboarding = typeof window.createHermesOnboarding === 'function'
             ? window.createHermesOnboarding({
-                refreshStatus,
                 globalStatus
             })
             : {
@@ -1185,7 +1174,6 @@
             await loadAgentChoices();
             await loadDebugPanel().catch(() => {});
             await hermesOnboarding.probe().catch(() => {});
-            await refreshStatus().catch(() => {});
 
             return result;
         };
