@@ -7,11 +7,10 @@ APP="$MAC_ROOT/build/LiquidOS.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
-WEB="$RESOURCES/Web"
 ICONSET="$MAC_ROOT/LiquidOS.iconset"
 
 rm -rf "$APP"
-mkdir -p "$MACOS" "$RESOURCES" "$WEB"
+mkdir -p "$MACOS" "$RESOURCES"
 
 cat > "$CONTENTS/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -62,9 +61,9 @@ rsync -a \
   --exclude 'mac-app' \
   --exclude 'node_modules' \
   --exclude 'canvases/*' \
-  "$PROJECT_ROOT/" "$WEB/"
+  "$PROJECT_ROOT/" "$RESOURCES/"
 
-mkdir -p "$WEB/canvases"
+mkdir -p "$RESOURCES/canvases"
 
 PYTHON_VERSION="3.11"
 HERMES_SOURCE_ARCHIVE="$MAC_ROOT/vendor/hermes-agent-8e2eb4b511967a0ad776c0c667f6914072e1b7ec.tar.gz"
@@ -83,7 +82,7 @@ HERMES_BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/liquidos-hermes-build.XXXXXX")"
 HERMES_SOURCE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/liquidos-hermes-source.XXXXXX")"
 trap 'rm -rf "$HERMES_BUILD_ROOT" "$HERMES_SOURCE_ROOT"' EXIT
 
-HERMES_BUNDLE_ROOT="$WEB/Hermes"
+HERMES_BUNDLE_ROOT="$RESOURCES/Hermes"
 
 tar -xzf "$HERMES_SOURCE_ARCHIVE" -C "$HERMES_SOURCE_ROOT"
 
@@ -108,22 +107,22 @@ cat > "$HERMES_BUNDLE_ROOT/hermes" <<'SH'
 #!/bin/sh
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
-WEB_ROOT="$(cd "$DIR/.." && pwd)"
+APP_ROOT="$(cd "$DIR/.." && pwd)"
 export PYTHONPATH="$DIR/site-packages${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONNOUSERSITE=1
 export HERMES_HOME="$HOME/Library/Application Support/LiquidOS/Hermes"
 mkdir -p "$HERMES_HOME"
-if [ -f "$WEB_ROOT/.hermes/SOUL.md" ]; then
-  cp -f "$WEB_ROOT/.hermes/SOUL.md" "$HERMES_HOME/SOUL.md"
+if [ -f "$APP_ROOT/.hermes/SOUL.md" ]; then
+  cp -f "$APP_ROOT/.hermes/SOUL.md" "$HERMES_HOME/SOUL.md"
 fi
 exec "$DIR/python/bin/python3.11" -m hermes_cli.main "$@"
 SH
 chmod +x "$HERMES_BUNDLE_ROOT/hermes"
 
-if [ -f "$WEB/package.json" ]; then
- npm install --prefix "$WEB" --omit=dev
+if [ -f "$RESOURCES/package.json" ]; then
+ npm install --prefix "$RESOURCES" --omit=dev
  # Fix execute permissions for node-pty spawn-helper
- find "$WEB/node_modules/node-pty/prebuilds" -name 'spawn-helper' -exec chmod +x {} \;
+ find "$RESOURCES/node_modules/node-pty/prebuilds" -name 'spawn-helper' -exec chmod +x {} \;
 fi
 
 chmod +x "$MACOS/LiquidOS"

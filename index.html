@@ -102,6 +102,11 @@
             padding: 0 0.65rem;
         }
 
+        .canvas-nav .agent-select {
+            min-width: 7rem;
+            max-width: 9rem;
+        }
+
         .global-prompt textarea {
             min-height: 2.45rem;
             max-height: 8rem;
@@ -405,7 +410,6 @@
 <body>
     <main id="app"></main>
     <aside class="debug-rail" id="debug-rail">
-        <h2>Debug</h2>
         <section class="debug-summary">
             <dl>
                 <div>
@@ -431,6 +435,7 @@
     <div class="global-status" id="global-status"></div>
     <form class="global-prompt" id="global-prompt">
         <div class="canvas-nav" aria-label="Canvas selection">
+            <select id="agent-select" class="agent-select" aria-label="Agent"></select>
             <select id="canvas-select" aria-label="Canvas"></select>
             <button type="button" id="new-canvas">New</button>
         </div>
@@ -444,6 +449,7 @@
         const globalForm = document.getElementById('global-prompt');
         const globalText = document.getElementById('global-text');
         const globalStatus = document.getElementById('global-status');
+        const agentSelect = document.getElementById('agent-select');
         const canvasSelect = document.getElementById('canvas-select');
         const newCanvas = document.getElementById('new-canvas');
         const debugCurrentAgent = document.getElementById('debug-current-agent');
@@ -468,6 +474,7 @@
         const renderedItemsByIndex = new Map();
         let latestComponentByIndex = new Map();
         let lastCanvasSnapshot = '';
+        const agentKindKey = 'live-edit-agent-kind';
 
         instanceStyle.id = 'instance-style';
         document.head.append(instanceStyle);
@@ -531,6 +538,7 @@
             }
 
             const current = state && typeof state.current === 'object' ? state.current : {};
+            const active = state && typeof state.active === 'object' ? state.active : {};
             const hermes = state && typeof state.hermes === 'object' ? state.hermes : {};
             debugLines = Array.isArray(state?.lines) ? state.lines.slice(-200) : [];
 
@@ -540,21 +548,26 @@
                     ? 'Global Hermes'
                     : '';
             const backendParts = [];
+            const backend = active.provider || active.model ? active : current;
 
-            if (current.provider) {
-                backendParts.push(current.provider);
+            if (backend.provider) {
+                backendParts.push(backend.provider);
             }
-            if (current.model) {
-                backendParts.push(current.model);
-            } else if (hermes.model) {
+            if (backend.model) {
+                backendParts.push(backend.model);
+            } else if (backend !== active && hermes.model) {
                 backendParts.push(hermes.model);
             }
 
             debugCurrentAgent.textContent = current.status
                 ? current.status.charAt(0).toUpperCase() + current.status.slice(1)
                 : 'Idle';
-            if (sourceLabel && current.status === 'running') {
-                debugCurrentAgent.textContent += ' · ' + sourceLabel;
+            if (current.status === 'running' || current.status === 'waiting') {
+                if (current.label) {
+                    debugCurrentAgent.textContent += ' · ' + current.label;
+                } else if (sourceLabel) {
+                    debugCurrentAgent.textContent += ' · ' + sourceLabel;
+                }
             }
             debugCurrentBackend.textContent = backendParts.length ? backendParts.join(' · ') : 'Unavailable';
             debugCurrentCanvas.textContent = state && state.canvas ? state.canvas : 'Unknown';
@@ -632,13 +645,6 @@
                 render: () => {}
             };
         hermesOnboarding.probe().catch(() => {});
-
-        const watchBusy = () => {
-            refreshStatus().catch(error => {
-                globalStatus.className = 'global-status error';
-                globalStatus.textContent = 'Error: ' + error.message;
-            });
-        };
 
         const saveScrollPosition = () => {
             try {
@@ -813,7 +819,6 @@
                 }
 
                 setBusy({ busy: true, job: { prompt: request } });
-                watchBusy();
                 return;
             }
 
@@ -830,7 +835,6 @@
             }
 
             setBusy({ busy: true, job: { prompt: request } });
-            watchBusy();
         };
 
         const submitCanvasPrompt = async prompt => {
@@ -850,7 +854,6 @@
             }
 
             setBusy({ busy: true, job: { prompt } });
-            watchBusy();
         };
 
         const renderComponent = component => {
@@ -1112,6 +1115,81 @@
             }
         };
 
+        const loadAgentChoices = async () => {
+            const response = await fetch('/agents/probe', { cache: 'no-store' });
+
+            if (!response.ok) {
+                throw new Error('/agents/probe returned ' + response.status);
+            }
+
+            const data = await response.json();
+            const choices = Array.isArray(data.agentChoices) && data.agentChoices.length
+                ? data.agentChoices
+                : [
+                    { id: 'hermes', label: 'Hermes', installed: true },
+                    { id: 'codex', label: 'Codex', installed: false }
+                ];
+            const selected = typeof data.agentKind === 'string' && data.agentKind.trim()
+                ? data.agentKind.trim()
+                : 'hermes';
+
+            agentSelect.replaceChildren(...choices.map(choice => {
+                const option = document.createElement('option');
+                option.value = choice.id || '';
+                option.textContent = choice.label || choice.id || '';
+                option.selected = option.value === selected;
+                option.disabled = choice.installed === false;
+                return option;
+            }));
+
+            if (selected && agentSelect.value !== selected) {
+                agentSelect.value = selected;
+            }
+
+            const storedAgentKind = (() => {
+                try {
+                    return localStorage.getItem(agentKindKey) || '';
+                } catch (error) {
+                    return '';
+                }
+            })().trim();
+
+            if (storedAgentKind && storedAgentKind !== selected && choices.some(choice => choice.id === storedAgentKind && choice.installed !== false)) {
+                await switchAgentKind(storedAgentKind);
+            }
+
+            return data;
+        };
+
+        const switchAgentKind = async kind => {
+            const response = await fetch('/agent/select', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ kind })
+            });
+
+            if (!response.ok) {
+                throw new Error('/agent/select returned ' + response.status);
+            }
+
+            const result = await response.json();
+
+            try {
+                localStorage.setItem(agentKindKey, String(kind || '').trim());
+            } catch (error) {
+                // Ignore persistence failures.
+            }
+
+            await loadAgentChoices();
+            await loadDebugPanel().catch(() => {});
+            await hermesOnboarding.probe().catch(() => {});
+            await refreshStatus().catch(() => {});
+
+            return result;
+        };
+
         const switchCanvas = async name => {
             const response = await fetch('/canvas', {
                 method: 'POST',
@@ -1148,6 +1226,20 @@
                     globalStatus.className = 'global-status error';
                     globalStatus.textContent = 'Error: ' + error.message;
                     loadCanvases().catch(() => {});
+                });
+        });
+
+        agentSelect.addEventListener('change', () => {
+            globalStatus.className = 'global-status';
+            globalStatus.textContent = 'Switching agent';
+            switchAgentKind(agentSelect.value)
+                .then(() => {
+                    globalStatus.textContent = 'Agent switched';
+                })
+                .catch(error => {
+                    globalStatus.className = 'global-status error';
+                    globalStatus.textContent = 'Error: ' + error.message;
+                    loadAgentChoices().catch(() => {});
                 });
         });
 
@@ -1223,8 +1315,34 @@
 
         updatePromptChromeSpace();
 
-        new EventSource('/events').onmessage = () => {
-            refreshStatus().catch(() => {});
+        new EventSource('/events').onmessage = event => {
+            let payload = null;
+
+            try {
+                payload = JSON.parse(event.data);
+            } catch (error) {
+                payload = null;
+            }
+
+            if (payload && payload.type === 'queue-status') {
+                setBusy(payload.state || { busy: false, job: null });
+                load().catch(error => {
+                    app.textContent = 'Error: ' + error.message;
+                });
+                return;
+            }
+
+            if (payload && payload.type === 'agent-mode') {
+                loadAgentChoices().catch(() => {});
+                loadDebugPanel().catch(() => {});
+                return;
+            }
+
+            if (payload && payload.type === 'canvases-changed') {
+                loadCanvases().catch(() => {});
+                return;
+            }
+
             load().catch(error => {
                 app.textContent = 'Error: ' + error.message;
             });
@@ -1241,11 +1359,14 @@
         load().catch(error => {
             app.textContent = 'Error: ' + error.message;
         });
+        loadAgentChoices().catch(error => {
+            globalStatus.className = 'global-status error';
+            globalStatus.textContent = 'Error: ' + error.message;
+        });
         loadCanvases().catch(error => {
             globalStatus.className = 'global-status error';
             globalStatus.textContent = 'Error: ' + error.message;
         });
-        watchBusy();
 
     </script>
 </body>

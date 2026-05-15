@@ -13,12 +13,12 @@ Current canvas:
 canvases/home/
 
 Create:
-canvases/home/components/movie-showtimes/view.json
-canvases/home/components/movie-showtimes/truth.json
+components/movie-showtimes/view.json
+components/movie-showtimes/truth.json
 ```
 
-2. Put the component view at `canvases/<canvas>/components/<component-name>/view.json`.
-3. If the component has durable state, put that state in `canvases/<canvas>/components/<component-name>/truth.json`.
+2. Put the component view at `components/<component-name>/view.json`.
+3. If the component has durable state, put that state in `components/<component-name>/truth.json`.
 
 ```json
 // view.json
@@ -38,17 +38,19 @@ canvases/home/components/movie-showtimes/truth.json
 }
 ```
 
-4. Add the component path to the canvas `input.json`.
+4. Add the component path string to the canvas `input.json`.
 
 ```json
 {
   "components": [
-    "components/weather-somerville.json",
-    "components/shows-somerville.json",
+    "components/weather-somerville/view.json",
+    "components/shows-somerville/view.json",
     "components/movie-showtimes/view.json"
   ]
 }
 ```
+
+`input.json.components` is always an array of string paths. Do not write inline component objects into `input.json`.
 
 5. When the user is adding a component, create a new sibling component instead of overwriting an existing one.
 6. Keep JSON valid and keep embedded HTML/scripts syntactically valid.

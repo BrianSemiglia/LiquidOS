@@ -6,6 +6,7 @@ const { spawnSync } = require('child_process');
 const { createGitTimeline } = require('./gitTimeline');
 const { createHermesBootstrap } = require('./hermesBootstrap');
 const { createHermesHost } = require('./hermesHost');
+const { createAgentProviders } = require('./agentProviders');
 const { createCanvasFiles } = require('./canvasFiles');
 const { createCanvasGraph } = require('./canvasGraph');
 const { createOutputQueue } = require('./outputQueue');
@@ -27,8 +28,23 @@ const argValue = (name, fallback) => {
     return index === -1 ? fallback : process.argv[index + 1] || fallback;
 };
 
+const expandUserPath = value => {
+    const stringValue = String(value || '');
+    if (stringValue.startsWith('~/')) {
+        return path.join(os.homedir(), stringValue.slice(2));
+    }
+
+    if (stringValue === '~') {
+        return os.homedir();
+    }
+
+    return stringValue;
+};
+
 const resolveConfigPath = value =>
-    path.isAbsolute(value) ? value : path.resolve(ROOT, value);
+    path.isAbsolute(expandUserPath(value))
+        ? expandUserPath(value)
+        : path.resolve(ROOT, expandUserPath(value));
 
 const resolveCanvasReference = value => {
     if (!value) {
@@ -39,16 +55,10 @@ const resolveCanvasReference = value => {
         return value;
     }
 
-    const canvasRelative = path.resolve(CANVAS_PATH, value);
-
-    if (fs.existsSync(canvasRelative)) {
-        return canvasRelative;
-    }
-
-    return resolveFromRoot(value);
+    return path.resolve(CANVAS_PATH, value);
 };
 
-const CANVASES_ROOT = resolveConfigPath(argValue('--canvases', path.join(ROOT, 'canvases')));
+const CANVASES_ROOT = resolveConfigPath(argValue('--canvases', path.join(os.homedir(), 'Documents', 'LiquidOS')));
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'templates', 'canvas');
 const DEFAULT_CANVAS_PATH = path.join(CANVASES_ROOT, 'home');
 let CANVAS_PATH = resolveConfigPath(argValue('--canvas', DEFAULT_CANVAS_PATH));
@@ -114,24 +124,33 @@ const resolveHermesCommand = () => {
     return 'hermes';
 };
 
-const AGENT_COMMAND = resolveHermesCommand();
-const AGENT_SOURCE = path.isAbsolute(AGENT_COMMAND) ? 'bundled' : 'global';
+const HERMES_AGENT_COMMAND = resolveHermesCommand();
+const AGENT_SOURCE = path.isAbsolute(HERMES_AGENT_COMMAND) ? 'bundled' : 'global';
 const AGENT_MODE = argValue('--agent-mode', argValue('--hermes-mode', 'oneshot')).trim() || 'oneshot';
 const AGENT_ARGS = argValue('--agent-args', argValue('--hermes-args', '')).split(' ').filter(Boolean);
 const AGENT_TIMEOUT_MS = Number.parseInt(argValue('--agent-timeout-ms', '300000'), 10);
-const AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', ''));
+const RUNTIME_KIND = String(process.env.LIQUIDOS_RUNTIME_KIND || (process.env.LIQUIDOS_NATIVE === '1' ? 'mac-app' : 'standalone')).trim() || 'standalone';
+const LIVE_CANVAS_ROOT = String(process.env.LIQUIDOS_LIVE_CANVAS_ROOT || CANVASES_ROOT).trim() || CANVASES_ROOT;
+const BASE_AGENT_PROMPT = argValue('--agent-prompt', argValue('--hermes-prompt', ''));
+const RUNTIME_AGENT_PROMPT = [
+    BASE_AGENT_PROMPT,
+    `Runtime: ${RUNTIME_KIND === 'mac-app' ? 'LiquidOS Mac app' : 'standalone repo server'}`,
+    `Live canvas root: ${LIVE_CANVAS_ROOT}`
+].filter(Boolean).join('\n');
 const hermesBootstrap = createHermesBootstrap({
     root: ROOT,
-    agentCommand: AGENT_COMMAND
+    agentCommand: HERMES_AGENT_COMMAND
 });
 
 const clients = new Set();
 const debugClients = new Set();
 let watchers = [];
+let canvasesRootWatcher = null;
 let watchTimer;
 let activeCanvasRuntime = null;
 let hermesHost = null;
 let outputQueue = null;
+let agentProviders = null;
 const agentDebugState = {
     current: {
         kind: 'idle',
@@ -178,10 +197,25 @@ const setCurrentAgentDebug = next => {
     };
 };
 
-const currentAgentDebugSnapshot = () => ({
-    current: agentDebugState.current,
-    lines: agentDebugState.lines.slice(-200)
-});
+const currentAgentDebugSnapshot = () => {
+    const activeProvider = agentProviders ? agentProviders.activeProvider() : null;
+    const activeDebug = activeProvider && typeof activeProvider.currentDebug === 'function'
+        ? activeProvider.currentDebug()
+        : null;
+
+    return {
+        current: agentDebugState.current,
+        lines: agentDebugState.lines.slice(-200),
+        agentKind: agentProviders ? agentProviders.activeKind() : 'codex',
+        active: activeProvider
+            ? {
+                ...(activeDebug || {}),
+                kind: agentProviders.activeKind(),
+                label: activeProvider.label || null
+            }
+            : null
+    };
+};
 
 const logServer = (area, message, details = null) => {
     const suffix = details ? ' ' + JSON.stringify(details) : '';
@@ -239,7 +273,7 @@ const shortText = value => {
 };
 const ENABLED_HERMES_TOOLSETS = (() => {
     try {
-        const result = spawnSync(AGENT_COMMAND, ['plugins', 'list'], {
+        const result = spawnSync(HERMES_AGENT_COMMAND, ['plugins', 'list'], {
             cwd: ROOT,
             env: process.env,
             encoding: 'utf8',
@@ -270,7 +304,7 @@ const ENABLED_HERMES_TOOLSETS = (() => {
 hermesHost = createHermesHost({
     root: ROOT,
     canvasesRoot: CANVASES_ROOT,
-    agentCommand: AGENT_COMMAND,
+    agentCommand: HERMES_AGENT_COMMAND,
     agentArgs: AGENT_ARGS,
     enabledToolsets: ENABLED_HERMES_TOOLSETS,
     hermesBootstrap,
@@ -283,6 +317,21 @@ hermesHost = createHermesHost({
     setCurrentAgentDebug,
     writeProcessOutput,
     pty
+});
+
+agentProviders = createAgentProviders({
+    root: ROOT,
+    canvasesRoot: CANVASES_ROOT,
+    hermesCommand: HERMES_AGENT_COMMAND,
+    hermesBootstrap,
+    hermesHost,
+    commandExists,
+    logServer,
+    shortText,
+    setCurrentAgentDebug,
+    writeProcessOutput,
+    pty,
+    agentTimeoutMs: AGENT_TIMEOUT_MS
 });
 
 const sleepSync = ms => {
@@ -373,11 +422,11 @@ const createCanvasRuntime = canvasPath => {
             ensureCanvasesGitRepo();
             outputQueue.normalizeOutputJobs();
             outputQueue.clearActiveLanes();
-            if (hermesBootstrap.currentHermesBootstrapState().configured) {
-                hermesHost.startCanvasHermesHost(this.canvasPath);
-            }
+            agentProviders.startActiveCanvas(this.canvasPath);
+            watchCanvasesRoot();
             watchGraph();
             outputQueue.feedHermesOutput();
+            broadcastQueueState();
             return this;
         },
 
@@ -388,6 +437,10 @@ const createCanvasRuntime = canvasPath => {
 
             clearTimeout(watchTimer);
             watchTimer = null;
+            if (canvasesRootWatcher) {
+                canvasesRootWatcher.close();
+                canvasesRootWatcher = null;
+            }
             watchers.forEach(watcher => watcher.close());
             watchers = [];
             outputQueue.clearActiveLanes();
@@ -449,7 +502,7 @@ const { ensureCanvasesGitRepo, commitCanvases } = createGitTimeline({
 });
 
 const promptBuilder = createPromptBuilder({
-    basePrompt: AGENT_PROMPT,
+    basePrompt: RUNTIME_AGENT_PROMPT,
     getCanvasPath: () => CANVAS_PATH,
     outputJobKey: job => outputQueue.outputJobKey(job),
     callbackPromptText,
@@ -466,7 +519,7 @@ const spawnHermesPromptProcess = (prompt, context = {}) =>
         const liveArgs = [...hermesBootstrap.selectedHermesLaunchArgs(), '-z', prompt, ...AGENT_ARGS];
 
         logServer('agent', 'starting prompt process', {
-            command: AGENT_COMMAND,
+            command: HERMES_AGENT_COMMAND,
             args: liveArgs,
             canvas: CANVAS_PATH,
             job: context.job || null
@@ -479,7 +532,7 @@ const spawnHermesPromptProcess = (prompt, context = {}) =>
         });
 
         const proc = pty.spawn(
-            AGENT_COMMAND,
+            HERMES_AGENT_COMMAND,
             liveArgs,
             {
                 name: 'xterm-color',
@@ -499,7 +552,7 @@ const spawnHermesPromptProcess = (prompt, context = {}) =>
         setCurrentAgentDebug({
             kind: 'prompt-process',
             label: 'Hermes prompt process',
-            command: AGENT_COMMAND,
+            command: HERMES_AGENT_COMMAND,
             status: 'running',
             job: context.job || null,
             pid: proc.pid || null,
@@ -542,7 +595,7 @@ const spawnHermesPromptProcess = (prompt, context = {}) =>
                 setCurrentAgentDebug({
                     kind: 'idle',
                     label: 'Idle',
-                    command: AGENT_COMMAND,
+                    command: HERMES_AGENT_COMMAND,
                     status: 'timed out',
                     provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
                     model: hermesBootstrap.currentHermesBootstrapState().model || null
@@ -555,7 +608,7 @@ const spawnHermesPromptProcess = (prompt, context = {}) =>
                 setCurrentAgentDebug({
                     kind: 'idle',
                     label: 'Idle',
-                    command: AGENT_COMMAND,
+                    command: HERMES_AGENT_COMMAND,
                     status: 'failed',
                     exitCode,
                     provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
@@ -568,7 +621,7 @@ const spawnHermesPromptProcess = (prompt, context = {}) =>
             setCurrentAgentDebug({
                 kind: 'idle',
                 label: 'Idle',
-                command: AGENT_COMMAND,
+                command: HERMES_AGENT_COMMAND,
                 status: 'waiting',
                 provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
                 model: hermesBootstrap.currentHermesBootstrapState().model || null
@@ -586,7 +639,7 @@ const spawnHermesPromptProcess = (prompt, context = {}) =>
             setCurrentAgentDebug({
                 kind: 'idle',
                 label: 'Idle',
-                command: AGENT_COMMAND,
+                command: HERMES_AGENT_COMMAND,
                 status: 'error',
                 error: error.message,
                 provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
@@ -597,7 +650,7 @@ const spawnHermesPromptProcess = (prompt, context = {}) =>
     });
 
 const runQueuedAgentJob = (prompt, context = {}) =>
-    hermesHost.run(prompt, context);
+    agentProviders.runActive(prompt, context);
 
 const processOutputJob = async job => {
     const jobId = job.id || 'job-' + Date.now();
@@ -619,6 +672,7 @@ const processOutputJob = async job => {
         status: 'running',
         startedAt: new Date().toISOString()
     });
+    broadcastQueueState();
 
     logServer('queue', 'job marked running', {
         job: outputQueue.outputJobSummary({ ...job, id: jobId, componentPath, status: 'running' })
@@ -626,8 +680,15 @@ const processOutputJob = async job => {
 
     try {
         const response = await runQueuedAgentJob(promptBuilder.buildAgentJobPrompt({ ...job, id: jobId, componentPath }), {
-            job: outputQueue.outputJobSummary({ ...job, id: jobId, componentPath, status: 'running' })
+            job: outputQueue.outputJobSummary({ ...job, id: jobId, componentPath, status: 'running' }),
+            canvasPath: CANVAS_PATH,
+            inputPath: INPUT_PATH,
+            outputPath: OUTPUT_PATH
         });
+
+        if (/Blocked:|error=patch rejected|not writable in this environment|writing outside of the project/i.test(response)) {
+            throw new Error('Agent failed the live canvas write check and the test was stopped early.');
+        }
 
         logServer('agent', 'agent job returned', {
             jobId,
@@ -647,6 +708,7 @@ const processOutputJob = async job => {
             status: 'done',
             completedAt: new Date().toISOString()
         });
+        broadcastQueueState();
 
         commitCanvases({ ...job, id: jobId });
 
@@ -661,11 +723,16 @@ const processOutputJob = async job => {
             failedAt: new Date().toISOString(),
             error: error.message
         });
+        broadcastQueueState();
         logServer('queue', 'job marked failed', {
             jobId,
             lane: laneKey,
             durationMs: Date.now() - startedAt,
             error: error.message
+        });
+
+        setImmediate(() => {
+            process.exit(1);
         });
     }
 };
@@ -932,6 +999,15 @@ const broadcast = payload => {
     clients.forEach(res => res.write('data: ' + message + '\n\n'));
 };
 
+const queueStatePayload = componentPath => ({
+    type: 'queue-status',
+    state: outputQueue.currentBusyState(componentPath)
+});
+
+const broadcastQueueState = (componentPath = '') => {
+    broadcast(queueStatePayload(componentPath));
+};
+
 const emitDebugEvent = payload => {
     const message = JSON.stringify(payload);
     debugClients.forEach(res => {
@@ -953,6 +1029,30 @@ const scheduleWatchRefresh = () => {
 
         broadcast();
     }, 50);
+};
+
+const scheduleCanvasesRootRefresh = () => {
+    clearTimeout(watchTimer);
+    watchTimer = setTimeout(() => {
+        try {
+            watchCanvasesRoot();
+        } catch (error) {
+            logHermesError('watch', error, { message: 'canvases root watch error' });
+            broadcast({ type: 'canvases-changed' });
+            return;
+        }
+
+        broadcast({ type: 'canvases-changed' });
+    }, 50);
+};
+
+const watchCanvasesRoot = () => {
+    if (canvasesRootWatcher) {
+        canvasesRootWatcher.close();
+        canvasesRootWatcher = null;
+    }
+
+    canvasesRootWatcher = fs.watch(CANVASES_ROOT, { persistent: false }, scheduleCanvasesRootRefresh);
 };
 
 const watchGraph = () => {
@@ -1073,6 +1173,7 @@ const server = http.createServer(async (req, res) => {
                 Connection: 'keep-alive'
             });
             clients.add(res);
+            res.write('data: ' + JSON.stringify(queueStatePayload()) + '\n\n');
             req.on('close', () => clients.delete(res));
             return;
         }
@@ -1092,7 +1193,33 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'GET' && url.pathname === '/agents/probe') {
-            send(res, 200, JSON.stringify(hermesBootstrap.probeLocalAgents()), 'application/json; charset=utf-8');
+            send(res, 200, JSON.stringify({
+                ...hermesBootstrap.probeLocalAgents(),
+                agentKind: agentProviders.activeKind(),
+                agentChoices: agentProviders.availableKinds()
+            }), 'application/json; charset=utf-8');
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/agent/select') {
+            const body = JSON.parse(await readBody(req));
+            const result = agentProviders.setActiveKind(body.kind, CANVAS_PATH);
+
+            if (!result.ok) {
+                send(res, result.statusCode, JSON.stringify({ error: result.error }), 'application/json; charset=utf-8');
+                return;
+            }
+
+            if (outputQueue) {
+                outputQueue.feedHermesOutput();
+            }
+
+            broadcast({
+                type: 'agent-mode',
+                agentKind: agentProviders.activeKind()
+            });
+
+            send(res, 200, JSON.stringify(result), 'application/json; charset=utf-8');
             return;
         }
 
@@ -1174,6 +1301,7 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'POST' && url.pathname === '/output') {
             await appendOutput(req);
             outputQueue.feedHermesOutput();
+            broadcastQueueState();
             send(res, 204, '');
             return;
         }

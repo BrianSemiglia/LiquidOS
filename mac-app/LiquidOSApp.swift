@@ -89,19 +89,19 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             sleep(1) // Allow OS to release the port
         }
         
-        guard let webRoot = Bundle.main.resourceURL?.appendingPathComponent("Web") else {
+        guard let appRoot = Bundle.main.resourceURL else {
             showError("Missing app resources.")
             return
         }
         
-        guard FileManager.default.fileExists(atPath: webRoot.appendingPathComponent("server.js").path) else {
+        guard FileManager.default.fileExists(atPath: appRoot.appendingPathComponent("server.js").path) else {
             showError("Missing server.js in app resources.")
             return
         }
         
         server = Process()
         server?.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        server?.currentDirectoryURL = webRoot
+        server?.currentDirectoryURL = appRoot
         let environment = Self.serverEnvironment()
         let hermesCommand = Self.resolvedHermesCommand(environment: environment)
         server?.arguments = [
@@ -128,7 +128,9 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
                 "/sbin"
             ].joined(separator: ":"),
             "HOME": NSHomeDirectory(),
-            "LIQUIDOS_NATIVE": "1"
+            "LIQUIDOS_NATIVE": "1",
+            "LIQUIDOS_RUNTIME_KIND": "mac-app",
+            "LIQUIDOS_LIVE_CANVAS_ROOT": Self.canvasesRoot().path
         ].merging(environment) { _, new in new }
 
         let outputPipe = Pipe()
@@ -203,12 +205,37 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         webView?.loadHTMLString("""
         <!doctype html>
         <html>
-        <body style="margin:0;min-height:100vh;display:grid;place-items:center;font: -apple-system-body;background:linear-gradient(180deg,#111827,#f9fafb);color:#111827;">
-          <div style="max-width:32rem;padding:32px 28px;border-radius:24px;background:rgba(255,255,255,0.78);box-shadow:0 24px 80px rgba(15,23,42,0.14);backdrop-filter:blur(18px);">
-            <div style="font-size:0.8rem;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#2563eb;">LiquidOS</div>
-            <h1 style="margin:10px 0 8px;font-size:2rem;line-height:1.05;">Starting up</h1>
-            <p style="margin:0;color:#374151;line-height:1.5;">Loading the canvas and Hermes host. If the server needs a moment, this screen stays put until it is ready.</p>
-          </div>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            :root {
+              color-scheme: dark;
+            }
+
+            html, body {
+              width: 100%;
+              height: 100%;
+              margin: 0;
+              background: #111827;
+            }
+
+            body {
+              display: grid;
+              place-items: center;
+              color: rgba(255, 255, 255, 0.88);
+              font: -apple-system-body;
+            }
+
+            .loading {
+              letter-spacing: 0.01em;
+              font-weight: 500;
+              -webkit-font-smoothing: antialiased;
+              text-rendering: optimizeLegibility;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="loading" aria-label="Loading" role="status">Loading...</div>
         </body>
         </html>
         """, baseURL: nil)
@@ -227,9 +254,9 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
     }
     
     private static func canvasesRoot() -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents", isDirectory: true)
             .appendingPathComponent("LiquidOS", isDirectory: true)
-            .appendingPathComponent("canvases", isDirectory: true)
     }
 
     private static func serverEnvironment() -> [String: String] {
@@ -237,6 +264,8 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         if let bundledHermes = bundledHermesExecutablePath() {
             environment["LIQUIDOS_BUNDLED_HERMES"] = bundledHermes
         }
+        environment["LIQUIDOS_RUNTIME_KIND"] = "mac-app"
+        environment["LIQUIDOS_LIVE_CANVAS_ROOT"] = canvasesRoot().path
         return environment
     }
 
@@ -245,7 +274,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             return nil
         }
 
-        let candidate = resourceURL.appendingPathComponent("Web/Hermes/hermes")
+        let candidate = resourceURL.appendingPathComponent("Hermes/hermes")
         return FileManager.default.isExecutableFile(atPath: candidate.path) ? candidate.path : nil
     }
 

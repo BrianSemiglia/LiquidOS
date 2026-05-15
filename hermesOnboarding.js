@@ -12,13 +12,21 @@
 
         let onboardingState = {
             hermesConfigured: false,
-            agents: []
+            agents: [],
+            agentKind: 'hermes',
+            agentChoices: []
         };
 
         const render = () => {
             const agents = onboardingState.agents || [];
             const codex = agents.find(agent => agent.id === 'codex') || { installed: false };
             const claude = agents.find(agent => agent.id === 'claude-code') || { installed: false };
+
+            if (onboardingState.agentKind === 'codex') {
+                agentSetupBackdrop.dataset.open = 'false';
+                agentSetup.innerHTML = '';
+                return;
+            }
 
             if (onboardingState.hermesConfigured) {
                 agentSetupBackdrop.dataset.open = 'false';
@@ -78,14 +86,18 @@
                 .then(result => {
                     onboardingState = {
                         hermesConfigured: Boolean(result?.hermes?.configured),
-                        agents: Array.isArray(result?.agents) ? result.agents : []
+                        agents: Array.isArray(result?.agents) ? result.agents : [],
+                        agentKind: typeof result?.agentKind === 'string' ? result.agentKind : 'hermes',
+                        agentChoices: Array.isArray(result?.agentChoices) ? result.agentChoices : []
                     };
                     render();
                 })
                 .catch(() => {
                     onboardingState = {
                         hermesConfigured: false,
-                        agents: []
+                        agents: [],
+                        agentKind: 'hermes',
+                        agentChoices: []
                     };
                     render();
                 });

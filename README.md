@@ -15,12 +15,9 @@ output.json
 
 The prompt bar can switch canvases, create a new canvas, and send canvas-scoped prompts. The whole `canvases/` folder is tracked as one Git repo so activity across canvases has a single timeline.
 
-There are two canvas roots on purpose:
+The live canvas root is `~/Documents/LiquidOS` in both the standalone server and the Mac app.
 
-- `canvases/` in the repo is the standalone server/default development root.
-- `~/Library/Application Support/LiquidOS/canvases` is the Mac app's live root, because `mac-app/LiquidOSApp.swift` launches the server with `--canvases` pointing there.
-
-If you are editing the running Mac app, update the Application Support canvas. If you are working on the standalone server or the repo snapshot, update the repo `canvases/` tree.
+If you are editing the running Mac app or the standalone server, update the live `~/Documents/LiquidOS` tree.
 
 ## Listening components and plugins
 
