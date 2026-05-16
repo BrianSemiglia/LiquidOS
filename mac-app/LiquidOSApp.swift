@@ -7,6 +7,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
     private var webView: WKWebView?
     private var server: Process?
     private var port: Int = 0
+    private var canvasesRootURL = LiquidOSApp.defaultCanvasesRoot()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -16,6 +17,15 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         showStartingScreen()
         startServer()
         loadWhenReady(attempt: 0)
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        urls.first.map(openWorkspace)
+    }
+
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        openWorkspace(URL(fileURLWithPath: filename, isDirectory: true))
+        return true
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -109,7 +119,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             "--port",
             String(port),
             "--canvases",
-            Self.canvasesRoot().path,
+            canvasesRootURL.path,
             "--agent-runtime",
             Self.agentRuntimeRoot().path,
             "--agent",
@@ -131,7 +141,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             "HOME": NSHomeDirectory(),
             "LIQUIDOS_NATIVE": "1",
             "LIQUIDOS_RUNTIME_KIND": "mac-app",
-            "LIQUIDOS_LIVE_CANVAS_ROOT": Self.canvasesRoot().path,
+            "LIQUIDOS_LIVE_CANVAS_ROOT": canvasesRootURL.path,
             "LIQUIDOS_AGENT_RUNTIME_ROOT": Self.agentRuntimeRoot().path
         ].merging(environment) { _, new in new }
 
@@ -255,7 +265,38 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         """, baseURL: nil)
     }
     
-    private static func canvasesRoot() -> URL {
+    private func openWorkspace(_ url: URL) {
+        let openedURL = url.standardizedFileURL
+
+        guard openedURL != canvasesRootURL.standardizedFileURL else {
+            return
+        }
+
+        canvasesRootURL = openedURL
+        showStartingScreen()
+        stopServer()
+        startServer()
+        loadWhenReady(attempt: 0)
+    }
+
+    private func stopServer() {
+        guard let server else {
+            return
+        }
+
+        if server.isRunning {
+            server.terminate()
+            Thread.sleep(forTimeInterval: 0.5)
+
+            if server.isRunning {
+                kill(server.processIdentifier, SIGKILL)
+            }
+        }
+
+        self.server = nil
+    }
+
+    private static func defaultCanvasesRoot() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Documents", isDirectory: true)
             .appendingPathComponent("LiquidOS", isDirectory: true)
@@ -272,7 +313,6 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
     private static func serverEnvironment() -> [String: String] {
         [
             "LIQUIDOS_RUNTIME_KIND": "mac-app",
-            "LIQUIDOS_LIVE_CANVAS_ROOT": canvasesRoot().path,
             "LIQUIDOS_AGENT_RUNTIME_ROOT": agentRuntimeRoot().path
         ]
     }

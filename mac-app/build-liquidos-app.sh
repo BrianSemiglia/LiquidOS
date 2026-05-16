@@ -33,6 +33,44 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <string>APPL</string>
   <key>CFBundleIconFile</key>
   <string>LiquidOS</string>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>LiquidOS Workspace</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Owner</string>
+      <key>LSTypeIsPackage</key>
+      <true/>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>local.liquidos.workspace</string>
+      </array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>local.liquidos.workspace</string>
+      <key>UTTypeDescription</key>
+      <string>LiquidOS Workspace</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>com.apple.package</string>
+        <string>public.directory</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>liquidos</string>
+        </array>
+      </dict>
+    </dict>
+  </array>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>NSHighResolutionCapable</key>
