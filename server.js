@@ -2,11 +2,11 @@ const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
 const { createGitTimeline } = require('./gitTimeline');
-const { createHermesBootstrap } = require('./hermesBootstrap');
-const { createHermesHost } = require('./hermesHost');
 const { createAgentProviders } = require('./agentProviders');
+const { CodexAgent, configureCodexAgent } = require('./codexAgent');
+const { HermesAgent, configureHermesAgent } = require('./hermesAgent');
+const { ClaudeCodeAgent, configureClaudeCodeAgent } = require('./claudeCodeAgent');
 const { createCanvasFiles } = require('./canvasFiles');
 const { createCanvasGraph } = require('./canvasGraph');
 const { createOutputQueue } = require('./outputQueue');
@@ -64,39 +64,42 @@ const DEFAULT_CANVAS_PATH = path.join(CANVASES_ROOT, 'home');
 let CANVAS_PATH = resolveConfigPath(argValue('--canvas', DEFAULT_CANVAS_PATH));
 let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
 let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
-const HERMES_HOME = process.env.HERMES_HOME || path.join(os.homedir(), 'Library/Application Support/LiquidOS/Hermes');
-const HERMES_LOGS_DIR = path.join(HERMES_HOME, 'logs');
-const HERMES_AGENT_LOG_PATH = path.join(HERMES_LOGS_DIR, 'agent.log');
-const HERMES_ERRORS_LOG_PATH = path.join(HERMES_LOGS_DIR, 'errors.log');
-const SOUL_SOURCE_PATH = path.join(ROOT, '.hermes', 'SOUL.md');
-const SOUL_RUNTIME_PATH = path.join(HERMES_HOME, 'SOUL.md');
-const COMPONENT_SKILL_RELATIVE_PATH = path.join('.hermes', 'skills', 'component-instance-creator-updater', 'SKILL.md');
-const COMPONENT_SKILL_SOURCE_PATH = path.join(ROOT, COMPONENT_SKILL_RELATIVE_PATH);
+const AGENT_RUNTIME_ROOT = resolveConfigPath(argValue('--agent-runtime', process.env.LIQUIDOS_AGENT_RUNTIME_ROOT || path.join(os.homedir(), 'Library/Application Support/LiquidOS/AgentRuntime')));
+const AGENT_RUNTIME_LOGS_DIR = path.join(AGENT_RUNTIME_ROOT, 'logs');
+const HERMES_AGENT_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'agent.log');
+const HERMES_ERRORS_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'errors.log');
+const AGENTS_SOURCE_PATH = path.join(ROOT, 'AGENTS.md');
+const AGENTS_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'AGENTS.md');
+const COMPONENT_GUIDE_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'COMPONENT_GUIDE.md');
+const COMPONENT_GUIDE_PATH = path.join(ROOT, 'COMPONENT_GUIDE.md');
+const LIVE_CANVAS_ROOT = String(process.env.LIQUIDOS_LIVE_CANVAS_ROOT || CANVASES_ROOT).trim() || CANVASES_ROOT;
 
-fs.mkdirSync(HERMES_LOGS_DIR, { recursive: true });
+fs.mkdirSync(AGENT_RUNTIME_ROOT, { recursive: true });
+fs.mkdirSync(AGENT_RUNTIME_LOGS_DIR, { recursive: true });
 
-if (fs.existsSync(SOUL_SOURCE_PATH)) {
-    fs.mkdirSync(HERMES_HOME, { recursive: true });
-    fs.copyFileSync(SOUL_SOURCE_PATH, SOUL_RUNTIME_PATH);
-}
-
-const readSoulPrompt = () =>
-    fs.existsSync(SOUL_SOURCE_PATH)
-        ? fs.readFileSync(SOUL_SOURCE_PATH, 'utf8').trim()
-        : '';
-
-const syncRuntimeComponentSkill = targetRoot => {
-    if (!fs.existsSync(COMPONENT_SKILL_SOURCE_PATH)) {
-        throw new Error(`Missing component skill source: ${COMPONENT_SKILL_SOURCE_PATH}`);
+const materializeRuntimeFile = (sourcePath, destinationPath) => {
+    if (!fs.existsSync(sourcePath)) {
+        return false;
     }
 
-    const sourceDir = path.dirname(COMPONENT_SKILL_SOURCE_PATH);
-    const destinationDir = path.join(targetRoot, path.dirname(COMPONENT_SKILL_RELATIVE_PATH));
-
-    fs.rmSync(destinationDir, { recursive: true, force: true });
-    fs.mkdirSync(path.dirname(destinationDir), { recursive: true });
-    fs.cpSync(sourceDir, destinationDir, { recursive: true });
+    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+    fs.copyFileSync(sourcePath, destinationPath);
+    return true;
 };
+
+const materializeAgentRuntimeFiles = () => {
+    materializeRuntimeFile(AGENTS_SOURCE_PATH, AGENTS_RUNTIME_PATH);
+    materializeRuntimeFile(COMPONENT_GUIDE_PATH, COMPONENT_GUIDE_RUNTIME_PATH);
+};
+
+process.env.LIQUIDOS_AGENT_RUNTIME_ROOT = AGENT_RUNTIME_ROOT;
+
+const readComponentGuidePrompt = () =>
+    fs.existsSync(COMPONENT_GUIDE_PATH)
+        ? fs.readFileSync(COMPONENT_GUIDE_PATH, 'utf8').trim()
+        : '';
+
+materializeAgentRuntimeFiles();
 
 fs.mkdirSync(CANVASES_ROOT, { recursive: true });
 
@@ -106,62 +109,21 @@ if (!fs.existsSync(path.join(CANVAS_PATH, 'input.json'))) {
     OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
 }
 const PORT = Number.parseInt(argValue('--port', '3000'), 10);
-const commandExists = command => {
-    if (!command) {
-        return false;
-    }
-
-    if (path.isAbsolute(command)) {
-        return fs.existsSync(command);
-    }
-
-    const result = spawnSync('which', [command], {
-        cwd: ROOT,
-        env: process.env,
-        encoding: 'utf8'
-    });
-
-    return result.status === 0;
-};
-
-const resolveHermesCommand = () => {
-    const explicitCommand = argValue('--agent', argValue('--hermes-command', '')).trim();
-
-    if (explicitCommand) {
-        return explicitCommand;
-    }
-
-    if (commandExists('hermes')) {
-        return 'hermes';
-    }
-
-    const bundledHermes = String(process.env.LIQUIDOS_BUNDLED_HERMES || '').trim();
-
-    if (bundledHermes && commandExists(bundledHermes)) {
-        return bundledHermes;
-    }
-
-    return 'hermes';
-};
-
-const HERMES_AGENT_COMMAND = resolveHermesCommand();
-const AGENT_SOURCE = path.isAbsolute(HERMES_AGENT_COMMAND) ? 'bundled' : 'global';
-const AGENT_MODE = argValue('--agent-mode', argValue('--hermes-mode', 'oneshot')).trim() || 'oneshot';
-const AGENT_ARGS = argValue('--agent-args', argValue('--hermes-args', '')).split(' ').filter(Boolean);
-const AGENT_TIMEOUT_MS = Number.parseInt(argValue('--agent-timeout-ms', '300000'), 10);
-const LIVE_CANVAS_ROOT = String(process.env.LIQUIDOS_LIVE_CANVAS_ROOT || CANVASES_ROOT).trim() || CANVASES_ROOT;
-const hermesBootstrap = createHermesBootstrap({
-    root: ROOT,
-    agentCommand: HERMES_AGENT_COMMAND
-});
-
+const AGENT_SOURCE = 'agent';
 const clients = new Set();
 const debugClients = new Set();
+
+const emitDebugEvent = payload => {
+    const message = JSON.stringify(payload);
+    debugClients.forEach(res => {
+        res.write('event: ' + payload.type + '\n');
+        res.write('data: ' + message + '\n\n');
+    });
+};
 let watchers = [];
 let canvasesRootWatcher = null;
 let watchTimer;
 let activeCanvasRuntime = null;
-let hermesHost = null;
 let outputQueue = null;
 let agentProviders = null;
 const agentDebugState = {
@@ -173,32 +135,27 @@ const agentDebugState = {
     lines: []
 };
 
+
 const stripAnsi = value =>
     String(value || '')
         .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
         .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, '')
         .replace(/\r/g, '');
 
-const pushAgentDebugLine = (label, chunk) => {
-    String(chunk)
+const pushAgentDebugLine = chunk => {
+    String(chunk || '')
         .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
         .split('\n')
         .forEach(line => {
-            const text = stripAnsi(String(line).split('\r').pop()).trimEnd();
+            const text = stripAnsi(line).trimEnd();
 
             if (!text.trim()) {
                 return;
             }
 
-            agentDebugState.lines.push({
-                at: new Date().toISOString(),
-                label,
-                text
-            });
-
-            if (agentDebugState.lines.length > 300) {
-                agentDebugState.lines.splice(0, agentDebugState.lines.length - 300);
-            }
+            agentDebugState.lines.push({ text });
+            emitDebugEvent({ type: 'debug-line', line: agentDebugState.lines[agentDebugState.lines.length - 1] });
         });
 };
 
@@ -208,6 +165,10 @@ const setCurrentAgentDebug = next => {
         source: next.source || AGENT_SOURCE,
         at: new Date().toISOString()
     };
+
+    if (typeof emitDebugEvent === 'function') {
+        emitDebugEvent({ type: 'debug-status', current: agentDebugState.current });
+    }
 };
 
 const currentAgentDebugSnapshot = () => {
@@ -250,7 +211,9 @@ const logHermesError = (area, error, details = null) => {
 };
 
 const appendHermesLog = (file, line) => {
-    fs.appendFileSync(file, line + '\n');
+    fs.promises.appendFile(file, line + '\n').catch(error => {
+        console.error('[log] failed to append ' + file + ': ' + error.message);
+    });
 };
 
 const stripAnsiForLog = value =>
@@ -260,122 +223,57 @@ const stripAnsiForLog = value =>
         .replace(/\r/g, '');
 
 const writeProcessOutput = (label, chunk, stream = process.stdout) => {
-    const normalized = String(chunk).replace(/\r\n/g, '\n');
+    String(chunk || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .split(/(?<=\n)/)
+        .forEach(line => {
+            if (!line.length) {
+                return;
+            }
 
-    normalized.split(/(?<=\n)/).forEach(line => {
-        if (!line.length) {
-            return;
-        }
+            const cleanLine = stripAnsiForLog(line);
 
-        const cleanLine = stripAnsiForLog(line);
+            if (!cleanLine.trim()) {
+                return;
+            }
 
-        if (!cleanLine.trim()) {
-            return;
-        }
-
-        stream.write(`${label} ${line}`);
-        pushAgentDebugLine(label, line);
-        appendHermesLog(HERMES_AGENT_LOG_PATH, `${label} ${cleanLine.trimEnd()}`);
-        emitDebugEvent({ type: 'debug-line', line: agentDebugState.lines[agentDebugState.lines.length - 1] || null });
-    });
+            stream.write(`${label} ${line}`);
+            appendHermesLog(HERMES_AGENT_LOG_PATH, `${label} ${cleanLine.trimEnd()}`);
+            pushAgentDebugLine(line);
+        });
 };
 
 const shortText = value => {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return text.length > 160 ? text.slice(0, 157) + '...' : text;
 };
-const ENABLED_HERMES_TOOLSETS = (() => {
-    try {
-        const result = spawnSync(HERMES_AGENT_COMMAND, ['plugins', 'list'], {
-            cwd: ROOT,
-            env: process.env,
-            encoding: 'utf8',
-            maxBuffer: 2_000_000
-        });
+configureHermesAgent({
+    output: writeProcessOutput,
+    status: setCurrentAgentDebug
+});
 
-        if (result.status !== 0) {
-            return [];
-        }
+configureCodexAgent({
+    output: writeProcessOutput,
+    status: setCurrentAgentDebug
+});
 
-        return Array.from(
-            new Set(
-                String(result.stdout || '')
-                    .split(/\r?\n/)
-                    .flatMap(line => {
-                        const match = line.match(/^\s*│\s*([^│]+?)\s*│\s*enabled\s*│/);
-                        return match ? [match[1].trim()] : [];
-                    })
-                    .filter(Boolean)
-            )
-        );
-    } catch (error) {
-        logHermesError('hermes-host', error, { message: 'toolset discovery failed' });
-        return [];
-    }
-})();
-
-hermesHost = createHermesHost({
-    root: ROOT,
-    canvasesRoot: CANVASES_ROOT,
-    agentCommand: HERMES_AGENT_COMMAND,
-    agentArgs: AGENT_ARGS,
-    enabledToolsets: ENABLED_HERMES_TOOLSETS,
-    hermesBootstrap,
-    getCanvasPath: () => CANVAS_PATH,
-    getInputPath: () => INPUT_PATH,
-    getOutputPath: () => OUTPUT_PATH,
-    logServer,
-    logHermesError,
-    shortText,
-    setCurrentAgentDebug,
-    writeProcessOutput,
-    pty
+configureClaudeCodeAgent({
+    output: writeProcessOutput,
+    status: setCurrentAgentDebug
 });
 
 agentProviders = createAgentProviders({
-    root: ROOT,
-    canvasesRoot: CANVASES_ROOT,
-    hermesCommand: HERMES_AGENT_COMMAND,
-    hermesBootstrap,
-    hermesHost,
-    commandExists,
-    logServer,
-    shortText,
-    setCurrentAgentDebug,
-    writeProcessOutput,
-    pty,
-    agentTimeoutMs: AGENT_TIMEOUT_MS
+    agents: [
+        HermesAgent(),
+        CodexAgent(),
+        ClaudeCodeAgent()
+    ],
+    workingDirectory: AGENT_RUNTIME_ROOT,
+    onStatus: setCurrentAgentDebug
 });
 
-const sleepSync = ms => {
-    const shared = new Int32Array(new SharedArrayBuffer(4));
-    Atomics.wait(shared, 0, 0, ms);
-};
-
-const readJson = (file, retries = 8, delayMs = 25) => {
-    let lastError = null;
-
-    for (let attempt = 0; attempt <= retries; attempt += 1) {
-        try {
-            return JSON.parse(fs.readFileSync(file, 'utf8'));
-        } catch (error) {
-            lastError = error;
-
-            const transientParseError =
-                error instanceof SyntaxError
-                || /Unexpected end of JSON input/.test(error.message)
-                || /Expected ',' or '}' after property value/.test(error.message);
-
-            if (!transientParseError || attempt === retries || !fs.existsSync(file)) {
-                throw error;
-            }
-
-            sleepSync(delayMs);
-        }
-    }
-
-    throw lastError;
-};
+const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
 const writeJson = (file, value) => {
     const temp = file + '.' + process.pid + '.tmp';
@@ -440,14 +338,12 @@ const createCanvasRuntime = canvasPath => {
 
         start() {
             applyCanvasRuntime(this);
-            syncRuntimeComponentSkill(LIVE_CANVAS_ROOT);
-            syncRuntimeComponentSkill(CANVAS_PATH);
+            materializeAgentRuntimeFiles();
             this.started = true;
             ensureActiveCanvasFiles();
             ensureCanvasesGitRepo();
             outputQueue.normalizeOutputJobs();
             outputQueue.clearActiveLanes();
-            agentProviders.startActiveCanvas(this.canvasPath);
             watchCanvasesRoot();
             watchGraph();
             outputQueue.feedHermesOutput();
@@ -534,188 +430,13 @@ const promptBuilder = createPromptBuilder({
     resolveCanvasReference
 });
 
-const buildAgentPrompt = job => {
-    const jobPrompt = promptBuilder.buildJobPrompt(job);
-
-        return [
-            readSoulPrompt(),
-            String.raw`
-# Component Creation/Updating
-
-## Workflow
-
-1. Prompt arrives.
-2. Agent creates or finds existing component and writes a loading version of it to disk inside \`<canvas>/components\<component_name>\view.json\`.
-3. Agent adds component path to \`./input.json\`
-3. Agent begins work.
-4. Agent partially completes work and overwrites the component to reflect its progress.
-5. Agent continues work.
-6. Agent partially completes work and overwrites the component to reflect its progress.
-7. Agent completes work and overwrites the component to reflect the final state.
-8. Agent responds as done.
-
-## Example
-
-<canvas>/components/hello-world/view.json:
-{
-  "title": "Hello World",
-  "html": "<h1>Hello, world.</h1>",
-  "css": "h1{font-family:system-ui}"
-
-}
-
-<canvas>/input.json
-{
-  "components": [
-    "components/hello-world/view.json"
-  ]
-}
-
-`.trim(),
-            jobPrompt
-        ].filter(Boolean).join('\n\n');
-
-    return jobPrompt;
-};
-
-const spawnHermesPromptProcess = (prompt, context = {}) =>
-    new Promise((resolve, reject) => {
-        let stdout = '';
-        let stderr = '';
-        let timedOut = false;
-        const outputLabel = 'hermes-prompt-process';
-        const liveArgs = [...hermesBootstrap.selectedHermesLaunchArgs(), '-z', prompt, ...AGENT_ARGS];
-
-        logServer('agent', 'starting prompt process', {
-            command: HERMES_AGENT_COMMAND,
-            args: liveArgs,
-            canvas: CANVAS_PATH,
-            job: context.job || null
-        });
-        logServer('agent', 'sending prompt to Hermes prompt process', {
-            canvas: CANVAS_PATH,
-            prompt: shortText(prompt),
-            promptChars: String(prompt || '').length,
-            job: context.job || null
-        });
-
-        const proc = pty.spawn(
-            HERMES_AGENT_COMMAND,
-            liveArgs,
-            {
-                name: 'xterm-color',
-                cols: 160,
-                rows: 50,
-                cwd: ROOT,
-                env: {
-                    ...process.env,
-                    ...hermesBootstrap.selectedHermesLaunchEnv(),
-                    LIVE_EDIT_OUTPUT_PATH: OUTPUT_PATH,
-                    LIVE_EDIT_INPUT_PATH: INPUT_PATH,
-                    LIVE_EDIT_CANVAS_PATH: CANVAS_PATH
-                }
-            }
-        );
-
-        setCurrentAgentDebug({
-            kind: 'prompt-process',
-            label: 'Hermes prompt process',
-            command: HERMES_AGENT_COMMAND,
-            status: 'running',
-            job: context.job || null,
-            pid: proc.pid || null,
-            startedAt: new Date().toISOString(),
-            provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
-            model: hermesBootstrap.currentHermesBootstrapState().model || null
-        });
-
-        logServer('agent', 'spawned prompt process', {
-            pid: proc.pid,
-            job: context.job || null
-        });
-
-        const timeout = setTimeout(() => {
-            timedOut = true;
-            logServer('agent', 'timeout; sending SIGTERM', {
-                pid: proc.pid,
-                timeoutMs: AGENT_TIMEOUT_MS,
-                job: context.job || null
-            });
-            proc.kill('SIGTERM');
-        }, AGENT_TIMEOUT_MS);
-
-        proc.onData(chunk => {
-            stdout += chunk;
-            writeProcessOutput(outputLabel, chunk);
-        });
-
-        proc.onExit(({ exitCode, signal }) => {
-            clearTimeout(timeout);
-            logServer('agent', 'prompt process closed', {
-                code: exitCode,
-                signal,
-                timedOut,
-                stdoutBytes: Buffer.byteLength(stdout),
-                stderrBytes: Buffer.byteLength(stderr),
-                job: context.job || null
-            });
-            if (timedOut) {
-                setCurrentAgentDebug({
-                    kind: 'idle',
-                    label: 'Idle',
-                    command: HERMES_AGENT_COMMAND,
-                    status: 'timed out',
-                    provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
-                    model: hermesBootstrap.currentHermesBootstrapState().model || null
-                });
-                reject(new Error('Agent timed out after ' + AGENT_TIMEOUT_MS + 'ms'));
-                return;
-            }
-
-            if (exitCode !== 0) {
-                setCurrentAgentDebug({
-                    kind: 'idle',
-                    label: 'Idle',
-                    command: HERMES_AGENT_COMMAND,
-                    status: 'failed',
-                    exitCode,
-                    provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
-                    model: hermesBootstrap.currentHermesBootstrapState().model || null
-                });
-                reject(new Error('Agent exited with code ' + exitCode + (stderr.trim() ? ': ' + stderr.trim() : '')));
-                return;
-            }
-
-            setCurrentAgentDebug({
-                kind: 'idle',
-                label: 'Idle',
-                command: HERMES_AGENT_COMMAND,
-                status: 'waiting',
-                provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
-                model: hermesBootstrap.currentHermesBootstrapState().model || null
-            });
-
-            resolve(stdout.trim());
-        });
-
-        proc.on('error', error => {
-            clearTimeout(timeout);
-            logServer('agent', 'prompt process error', {
-                error: error.message,
-                job: context.job || null
-            });
-            setCurrentAgentDebug({
-                kind: 'idle',
-                label: 'Idle',
-                command: HERMES_AGENT_COMMAND,
-                status: 'error',
-                error: error.message,
-                provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
-                model: hermesBootstrap.currentHermesBootstrapState().model || null
-            });
-            reject(error);
-        });
-    });
+const buildAgentPrompt = job => agentProviders.preparePrompt(
+    [
+        readComponentGuidePrompt(),
+        '',
+        promptBuilder.buildJobPrompt(job)
+    ].filter(Boolean).join('\n')
+);
 
 const runQueuedAgentJob = (prompt, context = {}) =>
     agentProviders.runActive(prompt, context);
@@ -751,7 +472,10 @@ const processOutputJob = async job => {
             job: outputQueue.outputJobSummary({ ...job, id: jobId, componentPath, status: 'running' }),
             canvasPath: CANVAS_PATH,
             inputPath: INPUT_PATH,
-            outputPath: OUTPUT_PATH
+            outputPath: OUTPUT_PATH,
+            workingDirectory: AGENT_RUNTIME_ROOT,
+            systemPromptPath: AGENTS_RUNTIME_PATH,
+            canvasPath: CANVAS_PATH
         });
 
         if (/Blocked:|error=patch rejected|not writable in this environment|writing outside of the project/i.test(response)) {
@@ -799,9 +523,6 @@ const processOutputJob = async job => {
             error: error.message
         });
 
-        setImmediate(() => {
-            process.exit(1);
-        });
     }
 };
 
@@ -1076,14 +797,6 @@ const broadcastQueueState = (componentPath = '') => {
     broadcast(queueStatePayload(componentPath));
 };
 
-const emitDebugEvent = payload => {
-    const message = JSON.stringify(payload);
-    debugClients.forEach(res => {
-        res.write('event: ' + payload.type + '\n');
-        res.write('data: ' + message + '\n\n');
-    });
-};
-
 const scheduleWatchRefresh = () => {
     clearTimeout(watchTimer);
     watchTimer = setTimeout(() => {
@@ -1256,22 +969,20 @@ const server = http.createServer(async (req, res) => {
             debugClients.add(res);
             res.write('event: debug-ready\n');
             res.write('data: {"type":"debug-ready"}\n\n');
+            res.write('event: debug-snapshot\n');
+            res.write('data: ' + JSON.stringify({ type: 'debug-snapshot', snapshot: currentAgentDebugSnapshot() }) + '\n\n');
             req.on('close', () => debugClients.delete(res));
             return;
         }
 
         if (req.method === 'GET' && url.pathname === '/agents/probe') {
-            send(res, 200, JSON.stringify({
-                ...hermesBootstrap.probeLocalAgents(),
-                agentKind: agentProviders.activeKind(),
-                agentChoices: agentProviders.availableKinds()
-            }), 'application/json; charset=utf-8');
+            send(res, 200, JSON.stringify(agentProviders.probe()), 'application/json; charset=utf-8');
             return;
         }
 
         if (req.method === 'POST' && url.pathname === '/agent/select') {
             const body = JSON.parse(await readBody(req));
-            const result = agentProviders.setActiveKind(body.kind, CANVAS_PATH);
+            const result = agentProviders.setActiveKind(body.kind);
 
             if (!result.ok) {
                 send(res, result.statusCode, JSON.stringify({ error: result.error }), 'application/json; charset=utf-8');
@@ -1294,28 +1005,7 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'GET' && url.pathname === '/debug/agent') {
             send(res, 200, JSON.stringify({
                 ...currentAgentDebugSnapshot(),
-                hermes: hermesBootstrap.currentHermesBootstrapState(),
                 canvas: canvasName(CANVAS_PATH)
-            }), 'application/json; charset=utf-8');
-            return;
-        }
-
-        if (req.method === 'POST' && url.pathname === '/agents/select') {
-            const body = JSON.parse(await readBody(req));
-            const result = hermesBootstrap.selectHermesBackend(body.id);
-
-            if (!result.ok) {
-                send(res, result.statusCode, JSON.stringify({ error: result.error }), 'application/json; charset=utf-8');
-                return;
-            }
-
-            hermesHost.startCanvasHermesHost(CANVAS_PATH);
-            outputQueue.feedHermesOutput();
-            broadcast();
-            send(res, 200, JSON.stringify({
-                ok: true,
-                hermes: result.hermes,
-                selected: result.selected
             }), 'application/json; charset=utf-8');
             return;
         }
@@ -1479,9 +1169,8 @@ const shutdownCanvasRuntime = () => {
         return true;
     }
 
-    const stopped = hermesHost.stopCanvasHermesHost();
     clearOutputJson();
-    return stopped;
+    return false;
 };
 
 process.on('exit', shutdownCanvasRuntime);

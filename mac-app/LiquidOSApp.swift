@@ -103,7 +103,6 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         server?.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         server?.currentDirectoryURL = appRoot
         let environment = Self.serverEnvironment()
-        let hermesCommand = Self.resolvedHermesCommand(environment: environment)
         server?.arguments = [
             "node",
             "server.js",
@@ -111,8 +110,10 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             String(port),
             "--canvases",
             Self.canvasesRoot().path,
+            "--agent-runtime",
+            Self.agentRuntimeRoot().path,
             "--agent",
-            hermesCommand
+            "hermes"
         ]
         server?.environment = [
             "PATH": [
@@ -130,7 +131,8 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             "HOME": NSHomeDirectory(),
             "LIQUIDOS_NATIVE": "1",
             "LIQUIDOS_RUNTIME_KIND": "mac-app",
-            "LIQUIDOS_LIVE_CANVAS_ROOT": Self.canvasesRoot().path
+            "LIQUIDOS_LIVE_CANVAS_ROOT": Self.canvasesRoot().path,
+            "LIQUIDOS_AGENT_RUNTIME_ROOT": Self.agentRuntimeRoot().path
         ].merging(environment) { _, new in new }
 
         let outputPipe = Pipe()
@@ -259,35 +261,20 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
             .appendingPathComponent("LiquidOS", isDirectory: true)
     }
 
+    private static func agentRuntimeRoot() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("LiquidOS", isDirectory: true)
+            .appendingPathComponent("AgentRuntime", isDirectory: true)
+    }
+
     private static func serverEnvironment() -> [String: String] {
-        var environment: [String: String] = [:]
-        if let bundledHermes = bundledHermesExecutablePath() {
-            environment["LIQUIDOS_BUNDLED_HERMES"] = bundledHermes
-        }
-        environment["LIQUIDOS_RUNTIME_KIND"] = "mac-app"
-        environment["LIQUIDOS_LIVE_CANVAS_ROOT"] = canvasesRoot().path
-        return environment
-    }
-
-    private static func bundledHermesExecutablePath() -> String? {
-        guard let resourceURL = Bundle.main.resourceURL else {
-            return nil
-        }
-
-        let candidate = resourceURL.appendingPathComponent("Hermes/hermes")
-        return FileManager.default.isExecutableFile(atPath: candidate.path) ? candidate.path : nil
-    }
-
-    private static func resolvedHermesCommand(environment: [String: String]) -> String {
-        if Self.commandExists("hermes", environment: environment) {
-            return "hermes"
-        }
-
-        if let bundledHermes = environment["LIQUIDOS_BUNDLED_HERMES"], Self.commandExists(bundledHermes, environment: environment) {
-            return bundledHermes
-        }
-
-        return "hermes"
+        [
+            "LIQUIDOS_RUNTIME_KIND": "mac-app",
+            "LIQUIDOS_LIVE_CANVAS_ROOT": canvasesRoot().path,
+            "LIQUIDOS_AGENT_RUNTIME_ROOT": agentRuntimeRoot().path
+        ]
     }
 
     private static func commandExists(_ command: String, environment: [String: String]) -> Bool {

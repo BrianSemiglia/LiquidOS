@@ -293,94 +293,6 @@
             word-break: break-word;
         }
 
-
-        .agent-setup-backdrop {
-            position: fixed;
-            inset: 0;
-            z-index: 50;
-            display: none;
-            place-items: center;
-            padding: 1.5rem;
-            background: rgba(2, 6, 23, 0.78);
-        }
-
-        .agent-setup-backdrop[data-open="true"] {
-            display: grid;
-        }
-
-        .agent-setup {
-            display: grid;
-            gap: 1rem;
-            width: min(100%, 32rem);
-            padding: 1.25rem;
-            border: 1px solid #334155;
-            border-radius: 14px;
-            background: #0f172a;
-            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.48);
-        }
-
-        .agent-setup h1,
-        .agent-setup h2,
-        .agent-setup p {
-            margin: 0;
-        }
-
-        .agent-setup h1 {
-            font-size: 1.25rem;
-        }
-
-        .agent-setup h2 {
-            font-size: 1rem;
-        }
-
-        .agent-setup-card {
-            display: grid;
-            gap: 0.55rem;
-            padding: 0.9rem;
-            border: 1px solid #334155;
-            border-radius: 10px;
-            background: #020617;
-        }
-
-        .agent-setup-command {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            gap: 0.5rem;
-        }
-
-        .agent-setup-command code {
-            overflow: auto;
-            padding: 0.65rem 0.75rem;
-            border: 1px solid #1e293b;
-            border-radius: 8px;
-            background: #111827;
-            color: #e0f2fe;
-            white-space: nowrap;
-        }
-
-        .agent-setup button {
-            min-height: 2.4rem;
-            border: 0;
-            border-radius: 8px;
-            padding: 0 0.85rem;
-            background: #38bdf8;
-            color: #082f49;
-            cursor: pointer;
-            font: inherit;
-            font-weight: 800;
-        }
-
-        .agent-setup .secondary {
-            border: 1px solid #475569;
-            background: #1e293b;
-            color: #e0f2fe;
-        }
-
-        .agent-picker {
-            display: grid;
-            gap: 0.5rem;
-        }
-
         @media (max-width: 1100px) {
             :root {
                 --debug-rail-width: 0px;
@@ -429,9 +341,6 @@
         <pre class="debug-output" id="debug-output"></pre>
     </aside>
     <div class="debug-resizer" id="debug-resizer" role="separator" aria-orientation="vertical" aria-label="Resize debug panel"></div>
-    <div class="agent-setup-backdrop" id="agent-setup-backdrop" data-open="false">
-        <section class="agent-setup" id="agent-setup"></section>
-    </div>
     <div class="global-status" id="global-status"></div>
     <form class="global-prompt" id="global-prompt">
         <div class="canvas-nav" aria-label="Canvas selection">
@@ -443,7 +352,6 @@
         <button type="submit">Send</button>
     </form>
 
-    <script src="/hermesOnboarding.js"></script>
     <script>
         const app = document.getElementById('app');
         const globalForm = document.getElementById('global-prompt');
@@ -510,14 +418,9 @@
         const currentScrollKey = () => scrollKey(canvasSelect.value);
 
         const setBusy = state => {
-            const job = state?.job?.prompt ? String(state.job.prompt) : '';
-
             globalForm.dataset.busy = state?.busy ? 'true' : 'false';
             globalStatus.className = state?.busy ? 'global-status busy' : 'global-status';
-            globalStatus.textContent = state?.busy
-                ? 'Working' + (job ? ': ' + job : '')
-                : '';
-
+            globalStatus.textContent = state?.busy ? 'Working' : '';
             globalForm.querySelector('button[type="submit"]').disabled = Boolean(state?.busy);
             updatePromptChromeSpace();
         };
@@ -529,13 +432,12 @@
 
             const current = state && typeof state.current === 'object' ? state.current : {};
             const active = state && typeof state.active === 'object' ? state.active : {};
-            const hermes = state && typeof state.hermes === 'object' ? state.hermes : {};
             debugLines = Array.isArray(state?.lines) ? state.lines.slice(-200) : [];
 
             const sourceLabel = current.source === 'bundled'
-                ? 'Bundled Hermes'
+                ? 'Bundled agent'
                 : current.source === 'global'
-                    ? 'Global Hermes'
+                    ? 'Global agent'
                     : '';
             const backendParts = [];
             const backend = active.provider || active.model ? active : current;
@@ -545,8 +447,6 @@
             }
             if (backend.model) {
                 backendParts.push(backend.model);
-            } else if (backend !== active && hermes.model) {
-                backendParts.push(hermes.model);
             }
 
             debugCurrentAgent.textContent = current.status
@@ -565,30 +465,41 @@
         };
 
 
+        const plainDebugText = line => String(line?.text || '');
+
         const renderDebugLines = () => {
             if (!debugOutput) {
                 return;
             }
 
             debugOutput.textContent = debugLines.length
-                ? debugLines.map(line => {
-                    const stamp = line.at ? String(line.at).slice(11, 19) : '??:??:??';
-                    return '[' + stamp + '] ' + (line.label || 'log') + ' ' + (line.text || '');
-                }).join('\\n')
-                : 'No agent output yet.';
+                ? debugLines.map(plainDebugText).join('\n')
+                : '';
             debugOutput.scrollTop = debugOutput.scrollHeight;
         };
 
+        let debugScrollPending = false;
+
+        const scheduleDebugScroll = () => {
+            if (debugScrollPending || !debugOutput) {
+                return;
+            }
+
+            debugScrollPending = true;
+            requestAnimationFrame(() => {
+                debugScrollPending = false;
+                debugOutput.scrollTop = debugOutput.scrollHeight;
+            });
+        };
+
         const appendDebugLine = line => {
-            if (!line) {
+            if (!line || !debugOutput) {
                 return;
             }
 
             debugLines.push(line);
-            if (debugLines.length > 300) {
-                debugLines.splice(0, debugLines.length - 300);
-            }
-            renderDebugLines();
+            debugOutput.append(document.createTextNode((debugOutput.textContent ? '\n' : '') + plainDebugText(line)));
+            scheduleDebugScroll();
         };
 
         const startDebugStream = () => {
@@ -624,16 +535,6 @@
 
             renderDebugPanel(await response.json());
         };
-
-        const hermesOnboarding = typeof window.createHermesOnboarding === 'function'
-            ? window.createHermesOnboarding({
-                globalStatus
-            })
-            : {
-                probe: async () => {},
-                render: () => {}
-            };
-        hermesOnboarding.probe().catch(() => {});
 
         const saveScrollPosition = () => {
             try {
@@ -807,7 +708,7 @@
                     throw new Error('/output returned ' + response.status);
                 }
 
-                setBusy({ busy: true, job: { prompt: request } });
+                setBusy({ busy: true });
                 return;
             }
 
@@ -823,7 +724,7 @@
                 throw new Error('/output returned ' + response.status);
             }
 
-            setBusy({ busy: true, job: { prompt: request } });
+            setBusy({ busy: true });
         };
 
         const submitCanvasPrompt = async prompt => {
@@ -842,7 +743,7 @@
                 throw new Error('/output returned ' + response.status);
             }
 
-            setBusy({ busy: true, job: { prompt } });
+            setBusy({ busy: true });
         };
 
         const renderComponent = component => {
@@ -888,7 +789,7 @@
                 status.hidden = true;
                 status.className = 'status';
                 status.textContent = '';
-                setBusy({ busy: true, job: { prompt } });
+                setBusy({ busy: true });
                 livePromptInFlight.add(promptKey);
 
                 submitPrompt(item.__component?.componentPath || component.componentPath || '', prompt)
@@ -1116,7 +1017,8 @@
                 ? data.agentChoices
                 : [
                     { id: 'hermes', label: 'Hermes', installed: true },
-                    { id: 'codex', label: 'Codex', installed: false }
+                    { id: 'codex', label: 'Codex', installed: false },
+                    { id: 'claude-code', label: 'Claude Code', installed: false }
                 ];
             const selected = typeof data.agentKind === 'string' && data.agentKind.trim()
                 ? data.agentKind.trim()
@@ -1173,7 +1075,6 @@
 
             await loadAgentChoices();
             await loadDebugPanel().catch(() => {});
-            await hermesOnboarding.probe().catch(() => {});
 
             return result;
         };
@@ -1268,7 +1169,7 @@
             button.disabled = true;
             globalStatus.className = 'global-status';
             globalStatus.textContent = 'Sending';
-            setBusy({ busy: true, job: { prompt } });
+            setBusy({ busy: true });
 
             submitCanvasPrompt(prompt)
                 .then(() => {

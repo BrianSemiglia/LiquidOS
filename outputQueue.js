@@ -18,36 +18,17 @@ const createOutputQueue = ({
     const resolveFromRoot = value =>
         path.isAbsolute(value) ? value : path.resolve(root, value);
 
-    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
     let outputDispatchTimer = null;
     let outputDispatching = false;
     let activeOutputKeys = new Set();
     let processJob = null;
 
-    const withOutputLock = async task => {
-        const lockPath = getOutputPath() + '.lock';
-        const start = Date.now();
+    let outputWriteChain = Promise.resolve();
 
-        while (fs.existsSync(lockPath)) {
-            if (Date.now() - start > 5_000) {
-                throw new Error('Timed out waiting for output queue lock');
-            }
-
-            await sleep(5);
-        }
-
-        fs.writeFileSync(lockPath, String(process.pid));
-
-        try {
-            return await task();
-        } finally {
-            try {
-                fs.unlinkSync(lockPath);
-            } catch (_) {
-                // Best effort.
-            }
-        }
+    const withOutputLock = task => {
+        const run = outputWriteChain.catch(() => {}).then(task);
+        outputWriteChain = run.catch(() => {});
+        return run;
     };
 
     const outputText = () =>
@@ -242,46 +223,48 @@ const createOutputQueue = ({
         outputDispatching = true;
 
         try {
-            while (true) {
-                const jobs = readOutputJobs();
-                const ready = dispatchableJobs(jobs);
+            const jobs = readOutputJobs();
+            const ready = dispatchableJobs(jobs);
 
-                if (!ready.length) {
-                    logServer('queue', 'dispatch idle', {
-                        canvas: getCanvasPath(),
-                        pending: jobs.filter(job => job && job.status === 'pending' && callbackPromptText(job)).length,
-                        running: jobs.filter(job => job && job.status === 'running' && callbackPromptText(job)).length,
-                        activeLanes: Array.from(activeOutputKeys)
-                    });
-                    return false;
-                }
-
-                logServer('queue', 'dispatching jobs', {
+            if (!ready.length) {
+                logServer('queue', 'dispatch idle', {
                     canvas: getCanvasPath(),
-                    jobs: ready.map(outputJobSummary)
+                    pending: jobs.filter(job => job && job.status === 'pending' && callbackPromptText(job)).length,
+                    running: jobs.filter(job => job && job.status === 'running' && callbackPromptText(job)).length,
+                    activeLanes: Array.from(activeOutputKeys)
                 });
+                return false;
+            }
 
-                ready.forEach(job => {
-                    const laneKey = outputJobKey(job);
-                    activeOutputKeys.add(laneKey);
-                    logServer('queue', 'lane reserved', {
-                        lane: laneKey,
-                        job: outputJobSummary(job),
-                        activeLanes: Array.from(activeOutputKeys)
-                    });
+            const job = ready[0];
+            const laneKey = outputJobKey(job);
 
-                    if (typeof processJob !== 'function') {
-                        logHermesError('agent-job', new Error('No queue processor has been set'), { message: 'agent job error' });
-                        activeOutputKeys.delete(laneKey);
-                        return;
-                    }
+            logServer('queue', 'dispatching job', {
+                canvas: getCanvasPath(),
+                job: outputJobSummary(job)
+            });
 
-                    let jobPromise;
+            activeOutputKeys.add(laneKey);
+            logServer('queue', 'lane reserved', {
+                lane: laneKey,
+                job: outputJobSummary(job),
+                activeLanes: Array.from(activeOutputKeys)
+            });
 
-                    try {
-                        jobPromise = processJob(job);
-                    } catch (error) {
+            if (typeof processJob !== 'function') {
+                logHermesError('agent-job', new Error('No queue processor has been set'), { message: 'agent job error' });
+                activeOutputKeys.delete(laneKey);
+                scheduleOutputDispatch();
+                return false;
+            }
+
+            setImmediate(() => {
+                Promise.resolve()
+                    .then(() => processJob(job))
+                    .catch(error => {
                         logHermesError('agent-job', error, { message: 'agent job error' });
+                    })
+                    .finally(() => {
                         activeOutputKeys.delete(laneKey);
                         logServer('queue', 'lane released', {
                             lane: laneKey,
@@ -289,32 +272,10 @@ const createOutputQueue = ({
                             activeLanes: Array.from(activeOutputKeys)
                         });
                         scheduleOutputDispatch();
-                        return;
-                    }
+                    });
+            });
 
-                    Promise.resolve(jobPromise)
-                        .catch(error => {
-                            logHermesError('agent-job', error, { message: 'agent job error' });
-                        })
-                        .finally(() => {
-                            activeOutputKeys.delete(laneKey);
-                            logServer('queue', 'lane released', {
-                                lane: laneKey,
-                                jobId: job.id || null,
-                                activeLanes: Array.from(activeOutputKeys)
-                            });
-                            scheduleOutputDispatch();
-                        });
-                });
-
-                if (ready.some(job => outputJobKey(job) === 'canvas')) {
-                    return true;
-                }
-
-                if (!readOutputJobs().some(job => job.status === 'pending' && callbackPromptText(job) && !activeOutputKeys.has(outputJobKey(job)))) {
-                    return true;
-                }
-            }
+            return true;
         } finally {
             outputDispatching = false;
         }

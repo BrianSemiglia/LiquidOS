@@ -28,19 +28,20 @@ const createCanvasGraph = ({
             .replace(/'/g, '&#39;');
 
     const invalidComponentCard = (componentPath, error) => ({
-        title: 'Invalid component JSON',
+        title: 'This part needs a quick repair',
         componentPath,
         parseError: error.message,
         html:
             '<div style="padding:16px;border:1px solid #ef4444;border-radius:8px;background:#2a0f14;color:#fecaca;display:grid;gap:10px;">' +
-            '<div style="font-weight:700;margin-bottom:8px;">Invalid component JSON</div>' +
-            '<div style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;margin-bottom:8px;">' +
-            escapeHTML(componentScopePath(componentPath)) +
-            '</div>' +
-            '<pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;line-height:1.4;">' +
-            escapeHTML(error.message) +
-            '</pre>' +
-            '<button data-live-prompt="I need fixing, please check." style="justify-self:start;border:1px solid rgba(252,165,165,0.35);border-radius:999px;background:rgba(127,29,29,0.55);color:#fecaca;padding:0.55rem 0.85rem;font:inherit;font-weight:700;cursor:pointer;">I need fixing, please check.</button>' +
+            '<div style="font-weight:700;margin-bottom:8px;">This part needs a quick repair</div>' +
+            '<div style="font-size:13px;line-height:1.45;color:#fecaca;">Something in this card could not be loaded correctly.</div>' +
+            '<button data-live-prompt="' +
+            escapeHTML(
+                'The component at path ' +
+                componentScopePath(componentPath) +
+                ' has invalid JSON. Please repair.'
+            ) +
+            '" style="justify-self:start;border:1px solid rgba(252,165,165,0.35);border-radius:999px;background:rgba(127,29,29,0.55);color:#fecaca;padding:0.55rem 0.85rem;font:inherit;font-weight:700;cursor:pointer;">Repair it</button>' +
             '</div>',
         css: ''
     });
