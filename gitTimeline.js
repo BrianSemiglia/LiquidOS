@@ -17,6 +17,18 @@ const git = (cwd, args, options = {}) =>
 
 const callbackPromptText = job => job.prompt || job.request || '';
 
+const relativeScope = (canvasesRoot, scope) => {
+    if (!scope) {
+        return '(unknown)';
+    }
+
+    if (!path.isAbsolute(scope)) {
+        return String(scope).split(path.sep).join('/');
+    }
+
+    return path.relative(canvasesRoot, scope).split(path.sep).join('/') || '.';
+};
+
 const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
     const ensureCanvasesGitRepo = () => {
         fs.mkdirSync(canvasesRoot, { recursive: true });
@@ -57,9 +69,7 @@ const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
             'prompt:',
             callbackPromptText(job) || '(no prompt)',
             '',
-            'Scope: ' + (job.scope || '(unknown)'),
-            'Canvas: ' + path.relative(canvasesRoot, currentCanvasPath()).split(path.sep).join('/'),
-            'Job-Id: ' + (job.id || '(none)')
+            'Scope: ' + relativeScope(canvasesRoot, job.scope || currentCanvasPath())
         ].join('\n')], { stdio: 'inherit' }).status !== 0) {
             logServer('git', 'failed to commit canvases changes', {
                 jobId: job.id || null,
