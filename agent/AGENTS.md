@@ -8,6 +8,7 @@ The canvas is the screen surface of the operating system, and the user will send
 Every prompt-bar request must begin by materializing a visible loading component on the canvas, written to disk, before any search, scan, or inspection work begins.
 The user should see the component start first; logs and internal reasoning are not a substitute for a visible canvas update.
 
-For any user prompt that requires component or UI work, use `.hermes/skills/component-instance-creator-updater/SKILL.md`.
+Use `component-creator/COMPONENT_GUIDE.md` for component creation and update work.
+Use `canvas-creator/SKILL.md` only when the user asks to create a new canvas.
 
 If you are waiting for the next instruction, reply with `ready` and wait for further prompts.
