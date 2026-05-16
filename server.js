@@ -295,6 +295,7 @@ const canvasFiles = createCanvasFiles({
     fs,
     canvasesRoot: CANVASES_ROOT,
     canvasTemplateRoot: CANVAS_TEMPLATE_ROOT,
+    localAssetRoot: ROOT,
     getCanvasPath: () => CANVAS_PATH,
     setCanvasPath: canvasPath => setCanvasPath(canvasPath),
     readJson
@@ -1062,9 +1063,10 @@ const server = http.createServer(async (req, res) => {
         const sharedAsset = url.pathname.match(/^\/(layouts|transitions)\/([A-Za-z0-9._-]+\.json)$/);
 
         if (req.method === 'GET' && sharedAsset) {
-            const resolvedPath = resolveConfigPath(path.join(ROOT, sharedAsset[1], sharedAsset[2]));
+            const resolvedPath = path.resolve(CANVAS_PATH, sharedAsset[1], sharedAsset[2]);
+            const canvasBoundary = CANVAS_PATH + path.sep;
 
-            if (!resolvedPath.startsWith(ROOT + path.sep) && resolvedPath !== ROOT) {
+            if (!resolvedPath.startsWith(canvasBoundary)) {
                 send(res, 403, 'Forbidden');
                 return;
             }

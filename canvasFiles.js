@@ -4,6 +4,7 @@ const createCanvasFiles = ({
     fs,
     canvasesRoot,
     canvasTemplateRoot,
+    localAssetRoot = path.dirname(canvasesRoot),
     getCanvasPath,
     setCanvasPath,
     readJson
@@ -34,6 +35,35 @@ const createCanvasFiles = ({
         }
     };
 
+    const copyLocalAssetDirectory = (sourceName, canvasPath) => {
+        const sourcePath = path.join(localAssetRoot, sourceName);
+        const targetPath = path.join(canvasPath, sourceName);
+
+        if (fs.existsSync(sourcePath) && fs.statSync(sourcePath).isDirectory()) {
+            copyTemplateDirectory(sourcePath, targetPath);
+        }
+    };
+
+    const ensureLocalAssetReferences = canvasPath => {
+        const inputPath = path.join(canvasPath, 'input.json');
+
+        if (!fs.existsSync(inputPath)) {
+            return;
+        }
+
+        const input = readJson(inputPath);
+
+        if (typeof input.layoutPath !== 'string' || !input.layoutPath.trim()) {
+            input.layoutPath = 'layouts/stack.json';
+        }
+
+        if (typeof input.transitionPath !== 'string' || !input.transitionPath.trim()) {
+            input.transitionPath = 'transitions/soft.json';
+        }
+
+        fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + '\n');
+    };
+
     const ensureCanvasDefaults = name => {
         const canvasPath = path.join(canvasesRoot, name);
 
@@ -44,11 +74,20 @@ const createCanvasFiles = ({
         }
 
         fs.mkdirSync(path.join(canvasPath, 'components'), { recursive: true });
+        copyLocalAssetDirectory('layouts', canvasPath);
+        copyLocalAssetDirectory('transitions', canvasPath);
 
         writeDefaultFile(
             path.join(canvasPath, 'input.json'),
-            JSON.stringify({ components: [], css: 'body{background:#0b1120}' }, null, 2) + '\n'
+            JSON.stringify({
+                components: [],
+                layoutPath: 'layouts/stack.json',
+                transitionPath: 'transitions/soft.json',
+                css: 'body{background:#0b1120}'
+            }, null, 2) + '\n'
         );
+        ensureLocalAssetReferences(canvasPath);
+
         writeDefaultFile(path.join(canvasPath, 'output.json'), '[]\n');
         writeDefaultFile(
             path.join(canvasPath, 'canvas.html'),

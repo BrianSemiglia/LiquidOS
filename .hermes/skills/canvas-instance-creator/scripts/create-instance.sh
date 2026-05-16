@@ -67,19 +67,56 @@ echo "Creating canvas: $INSTANCE_DIR"
 
 mkdir -p "$INSTANCE_DIR/components"
 
+copy_asset_dir() {
+    local name="$1"
+    local source=""
+
+    for CANDIDATE in \
+        "$PROJECT_ROOT/$name" \
+        "$(dirname "$CANVASES_DIR")/$name"; do
+        if [ -n "$CANDIDATE" ] && [ -d "$CANDIDATE" ]; then
+            source="$CANDIDATE"
+            break
+        fi
+    done
+
+    if [ -n "$source" ]; then
+        mkdir -p "$INSTANCE_DIR/$name"
+        cp -R "$source/." "$INSTANCE_DIR/$name/"
+    fi
+}
+
 if [ -n "$TEMPLATE_DIR" ]; then
     cp -R "$TEMPLATE_DIR/." "$INSTANCE_DIR/"
     mkdir -p "$INSTANCE_DIR/components"
 fi
 
+copy_asset_dir layouts
+copy_asset_dir transitions
+
 if [ ! -f "$INSTANCE_DIR/input.json" ]; then
     cat > "$INSTANCE_DIR/input.json" <<'JSON'
 {
   "components": [],
+  "layoutPath": "layouts/stack.json",
+  "transitionPath": "transitions/soft.json",
   "css": "body{background:#0b1120}"
 }
 JSON
 fi
+
+node -e '
+const fs = require("fs");
+const inputPath = process.argv[1];
+const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
+if (typeof input.layoutPath !== "string" || !input.layoutPath.trim()) {
+  input.layoutPath = "layouts/stack.json";
+}
+if (typeof input.transitionPath !== "string" || !input.transitionPath.trim()) {
+  input.transitionPath = "transitions/soft.json";
+}
+fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + "\n");
+' "$INSTANCE_DIR/input.json"
 
 if [ ! -f "$INSTANCE_DIR/output.json" ]; then
     printf '[]\n' > "$INSTANCE_DIR/output.json"
@@ -111,3 +148,5 @@ echo "  $INSTANCE_DIR/input.json"
 echo "  $INSTANCE_DIR/output.json"
 echo "  $INSTANCE_DIR/canvas.html"
 echo "  $INSTANCE_DIR/components/"
+echo "  $INSTANCE_DIR/layouts/"
+echo "  $INSTANCE_DIR/transitions/"
