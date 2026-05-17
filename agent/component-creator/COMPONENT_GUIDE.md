@@ -1,12 +1,8 @@
 # Component Guide
 
-## Canvas
+## Purpose
 
-Components are displayed on the user canvas to be interacted with. The current is provided in each task under `Target canvas.canvasPath`. Treat that absolute path as `<canvas>` for the whole task. Do not assume a static canvas path.
-
-## Goal
-
-A component should be a visual representation of the agent's activity (loading, building, searching, etc.) and any data involved. It should be minimal, visually pleasing and useful. They should look like widgets designed by Apple. They should work as advertised, despite being lazyily implemented.
+A component should be a visual representation of the agent's activity (loading, building, searching, etc.) and any data involved. The agent should update the component often to show the agents progress; Don't leave the user waiting in the dark. It should be minimal, visually pleasing and useful. They should look like widgets designed by Apple. The agent should use the component folder to add and store files necessary for its purpose.
 
 ## Requirements
 
@@ -46,7 +42,7 @@ Use callbacks for deliberate user actions, such as submitting a form, clicking a
 
 Callback boundaries should wrap completed user actions rather than in-progress editing controls.
 
-`scope` is required. It should be a canvas-relative path.
+`scope` is required in component HTML. It should be canvas-relative in markup, such as `components/chat`. LiquidOS resolves it to an absolute filesystem path before sending it to the agent.
 
 `values` is required when `prompt` uses placeholders. It should be a comma-separated allowlist of field names the callback can read.
 
@@ -72,7 +68,7 @@ Example:
 
 The canvas directory is version-tracked by git. If a user asks the agent to undo something or to go back, use git revert to restore the desired previous state. Revert is the only command the agent is allowed to use. The agent can also use the git history to answer questions that the user might have about previous activities.
 
-## Example
+## Example Component
 
 `<canvas>/components/hello-world/view.json`:
 
