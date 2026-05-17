@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const pty = require('node-pty');
+const { spawn } = require('child_process');
 const { createHermesBootstrap } = require('./hermesBootstrap');
 
 let host = {
@@ -26,7 +26,6 @@ const resolveHermesCommand = () =>
     argValue('--agent', argValue('--agent-command', argValue('--hermes-command', 'hermes')));
 
 const command = resolveHermesCommand();
-const timeoutMilliseconds = () => Number.parseInt(argValue('--agent-timeout-ms', '300000'), 10);
 const rawAgentArguments = () => argValue('--agent-args', argValue('--hermes-args', '')).split(' ').filter(Boolean);
 
 const hermesBootstrap = createHermesBootstrap({
@@ -49,8 +48,8 @@ const selectedLaunchEnvironment = () => ({
     ...hermesBootstrap.selectedHermesLaunchEnv()
 });
 
-const buildChatArguments = () => {
-    const argumentsList = [...hermesBootstrap.selectedHermesLaunchArgs()];
+const filteredAgentArguments = () => {
+    const argumentsList = [];
 
     for (let index = 0; index < rawAgentArguments().length; index += 1) {
         const argument = rawAgentArguments()[index];
@@ -69,16 +68,40 @@ const buildChatArguments = () => {
         argumentsList.push(argument);
     }
 
-    if (!argumentsList.some(argument => argument === '--source' || argument.startsWith('--source='))) {
-        argumentsList.push('--source', 'tool');
-    }
-
-    if (!argumentsList.some(argument => argument === '--quiet' || argument === '-Q')) {
-        argumentsList.push('--quiet');
-    }
-
-    return ['chat', ...argumentsList];
+    return argumentsList;
 };
+
+const hasToolsetArgument = args =>
+    args.some(argument => argument === '-t' || argument === '--toolsets' || argument.startsWith('-t=') || argument.startsWith('--toolsets='));
+
+const defaultToolsetArguments = args =>
+    hasToolsetArgument(args) ? [] : ['-t', 'files,shell,web'];
+
+const buildOneShotArguments = prompt => {
+    const launchArguments = [
+        ...hermesBootstrap.selectedHermesLaunchArgs(),
+        ...filteredAgentArguments()
+    ];
+
+    return [
+        ...launchArguments,
+        ...defaultToolsetArguments(launchArguments),
+        'chat',
+        '--query',
+        String(prompt || '')
+    ];
+};
+
+const displayArguments = args =>
+    args.map((argument, index) => index > 0 && (args[index - 1] === '-z' || args[index - 1] === '--query' || args[index - 1] === '-q') ? '<prompt>' : argument);
+
+const debugLine = (label, fields = {}) => [
+    '[LiquidOS Hermes]',
+    label,
+    ...Object.entries(fields)
+        .filter(([, value]) => value !== undefined && value !== null && value !== '')
+        .map(([key, value]) => key + '=' + JSON.stringify(value))
+].join(' ') + '\n';
 
 const stripAnsi = value =>
     String(value || '')
@@ -86,14 +109,8 @@ const stripAnsi = value =>
         .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, '')
         .replace(/\r/g, '');
 
-const markerFor = () => '[[LIQUIDOS_JOB_DONE:' + Date.now() + '-' + Math.random().toString(36).slice(2) + ']]';
-
-const withoutMarker = (text, marker) =>
-    String(text || '')
-        .split(/\r?\n/)
-        .filter(line => line.trim() !== marker)
-        .join('\n')
-        .trim();
+const stripHermesQueryPrefix = value =>
+    String(value || '').replace(/(^|\n)Query:\s*/g, '$1');
 
 const configureHermesAgent = nextHost => {
     host = {
@@ -105,7 +122,6 @@ const configureHermesAgent = nextHost => {
 const HermesAgent = () => {
     let processHandle = null;
     let outputTail = '';
-    let activeJob = null;
     let activeWorkingDirectory = null;
     let jobQueue = Promise.resolve();
     const currentDebug = {
@@ -131,37 +147,46 @@ const HermesAgent = () => {
         activeWorkingDirectory = null;
     };
 
-    const start = workingDirectory => {
+    const emitDebug = (label, fields = {}) => {
+        const text = debugLine(label, fields);
+        outputTail = (outputTail + text).slice(-16384);
+        host.output('hermes', text);
+    };
+
+    const runOneShot = (prompt, workingDirectory, resolve, reject) => {
         if (!workingDirectory) {
-            throw new Error('HermesAgent.run requires a workingDirectory');
+            reject(new Error('HermesAgent.run requires a workingDirectory'));
+            return;
         }
 
-        if (processHandle && activeWorkingDirectory === workingDirectory) {
-            return processHandle;
-        }
-
-        if (processHandle) {
-            stop();
-        }
-
+        const args = buildOneShotArguments(prompt);
+        let stdout = '';
+        let stderr = '';
         activeWorkingDirectory = workingDirectory;
+
+        emitDebug('spawn', {
+            command,
+            cwd: workingDirectory,
+            args: displayArguments(args)
+        });
 
         setStatus({
             command,
             status: 'spawning',
             cwd: workingDirectory,
-            args: buildChatArguments(),
+            args: displayArguments(args),
             provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
             model: hermesBootstrap.currentHermesBootstrapState().model || null
         });
 
-        processHandle = pty.spawn(command, buildChatArguments(), {
-            name: 'xterm-color',
-            cols: 160,
-            rows: 50,
+        processHandle = spawn(command, args, {
             cwd: workingDirectory,
-            env: selectedLaunchEnvironment()
+            env: selectedLaunchEnvironment(),
+            stdio: ['ignore', 'pipe', 'pipe']
         });
+
+
+        emitDebug('running', { pid: processHandle.pid || null });
 
         setStatus({
             command,
@@ -172,91 +197,60 @@ const HermesAgent = () => {
             model: hermesBootstrap.currentHermesBootstrapState().model || null
         });
 
-        processHandle.onData(chunk => {
-            outputTail = (outputTail + chunk).slice(-16384);
-            host.output('hermes', chunk);
-
-            if (activeJob) {
-                activeJob.output += chunk;
-                if (outputTail.includes(activeJob.marker)) {
-                    clearTimeout(activeJob.timeout);
-                    activeJob.resolve(withoutMarker(activeJob.output, activeJob.marker));
-                    activeJob = null;
-                    setStatus({ status: 'waiting' });
-                }
-            }
+        processHandle.stdout.on('data', chunk => {
+            const text = stripHermesQueryPrefix(chunk.toString());
+            stdout += text;
+            outputTail = (outputTail + text).slice(-16384);
+            host.output('hermes', text);
         });
 
-        processHandle.onExit(({ exitCode, signal }) => {
-            const runningJob = activeJob;
-            processHandle = null;
-            activeWorkingDirectory = null;
-            activeJob = null;
-            setStatus({ status: 'exited', exitCode, signal });
-
-            if (runningJob) {
-                clearTimeout(runningJob.timeout);
-                runningJob.reject(new Error('Hermes exited before completing the job'));
-            }
+        processHandle.stderr.on('data', chunk => {
+            const text = stripHermesQueryPrefix(chunk.toString());
+            stderr += text;
+            outputTail = (outputTail + text).slice(-16384);
+            host.output('hermes', text, process.stderr);
         });
 
-        if (typeof processHandle.on === 'function') {
-            processHandle.on('error', error => {
-            const runningJob = activeJob;
+        processHandle.on('error', error => {
+            emitDebug('error', { error: error.message });
             processHandle = null;
             activeWorkingDirectory = null;
-            activeJob = null;
             setStatus({ status: 'error', error: error.message });
+            reject(error);
+        });
 
-            if (runningJob) {
-                clearTimeout(runningJob.timeout);
-                runningJob.reject(error);
-            }
+        processHandle.on('close', (exitCode, signal) => {
+            emitDebug('close', { exitCode, signal });
+            processHandle = null;
+            activeWorkingDirectory = null;
+
+            setStatus({
+                status: exitCode === 0 ? 'waiting' : 'error',
+                exitCode,
+                signal,
+                provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
+                model: hermesBootstrap.currentHermesBootstrapState().model || null
             });
-        }
 
-        return processHandle;
+            if (exitCode === 0) {
+                resolve(stripAnsi(stdout).trim());
+                return;
+            }
+
+            reject(new Error(stripAnsi(stderr || stdout).trim() || 'Hermes exited with code ' + exitCode));
+        });
     };
 
     const run = (prompt, { workingDirectory } = {}) => {
         jobQueue = jobQueue
             .catch(() => {})
             .then(() => new Promise((resolve, reject) => {
-                if (activeJob) {
+                if (processHandle) {
                     reject(new Error('Hermes is already running a job'));
                     return;
                 }
 
-                const marker = markerFor();
-                activeJob = {
-                    marker,
-                    output: '',
-                    resolve,
-                    reject,
-                    timeout: setTimeout(() => {
-                        const timedOutJob = activeJob;
-                        activeJob = null;
-                        setStatus({ status: 'timed out' });
-                        if (timedOutJob) {
-                            timedOutJob.reject(new Error('Hermes timed out after ' + timeoutMilliseconds() + 'ms'));
-                        }
-                    }, timeoutMilliseconds())
-                };
-
-                try {
-                    start(workingDirectory).write([
-                        prompt,
-                        '',
-                        'When the task is complete, output a single line exactly:',
-                        marker,
-                        ''
-                    ].join('\n') + '\r');
-                } catch (error) {
-                    clearTimeout(activeJob.timeout);
-                    activeJob = null;
-                    setStatus({ status: 'error', error: error.message });
-                    reject(error);
-                }
+                runOneShot(prompt, workingDirectory, resolve, reject);
             }));
 
         return jobQueue;
@@ -268,7 +262,15 @@ const HermesAgent = () => {
         command,
         isInstalled: commandInstalled,
         initialize: ({ workingDirectory } = {}) => {
-            start(workingDirectory || activeWorkingDirectory);
+            activeWorkingDirectory = workingDirectory || activeWorkingDirectory;
+            setStatus({
+                command,
+                status: 'waiting',
+                cwd: activeWorkingDirectory || null,
+                args: displayArguments([...hermesBootstrap.selectedHermesLaunchArgs(), ...filteredAgentArguments(), 'chat', '--query', '<prompt>']),
+                provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
+                model: hermesBootstrap.currentHermesBootstrapState().model || null
+            });
         },
         dispose: stop,
         currentDebug: () => ({

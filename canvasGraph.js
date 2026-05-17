@@ -35,19 +35,23 @@ const createCanvasGraph = ({
             '<div style="padding:16px;border:1px solid #ef4444;border-radius:8px;background:#2a0f14;color:#fecaca;display:grid;gap:10px;">' +
             '<div style="font-weight:700;margin-bottom:8px;">This part needs a quick repair</div>' +
             '<div style="font-size:13px;line-height:1.45;color:#fecaca;">Something in this card could not be loaded correctly.</div>' +
-            '<button data-live-prompt="' +
+            '<liquidos-callback on="click" scope="' +
+            escapeHTML(componentScopePath(componentPath)) +
+            '" prompt="' +
             escapeHTML(
                 'The component at path ' +
                 componentScopePath(componentPath) +
                 ' has invalid JSON. Please repair.'
             ) +
-            '" style="justify-self:start;border:1px solid rgba(252,165,165,0.35);border-radius:999px;background:rgba(127,29,29,0.55);color:#fecaca;padding:0.55rem 0.85rem;font:inherit;font-weight:700;cursor:pointer;">Repair it</button>' +
+            '"><button style="justify-self:start;border:1px solid rgba(252,165,165,0.35);border-radius:999px;background:rgba(127,29,29,0.55);color:#fecaca;padding:0.55rem 0.85rem;font:inherit;font-weight:700;cursor:pointer;">Repair it</button></liquidos-callback>' +
             '</div>',
         css: ''
     });
 
     const loadLeafComponent = entry => {
         try {
+            validateComponentFile(entry.componentPath);
+
             return {
                 ...entry,
                 component: readJson(entry.componentPath)
@@ -82,17 +86,17 @@ const createCanvasGraph = ({
     const leafComponents = () =>
         inputEntries().map(loadLeafComponent);
 
-    const findLeafComponentByScope = scopePath => {
-        if (!scopePath) {
+    const findLeafComponentByPath = componentPath => {
+        if (!componentPath) {
             return null;
         }
 
-        const absolute = resolveCanvasReference(scopePath);
+        const absolute = resolveCanvasReference(componentPath);
 
         return leafComponents().find(entry =>
-            entry.componentPath === scopePath
+            entry.componentPath === componentPath
             || entry.componentPath === absolute
-            || componentScopePath(entry.componentPath) === scopePath
+            || componentScopePath(entry.componentPath) === componentPath
         ) || null;
     };
 
@@ -208,7 +212,7 @@ const createCanvasGraph = ({
         watchedFiles,
         inputEntries,
         leafComponents,
-        findLeafComponentByScope,
+        findLeafComponentByPath,
         validateCanvasConfig,
         validateComponentFiles,
         validateComponentFile,

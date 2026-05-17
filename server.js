@@ -58,6 +58,27 @@ const resolveCanvasReference = value => {
     return path.resolve(CANVAS_PATH, value);
 };
 
+const absoluteScope = scope => {
+    const value = String(scope || '').trim();
+
+    if (!value || value === '.' || value === './') {
+        return CANVAS_PATH;
+    }
+
+    if (path.isAbsolute(value)) {
+        return path.normalize(value);
+    }
+
+    const relative = value.replace(/^\.\//, '');
+    const canvasName = path.basename(CANVAS_PATH);
+
+    if (relative === canvasName || relative.startsWith(canvasName + '/')) {
+        return path.resolve(CANVASES_ROOT, relative);
+    }
+
+    return path.resolve(CANVAS_PATH, relative);
+};
+
 const CANVASES_ROOT = resolveConfigPath(argValue('--canvases', path.join(os.homedir(), 'Documents', 'LiquidOS')));
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'templates', 'canvas');
 const DEFAULT_CANVAS_PATH = path.join(CANVASES_ROOT, 'home');
@@ -68,10 +89,13 @@ const AGENT_RUNTIME_ROOT = resolveConfigPath(argValue('--agent-runtime', process
 const AGENT_RUNTIME_LOGS_DIR = path.join(AGENT_RUNTIME_ROOT, 'logs');
 const HERMES_AGENT_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'agent.log');
 const HERMES_ERRORS_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'errors.log');
-const AGENTS_SOURCE_PATH = path.join(ROOT, 'AGENTS.md');
+const AGENTS_SOURCE_PATH = path.join(ROOT, 'agent', 'AGENTS.md');
 const AGENTS_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'AGENTS.md');
-const COMPONENT_GUIDE_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'COMPONENT_GUIDE.md');
-const COMPONENT_GUIDE_PATH = path.join(ROOT, 'COMPONENT_GUIDE.md');
+const COMPONENT_CREATOR_SOURCE_PATH = path.join(ROOT, 'agent', 'component-creator');
+const COMPONENT_CREATOR_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'component-creator');
+const COMPONENT_GUIDE_PATH = path.join(COMPONENT_CREATOR_SOURCE_PATH, 'COMPONENT_GUIDE.md');
+const CANVAS_CREATOR_SOURCE_PATH = path.join(ROOT, 'agent', 'canvas-creator');
+const CANVAS_CREATOR_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'canvas-creator');
 const LIVE_CANVAS_ROOT = String(process.env.LIQUIDOS_LIVE_CANVAS_ROOT || CANVASES_ROOT).trim() || CANVASES_ROOT;
 
 fs.mkdirSync(AGENT_RUNTIME_ROOT, { recursive: true });
@@ -87,17 +111,25 @@ const materializeRuntimeFile = (sourcePath, destinationPath) => {
     return true;
 };
 
+const materializeRuntimeDirectory = (sourcePath, destinationPath) => {
+    if (!fs.existsSync(sourcePath)) {
+        return false;
+    }
+
+    fs.rmSync(destinationPath, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+    fs.cpSync(sourcePath, destinationPath, { recursive: true });
+    return true;
+};
+
 const materializeAgentRuntimeFiles = () => {
     materializeRuntimeFile(AGENTS_SOURCE_PATH, AGENTS_RUNTIME_PATH);
-    materializeRuntimeFile(COMPONENT_GUIDE_PATH, COMPONENT_GUIDE_RUNTIME_PATH);
+    materializeRuntimeDirectory(COMPONENT_CREATOR_SOURCE_PATH, COMPONENT_CREATOR_RUNTIME_PATH);
+    materializeRuntimeDirectory(CANVAS_CREATOR_SOURCE_PATH, CANVAS_CREATOR_RUNTIME_PATH);
 };
 
 process.env.LIQUIDOS_AGENT_RUNTIME_ROOT = AGENT_RUNTIME_ROOT;
 
-const readComponentGuidePrompt = () =>
-    fs.existsSync(COMPONENT_GUIDE_PATH)
-        ? fs.readFileSync(COMPONENT_GUIDE_PATH, 'utf8').trim()
-        : '';
 
 materializeAgentRuntimeFiles();
 
@@ -395,7 +427,7 @@ const isCanvasScope = scope => {
     }
 
     try {
-        return resolveCanvasReference(scope) === CANVAS_PATH;
+        return absoluteScope(scope) === CANVAS_PATH;
     } catch (error) {
         return false;
     }
@@ -417,7 +449,7 @@ outputQueue = createOutputQueue({
 });
 
 
-const { ensureCanvasesGitRepo, commitCanvases } = createGitTimeline({
+const { ensureCanvasesGitRepo, commitCanvases, commitFailedCanvases, commitShutdownCanvases } = createGitTimeline({
     canvasesRoot: CANVASES_ROOT,
     currentCanvasPath: () => CANVAS_PATH,
     logServer
@@ -431,16 +463,13 @@ const promptBuilder = createPromptBuilder({
     resolveCanvasReference
 });
 
-const buildAgentPrompt = job => agentProviders.preparePrompt(
-    [
-        readComponentGuidePrompt(),
-        '',
-        promptBuilder.buildJobPrompt(job)
-    ].filter(Boolean).join('\n')
-);
+const buildAgentPrompt = job => agentProviders.preparePrompt(promptBuilder.buildJobPrompt(job));
 
 const runQueuedAgentJob = (prompt, context = {}) =>
     agentProviders.runActive(prompt, context);
+
+let activeOutputJob = null;
+let shutdownCommitAttempted = false;
 
 const processOutputJob = async job => {
     const jobId = job.id || 'job-' + Date.now();
@@ -448,6 +477,7 @@ const processOutputJob = async job => {
     const laneKey = outputQueue.outputJobKey(job);
     const isCanvasJob = isCanvasScope(job.scope) || laneKey === 'canvas';
     const startedAt = Date.now();
+    activeOutputJob = { ...job, id: jobId, componentPath };
 
     logServer('queue', 'job claimed', {
         canvas: CANVAS_PATH,
@@ -490,12 +520,8 @@ const processOutputJob = async job => {
 
         canvasGraph.validateCanvasConfig();
 
-        if (isCanvasJob) {
-            canvasGraph.validateComponentFiles(canvasGraph.inputEntries().map(entry => entry.componentPath));
-        } else if (componentPath) {
+        if (componentPath) {
             canvasGraph.validateComponentFile(componentPath);
-        } else {
-            throw new Error('Component job is missing a componentPath');
         }
         await outputQueue.updateOutputJob(jobId, {
             status: 'done',
@@ -511,6 +537,8 @@ const processOutputJob = async job => {
             durationMs: Date.now() - startedAt
         });
     } catch (error) {
+        commitFailedCanvases({ ...job, id: jobId }, error);
+        canvasGraph.validateCanvasConfig();
         await outputQueue.updateOutputJob(jobId, {
             status: 'failed',
             failedAt: new Date().toISOString(),
@@ -524,6 +552,10 @@ const processOutputJob = async job => {
             error: error.message
         });
 
+    } finally {
+        if (activeOutputJob && activeOutputJob.id === jobId) {
+            activeOutputJob = null;
+        }
     }
 };
 
@@ -802,6 +834,7 @@ const scheduleWatchRefresh = () => {
     clearTimeout(watchTimer);
     watchTimer = setTimeout(() => {
         try {
+            canvasGraph.renderedInput();
             watchGraph();
         } catch (error) {
             logHermesError('watch', error, { message: 'watch error' });
@@ -861,51 +894,26 @@ const appendOutput = async req => {
     const body = JSON.parse(await readBody(req));
     const scope = String(body.scope || '').trim();
     const prompt = String(body.prompt || '').trim();
-    const resolvedScope = scope ? resolveCanvasReference(scope) : '';
-    const leaf = resolvedScope ? canvasGraph.findLeafComponentByScope(resolvedScope) : null;
-    const isCanvasPrompt = !scope || resolvedScope === CANVAS_PATH || (!leaf && resolvedScope === CANVAS_PATH);
+    const resolvedScope = scope ? resolveCanvasReference(scope) : CANVAS_PATH;
+    const isCanvasPrompt = !scope || resolvedScope === CANVAS_PATH;
 
     if (!prompt) {
         throw new Error('Prompt requires prompt text');
     }
 
-    if (isCanvasPrompt) {
-        logServer('callback', 'received canvas prompt', {
-            canvas: CANVAS_PATH,
-            scope: resolvedScope || CANVAS_PATH,
-            prompt
-        });
-        await outputQueue.appendOutputJob({
-            id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
-            scope: CANVAS_PATH,
-            status: 'pending',
-            createdAt: new Date().toISOString(),
-            componentKey: 'canvas',
-            prompt
-        });
-        return;
-    }
-
-    if (!leaf) {
-        throw new Error('Prompt requires a valid scope and prompt');
-    }
-
-    logServer('callback', 'received component prompt', {
+    logServer('callback', isCanvasPrompt ? 'received canvas prompt' : 'received scoped prompt', {
         canvas: CANVAS_PATH,
-        scope: resolvedScope,
-        prompt,
-        componentPath: leaf.componentPath || null,
-        file: leaf.component.file || null
+        scope: isCanvasPrompt ? CANVAS_PATH : absoluteScope(scope),
+        resolvedScope: isCanvasPrompt ? CANVAS_PATH : resolvedScope,
+        prompt
     });
+
     await outputQueue.appendOutputJob({
         id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
-        scope: leaf.componentPath || leaf.component.file || null,
+        scope: isCanvasPrompt ? CANVAS_PATH : absoluteScope(scope),
         status: 'pending',
         createdAt: new Date().toISOString(),
-        componentKey: leaf.componentPath || leaf.component.file || null,
-        file: leaf.component.file || null,
-        resources: canvasGraph.componentResources(leaf.component),
-        data: leaf.component.data || null,
+        componentKey: isCanvasPrompt ? CANVAS_PATH : absoluteScope(scope),
         prompt
     });
 };
@@ -1042,7 +1050,7 @@ const server = http.createServer(async (req, res) => {
             const name = canvasFiles.createCanvas(body.name);
 
             canvasFiles.switchCanvas(name);
-            commitCanvases({ scope: 'canvas', prompt: 'create canvas: ' + name });
+            commitCanvases({ scope: CANVAS_PATH, prompt: 'create canvas: ' + name });
             broadcast();
             send(res, 201, JSON.stringify({
                 current: canvasName(CANVAS_PATH),
@@ -1114,7 +1122,7 @@ const server = http.createServer(async (req, res) => {
 
         if (req.method === 'GET' && componentFile) {
             const componentPath = decodeURIComponent(componentFile[1]);
-            const component = canvasGraph.findLeafComponentByScope(componentPath)?.component;
+            const component = canvasGraph.findLeafComponentByPath(componentPath)?.component;
 
             if (!component?.file) {
                 send(res, 404, 'Component file not found');
@@ -1129,7 +1137,7 @@ const server = http.createServer(async (req, res) => {
 
         if (req.method === 'GET' && componentResource) {
             const componentPath = decodeURIComponent(componentResource[1]);
-            const component = canvasGraph.findLeafComponentByScope(componentPath)?.component;
+            const component = canvasGraph.findLeafComponentByPath(componentPath)?.component;
             const name = decodeURIComponent(componentResource[2]);
             const resource = component && canvasGraph.componentResources(component)[name];
 
@@ -1163,7 +1171,18 @@ const server = http.createServer(async (req, res) => {
 
 setCanvasPath(CANVAS_PATH);
 
-const shutdownCanvasRuntime = () => {
+const commitShutdownState = reason => {
+    if (shutdownCommitAttempted) {
+        return false;
+    }
+
+    shutdownCommitAttempted = true;
+    return commitShutdownCanvases(activeOutputJob || { scope: CANVAS_PATH, prompt: '(no active prompt)' }, reason);
+};
+
+const shutdownCanvasRuntime = reason => {
+    commitShutdownState(reason || 'application was shut down');
+
     if (activeCanvasRuntime) {
         activeCanvasRuntime.stop();
         activeCanvasRuntime = null;
@@ -1175,14 +1194,25 @@ const shutdownCanvasRuntime = () => {
     return false;
 };
 
-process.on('exit', shutdownCanvasRuntime);
+process.on('exit', () => shutdownCanvasRuntime('process exit'));
 process.on('SIGINT', () => {
-    shutdownCanvasRuntime();
+    shutdownCanvasRuntime('SIGINT');
     process.exit(130);
 });
 process.on('SIGTERM', () => {
-    shutdownCanvasRuntime();
+    shutdownCanvasRuntime('SIGTERM');
     process.exit(143);
+});
+process.on('uncaughtException', error => {
+    logHermesError('crash', error, { message: 'uncaught exception' });
+    shutdownCanvasRuntime('uncaught exception: ' + error.message);
+    process.exit(1);
+});
+process.on('unhandledRejection', reason => {
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    logHermesError('crash', error, { message: 'unhandled rejection' });
+    shutdownCanvasRuntime('unhandled rejection: ' + error.message);
+    process.exit(1);
 });
 
 server.listen(PORT, '127.0.0.1', () => {

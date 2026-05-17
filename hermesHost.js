@@ -74,9 +74,20 @@ const createHermesHost = ({
 
     const activeHermesJobMarker = jobId => `[[LIQUIDOS_JOB_DONE:${jobId}]]`;
 
+    const normalizedHermesOutput = text => stripAnsi(String(text || '').replace(/\r/g, '\n'));
+
+    const lastNonEmptyHermesLine = text =>
+        normalizedHermesOutput(text)
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean)
+            .at(-1) || '';
+
+    const hermesOutputHasFinalJobMarker = (text, marker) => lastNonEmptyHermesLine(text) === marker;
+
     const stripHermesJobMarker = (text, marker) =>
-        String(text || '')
-            .split(/\r?\n/)
+        normalizedHermesOutput(text)
+            .split('\n')
             .filter(line => line.trim() !== marker)
             .join('\n')
             .trim();
@@ -131,7 +142,7 @@ const createHermesHost = ({
                         host.proc.write([
                             prompt,
                             '',
-                            'When the task is complete, output a single line exactly:',
+                            'When the task is fully complete and all files have been written, print exactly this line as the final line:',
                             marker,
                             ''
                         ].join('\n') + '\r');
@@ -237,7 +248,7 @@ const createHermesHost = ({
 
             if (host.activeJob) {
                 host.activeJob.stdout += data;
-                if (host.outputTail.includes(host.activeJob.marker)) {
+                if (hermesOutputHasFinalJobMarker(host.activeJob.stdout, host.activeJob.marker)) {
                     const finishedJob = host.activeJob;
                     host.activeJob = null;
                     finishedJob.resolve(stripHermesJobMarker(finishedJob.stdout, finishedJob.marker));

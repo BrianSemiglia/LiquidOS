@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <title>Live Edit</title>
+    <script src="/liquidosCallbackElement.js" defer></script>
     <style>
         * {
             box-sizing: border-box;
@@ -12,22 +13,35 @@
             --prompt-chrome-space: 8rem;
             --debug-rail-width: 22rem;
             --debug-rail-gap: 1rem;
+            --debug-rail-space: calc(var(--debug-rail-width) + var(--debug-rail-gap));
         }
 
         body {
+            min-height: 100vh;
             margin: 0;
-            padding: 2rem 2rem var(--prompt-chrome-space);
-            padding-left: calc(var(--debug-rail-width) + var(--debug-rail-gap) + 1rem);
             background: #111827;
             color: #f9fafb;
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
+        .canvas-shell {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: var(--debug-rail-space);
+            overflow: auto;
+            padding: 2rem 2rem var(--prompt-chrome-space) 1rem;
+        }
+
         #app {
+            position: relative;
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
             gap: 1rem;
             align-items: start;
+            width: 100%;
+            min-height: calc(100vh - var(--prompt-chrome-space) - 4rem);
         }
 
         .item {
@@ -55,14 +69,14 @@
 
         .global-prompt {
             position: fixed;
-            left: calc(50% + (var(--debug-rail-width) + var(--debug-rail-gap)) / 2);
+            left: calc(var(--debug-rail-space) + (100vw - var(--debug-rail-space)) / 2);
             bottom: 1rem;
             z-index: 20;
             display: grid;
-            grid-template-columns: auto auto minmax(14rem, 1fr) auto auto;
+            grid-template-columns: max-content minmax(14rem, 1fr) max-content;
             gap: 0.45rem;
             align-items: center;
-            width: min(calc(100vw - var(--debug-rail-width) - var(--debug-rail-gap) - 2rem), 58rem);
+            width: min(calc(100vw - var(--debug-rail-space) - 2rem), 58rem);
             padding: 0.55rem;
             border: 1px solid rgba(255, 255, 255, 0.14);
             border-radius: 22px;
@@ -79,6 +93,7 @@
         .canvas-nav {
             display: flex;
             gap: 0.35rem;
+            width: max-content;
             min-width: 0;
         }
 
@@ -97,13 +112,14 @@
         }
 
         .canvas-nav select {
-            min-width: 8rem;
+            width: fit-content;
+            min-width: 0;
             max-width: 12rem;
             padding: 0 0.65rem;
+            field-sizing: content;
         }
 
         .canvas-nav .agent-select {
-            min-width: 7rem;
             max-width: 9rem;
         }
 
@@ -127,6 +143,9 @@
         }
 
         .global-prompt button {
+            width: max-content;
+            justify-self: start;
+            white-space: nowrap;
             height: 2.45rem;
             border: 1px solid rgba(255, 255, 255, 0.13);
             border-radius: 15px;
@@ -170,10 +189,10 @@
 
         .global-status {
             position: fixed;
-            left: calc(50% + (var(--debug-rail-width) + var(--debug-rail-gap)) / 2);
+            left: calc(var(--debug-rail-space) + (100vw - var(--debug-rail-space)) / 2);
             bottom: 5.2rem;
             z-index: 21;
-            width: min(calc(100vw - var(--debug-rail-width) - var(--debug-rail-gap) - 2rem), 58rem);
+            width: min(calc(100vw - var(--debug-rail-space) - 2rem), 58rem);
             min-height: 1rem;
             color: rgba(255, 255, 255, 0.62);
             font-size: 0.8rem;
@@ -297,10 +316,12 @@
             :root {
                 --debug-rail-width: 0px;
                 --debug-rail-gap: 0px;
+                --debug-rail-space: 0px;
             }
 
-            body {
-                padding-left: 2rem;
+            .canvas-shell {
+                left: 0;
+                padding: 1rem 1rem var(--prompt-chrome-space);
             }
 
             .debug-rail {
@@ -320,7 +341,9 @@
     </style>
 </head>
 <body>
-    <main id="app"></main>
+    <div class="canvas-shell" id="canvas-shell">
+        <main id="app"></main>
+    </div>
     <aside class="debug-rail" id="debug-rail">
         <section class="debug-summary">
             <dl>
@@ -354,6 +377,7 @@
 
     <script>
         const app = document.getElementById('app');
+        const canvasShell = document.getElementById('canvas-shell');
         const globalForm = document.getElementById('global-prompt');
         const globalText = document.getElementById('global-text');
         const globalStatus = document.getElementById('global-status');
@@ -630,7 +654,7 @@
                 '--prompt-chrome-space',
                 Math.ceil(window.innerHeight - Math.min(promptTop, statusTop) + 16) + 'px'
             );
-            document.body.style.paddingBottom = 'var(--prompt-chrome-space)';
+            canvasShell.style.paddingBottom = 'var(--prompt-chrome-space)';
         };
 
         const setLayout = layout => {
@@ -650,11 +674,11 @@
 
             if (currentLayout?.bodyStyle && typeof currentLayout.bodyStyle === 'object') {
                 Object.entries(currentLayout.bodyStyle).forEach(([property, value]) => {
-                    document.body.style.setProperty(property, String(value));
+                    canvasShell.style.setProperty(property, String(value));
                 });
             } else {
-                document.body.style.overflow = '';
-                document.body.style.padding = '';
+                canvasShell.style.overflow = '';
+                canvasShell.style.padding = '';
             }
 
             updatePromptChromeSpace();
@@ -683,13 +707,27 @@
             return response.json();
         };
 
+        const absoluteScope = scope => {
+            const value = String(scope || '').trim();
+
+            if (!value || value === '.' || value === './') {
+                return currentCanvasPath || value || './';
+            }
+
+            if (value.startsWith('/')) {
+                return value;
+            }
+
+            return (currentCanvasPath ? currentCanvasPath.replace(/\/$/, '') + '/' : '') + value.replace(/^\.\//, '');
+        };
+
         const submitPrompt = async (scope, request, parseError = '') => {
             if (parseError) {
                 const repairPrompt = [
                     request,
                     '',
                     'Broken component:',
-                    scope || '(unknown)',
+                    absoluteScope(scope) || '(unknown)',
                     'Parse error: ' + parseError
                 ].filter(Boolean).join('\n');
 
@@ -699,7 +737,7 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        scope: currentCanvasPath || '',
+                        scope: absoluteScope('./'),
                         prompt: repairPrompt
                     })
                 });
@@ -717,7 +755,7 @@
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ scope, prompt: request })
+                body: JSON.stringify({ scope: absoluteScope(scope), prompt: request })
             });
 
             if (!response.ok) {
@@ -734,7 +772,7 @@
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    scope: currentCanvasPath || '',
+                    scope: absoluteScope('./'),
                     prompt
                 })
             });
@@ -745,7 +783,6 @@
 
             setBusy({ busy: true });
         };
-
         const renderComponent = component => {
             const item = document.createElement('section');
             item.className = 'item';
@@ -763,61 +800,47 @@
 
             item.append(surface, status);
 
-            const handleLivePrompt = (event, action) => {
-                if (!action || !surface.contains(action)) {
+            surface.addEventListener('liquidos:callback', event => {
+                if (globalForm.dataset.busy === 'true') {
                     return;
                 }
 
-                if (!event.isTrusted || globalForm.dataset.busy === 'true') {
+                const detail = event.detail && typeof event.detail === 'object'
+                    ? event.detail
+                    : {};
+                const prompt = String(detail.prompt || '').trim();
+                const scope = String(detail.scope || '').trim();
+
+                if (!prompt || !scope) {
                     return;
                 }
 
-                const prompt = String(action.dataset.livePrompt || '').trim();
-
-                if (!prompt) {
-                    return;
-                }
-
-                const promptKey = (item.dataset.componentPath || component.componentPath || '') + '::' + prompt;
+                const promptKey = scope + '::' + prompt;
 
                 if (livePromptInFlight.has(promptKey)) {
                     return;
                 }
 
                 event.preventDefault();
-                action.disabled = true;
                 status.hidden = true;
                 status.className = 'status';
                 status.textContent = '';
                 setBusy({ busy: true });
                 livePromptInFlight.add(promptKey);
 
-                submitPrompt(item.__component?.componentPath || component.componentPath || '', prompt)
+                submitPrompt(scope, prompt)
                     .then(() => {
                         status.hidden = true;
                         status.textContent = '';
                     })
                     .catch(error => {
                         setBusy({ busy: false, job: null });
-                        action.disabled = false;
                         status.className = 'status error';
                         status.textContent = 'Error: ' + error.message;
                     })
                     .finally(() => {
                         livePromptInFlight.delete(promptKey);
                     });
-            };
-
-            surface.addEventListener('click', event => {
-                handleLivePrompt(event, event.target.closest('[data-live-prompt]'));
-            });
-
-            surface.addEventListener('input', event => {
-                handleLivePrompt(event, event.target.closest('[data-live-prompt]'));
-            });
-
-            surface.addEventListener('change', event => {
-                handleLivePrompt(event, event.target.closest('[data-live-prompt]'));
             });
 
             return item;
@@ -829,7 +852,6 @@
             const surface = item.querySelector('.surface');
             if (surface) {
                 surface.innerHTML = component.html || '';
-                activateSurfaceScripts(surface);
             }
         };
 
@@ -846,10 +868,10 @@
 
             if (bodyStyle) {
                 if (typeof bodyStyle.overflow === 'string') {
-                    document.body.style.overflow = bodyStyle.overflow;
+                    canvasShell.style.overflow = bodyStyle.overflow;
                 }
                 if (typeof bodyStyle.padding === 'string') {
-                    document.body.style.padding = bodyStyle.padding;
+                    canvasShell.style.padding = bodyStyle.padding;
                 }
                 updatePromptChromeSpace();
             }
@@ -882,20 +904,6 @@
 
         const orderedIndexes = () =>
             latestComponents.map(component => component.index);
-
-        const activateSurfaceScripts = surface => {
-            surface.querySelectorAll('script').forEach(script => {
-                const next = document.createElement('script');
-
-                Array.from(script.attributes).forEach(attribute => {
-                    next.setAttribute(attribute.name, attribute.value);
-                });
-
-                next.textContent = script.textContent;
-                script.replaceWith(next);
-            });
-        };
-
         const renderCanvas = (items, layout) => {
             const commit = () => {
                 const nextItems = [];
@@ -915,8 +923,6 @@
                     renderedItemsByIndex.set(index, item);
                     if (component) {
                         updateComponentItem(item, component);
-                    } else {
-                        activateSurfaceScripts(item.querySelector('.surface'));
                     }
                 });
 

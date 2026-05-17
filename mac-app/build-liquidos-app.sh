@@ -101,15 +101,24 @@ rsync -a \
   --exclude 'canvases/*' \
   "$PROJECT_ROOT/" "$RESOURCES/"
 
-if [ ! -f "$PROJECT_ROOT/COMPONENT_GUIDE.md" ]; then
-  echo "Error: COMPONENT_GUIDE.md is required at project root." >&2
+if [ ! -f "$PROJECT_ROOT/agent/AGENTS.md" ]; then
+  echo "Error: agent/AGENTS.md is required." >&2
   exit 1
 fi
-cp -f "$PROJECT_ROOT/COMPONENT_GUIDE.md" "$RESOURCES/COMPONENT_GUIDE.md"
 
-if [ -d "$MAC_ROOT/.hermes" ]; then
-  mkdir -p "$RESOURCES/.hermes"
-  rsync -a "$MAC_ROOT/.hermes/" "$RESOURCES/.hermes/"
+if [ ! -f "$PROJECT_ROOT/agent/component-creator/COMPONENT_GUIDE.md" ]; then
+  echo "Error: agent/component-creator/COMPONENT_GUIDE.md is required." >&2
+  exit 1
+fi
+
+if [ ! -f "$PROJECT_ROOT/agent/canvas-creator/SKILL.md" ]; then
+  echo "Error: agent/canvas-creator/SKILL.md is required." >&2
+  exit 1
+fi
+
+if [ ! -f "$PROJECT_ROOT/agent/canvas-creator/scripts/create-instance.sh" ]; then
+  echo "Error: agent/canvas-creator/scripts/create-instance.sh is required." >&2
+  exit 1
 fi
 
 mkdir -p "$RESOURCES/canvases"
