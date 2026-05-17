@@ -20,15 +20,14 @@ No requirement should be redundant to another.
 2. Agent creates or finds existing component at `<canvas>/components/<component_name>/view.json`.
 3. Agent reads `<canvas>/input.json` and preserves every existing key and component path.
 4. Agent appends the new component path to `<canvas>/input.json` only if adding a new component and only if it is not already present.
-5. Agent overwrites the component so that it displays the agent's next intended state.
+5. Agent overwrites the component so that it displays the agent's next intended action.
 6. Agent reads `<canvas>/components/<component_name>/requirements.md` if any.
 7. Agent begins work.
-8. Agent partially completes work and overwrites the component to show the partial output and the state of the agent's next intended state.
+8. Agent partially completes work and overwrites the component to show the partial output and the agent's next intended action.
 9. Agent continues work.
-10. Agent partially completes work and overwrites the component to show the partial output and the state of the agent's next intended state.
-11. Agent completes work and overwrites the component to reflect the final state.
+10. Agent partially completes work and overwrites the component to show the partial output and the agent's next intended action.
+11. Agent completes work and overwrites the component to show the final state.
 12. Agent creates or updates `<canvas>/components/<component_name>/requirements.md` if it has learned something new about the requirements.
-13. Agent responds as done.
 
 Do not erase or mutate unrelated components.
 
