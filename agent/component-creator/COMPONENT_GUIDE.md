@@ -6,7 +6,7 @@ Components are displayed on the user canvas to be interacted with. The current i
 
 ## Goal
 
-A component should be a visual representation of the agent's activity (loading, building, searching, etc.) and any data involved. It should be minimal, visually pleasing and useful. They should look like widgets designed by Apple.
+A component should be a visual representation of the agent's activity (loading, building, searching, etc.) and any data involved. It should be minimal, visually pleasing and useful. They should look like widgets designed by Apple. They should work as advertised, despite being lazyily implemented.
 
 ## Requirements
 
@@ -27,8 +27,10 @@ No requirement should be redundant to another.
 9. Agent continues work.
 10. Agent partially completes work and overwrites the component to show the partial output and the state of the agent's next intended state.
 11. Agent completes work and overwrites the component to reflect the final state.
-12. Agent creates or updates `<canvas>/components/<component_name>/requirements.md` if needed.
+12. Agent creates or updates `<canvas>/components/<component_name>/requirements.md` if it has learned something new about the requirements.
 13. Agent responds as done.
+
+Do not erase or mutate unrelated components.
 
 ## Removing
 
@@ -66,6 +68,10 @@ Example:
   </form>
 </liquidos-callback>
 ```
+
+## Undo
+
+The canvas directory is version-tracked by git. If a user asks the agent to undo something or to go back, use git revert to restore the desired previous state. Revert is the only command the agent is allowed to use. The agent can also use the git history to answer questions that the user might have about previous activities.
 
 ## Example
 
