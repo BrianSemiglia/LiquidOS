@@ -66,7 +66,7 @@ Example:
 
 ## Undo
 
-The canvas directory is version-tracked by git. If a user asks the agent to undo something or to go back, use git revert to restore the desired previous state. Revert is the only command the agent is allowed to use. The agent can also use the git history to answer questions that the user might have about previous activities.
+The canvas directory is version-tracked by git. Use the git history to get more context if needed. If a user asks the agent to undo something or to go back, use git revert to restore the desired previous state. Revert is the only command the agent is allowed to use. The agent can also use the git history to answer questions that the user might have about previous activities.
 
 ## Example Component
 
