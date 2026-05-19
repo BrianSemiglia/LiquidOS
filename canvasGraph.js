@@ -11,10 +11,10 @@ const createCanvasGraph = ({
         path.relative(getCanvasPath(), componentPath).split(path.sep).join('/');
 
     const componentFileUrl = componentPath =>
-        '/component/' + encodeURIComponent(componentScopePath(componentPath)) + '/file';
+        '/component/' + encodeURIComponent(componentScopePath(componentViewPath(componentPath))) + '/file';
 
     const componentResourceUrl = (componentPath, name) =>
-        '/component/' + encodeURIComponent(componentScopePath(componentPath)) + '/resources/' + encodeURIComponent(name);
+        '/component/' + encodeURIComponent(componentScopePath(componentViewPath(componentPath))) + '/resources/' + encodeURIComponent(name);
 
     const localFilesUrl = () =>
         String(process.env.LIQUIDOS_LOCAL_FILES_URL || '').replace(/\/?$/, '/');
@@ -66,18 +66,31 @@ const createCanvasGraph = ({
         css: ''
     });
 
+    const componentFolderPath = componentPath =>
+        fs.existsSync(componentPath) && fs.statSync(componentPath).isDirectory()
+            ? componentPath
+            : path.dirname(componentPath);
+
+    const componentViewPath = componentPath =>
+        fs.existsSync(componentPath) && fs.statSync(componentPath).isDirectory()
+            ? path.join(componentPath, 'view.json')
+            : componentPath;
+
+    const componentStartPath = componentPath =>
+        path.join(componentFolderPath(componentPath), 'start.sh');
+
     const loadLeafComponent = entry => {
         try {
             validateComponentFile(entry.componentPath);
 
             return {
                 ...entry,
-                component: readJson(entry.componentPath)
+                component: readJson(componentViewPath(entry.componentPath))
             };
         } catch (error) {
             return {
                 ...entry,
-                component: invalidComponentCard(entry.componentPath, error)
+                component: invalidComponentCard(componentViewPath(entry.componentPath), error)
             };
         }
     };
@@ -134,7 +147,7 @@ const createCanvasGraph = ({
         }
 
         if (!resources.functions && componentPath) {
-            const functionsPath = path.join(path.dirname(componentPath), 'functions.js');
+            const functionsPath = path.join(componentFolderPath(componentPath), 'functions.js');
 
             if (fs.existsSync(functionsPath)) {
                 resources.functions = {
@@ -178,7 +191,8 @@ const createCanvasGraph = ({
             return {
                 ...component,
                 index,
-                componentPath,
+                componentPath: componentViewPath(componentPath),
+                componentFolder: componentFolderPath(componentPath),
                 resources: renderedResources(componentPath, resources),
                 file: component.file ? componentFileUrl(componentPath) : undefined,
                 html: renderedHtml(componentPath, component, resources)
@@ -198,7 +212,7 @@ const createCanvasGraph = ({
 
     const componentFolderWatchPaths = componentPaths =>
         Array.from(new Set(componentPaths
-            .map(componentPath => path.dirname(componentPath))
+            .map(componentFolderPath)
             .filter(isInsideCanvas)));
 
     const watchedPaths = () => {
@@ -218,7 +232,7 @@ const createCanvasGraph = ({
         watchedPaths().map(entry => entry.path);
 
     const validateComponentFile = componentPath => {
-        const component = readJson(componentPath);
+        const component = readJson(componentViewPath(componentPath));
         const html = String(component.html || '');
 
         if (/<[^>]*<script\b/i.test(html)) {
@@ -250,9 +264,17 @@ const createCanvasGraph = ({
         });
     };
 
+    const componentServiceFolders = () =>
+        inputEntries()
+            .map(entry => componentFolderPath(entry.componentPath))
+            .filter(folder => fs.existsSync(path.join(folder, 'view.json')) && fs.existsSync(path.join(folder, 'start.sh')));
+
     return {
         componentScopePath,
         componentFileUrl,
+        componentFolderPath,
+        componentViewPath,
+        componentStartPath,
         resourceUrl,
         componentResources,
         renderedResources,
@@ -261,6 +283,7 @@ const createCanvasGraph = ({
         watchedPaths,
         watchedFiles,
         inputEntries,
+        componentServiceFolders,
         leafComponents,
         findLeafComponentByPath,
         validateCanvasConfig,

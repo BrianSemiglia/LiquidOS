@@ -39,10 +39,14 @@ The agent should use the component folder to add and store files necessary for i
 ## Anatomy
 
 <canvas>/components/<component-name>/
-  view
-  truth
-  functions
-  feature-requirements.md
+  view.json
+  start.sh        optional service launcher
+  truth.json      optional durable component state
+  functions.js    optional browser mount code
+  requirements.md optional behavior requirements
+
+The harness only treats `view.json` and `start.sh` as public component contract files. Everything else is component-private.
+If `start.sh` exists, it must print a JSON array of process group IDs to stdout and exit 0 after the component service has started. Every process needed by the component must stay inside one of those process groups.
 
 ## Views
 
@@ -65,9 +69,9 @@ Requirements are not for technical details.
 ## Adding/Updating
 
 1. Prompt arrives.
-2. Agent creates or finds existing component at `<canvas>/components/<component_name>/view.json`.
+2. Agent creates or finds existing component folder at `<canvas>/components/<component_name>/`.
 3. Agent reads `<canvas>/input.json` and preserves every existing key and component path.
-4. Agent appends the new component path to `<canvas>/input.json` only if adding a new component and only if it is not already present.
+4. Agent appends the new component folder path to `<canvas>/input.json` only if adding a new component and only if it is not already present. Existing `view.json` paths are also valid and should be preserved.
 5. Agent overwrites the component so that it displays the agent's next intended action so that the user is informed.
 6. Agent reads `<canvas>/components/<component_name>/requirements.md` if any.
 7. Agent begins work.
@@ -164,12 +168,12 @@ The canvas directory is version-tracked by git. Use the git history to get more 
 }
 ```
 
-`<canvas>/input.json` should preserve existing keys and append the component path:
+`<canvas>/input.json` should preserve existing keys and append the component folder path:
 
 ```json
 {
   "components": [
-    "components/hello-world/view.json"
+    "components/hello-world"
   ],
   "layoutPath": "layouts/stack.json",
   "transitionPath": "transitions/soft.json"

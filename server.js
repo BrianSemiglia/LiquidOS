@@ -1,4 +1,5 @@
 const http = require('http');
+const childProcess = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -179,6 +180,7 @@ let watchTimer;
 let graphWatchStarted = false;
 let graphWatchKey = '';
 let activeCanvasRuntime = null;
+const componentServices = new Map();
 let outputQueue = null;
 let agentProviders = null;
 const agentDebugState = {
@@ -303,6 +305,157 @@ const shortText = value => {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     return text.length > 160 ? text.slice(0, 157) + '...' : text;
 };
+
+const parseProcessGroups = value => {
+    const line = String(value || '')
+        .split(/\r?\n/)
+        .map(entry => entry.trim())
+        .find(Boolean);
+
+    if (!line) {
+        return null;
+    }
+
+    const processGroups = JSON.parse(line).filter(entry => Number.isInteger(entry) && entry > 0);
+    return processGroups.length ? processGroups : null;
+};
+
+const startComponentService = folder => {
+    const startPath = path.join(folder, 'start.sh');
+    const signature = JSON.stringify({
+        mtimeMs: fs.statSync(startPath).mtimeMs,
+        size: fs.statSync(startPath).size
+    });
+    const current = componentServices.get(folder);
+
+    if (current && current.signature === signature) {
+        return;
+    }
+
+    if (current) {
+        stopComponentService(folder);
+    }
+
+    componentServices.set(folder, { signature, processGroups: [] });
+
+    const child = childProcess.spawn('/bin/bash', [startPath], {
+        cwd: folder,
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let stdout = '';
+    let stderr = '';
+    let started = false;
+
+    const recordStarted = processGroups => {
+        if (started || !processGroups) {
+            return;
+        }
+
+        started = true;
+        componentServices.set(folder, { signature, processGroups });
+        logServer('component-service', 'started', { folder, processGroups });
+    };
+
+    child.stdout.on('data', chunk => {
+        stdout += String(chunk);
+
+        try {
+            recordStarted(parseProcessGroups(stdout));
+        } catch (error) {
+            if (stdout.includes('\n')) {
+                logHermesError('component-service', error, { folder, stdout: shortText(stdout), message: 'invalid process group list' });
+            }
+        }
+    });
+    child.stderr.on('data', chunk => {
+        stderr += String(chunk);
+        writeProcessOutput('[component-service]', chunk, process.stderr);
+    });
+    child.on('error', error => {
+        componentServices.delete(folder);
+        logHermesError('component-service', error, { folder, message: 'start failed' });
+    });
+    child.on('close', code => {
+        if (!started) {
+            try {
+                recordStarted(parseProcessGroups(stdout));
+            } catch (error) {
+                logHermesError('component-service', error, { folder, stdout: shortText(stdout), message: 'invalid process group list' });
+            }
+        }
+
+        if (code !== 0) {
+            componentServices.delete(folder);
+            logHermesError('component-service', new Error('start.sh exited ' + code), { folder, stderr: shortText(stderr) });
+            return;
+        }
+
+        if (started) {
+            logServer('component-service', 'exited', { folder });
+            componentServices.delete(folder);
+            return;
+        }
+
+        componentServices.delete(folder);
+        logHermesError('component-service', new Error('start.sh exited without process groups'), { folder, stdout: shortText(stdout) });
+    });
+    child.unref();
+};
+
+const stopProcessGroup = (processGroup, forceImmediately = false) => {
+    try {
+        process.kill(-processGroup, 'SIGTERM');
+    } catch (error) {
+        if (error.code !== 'ESRCH') {
+            logHermesError('component-service', error, { processGroup, message: 'terminate failed' });
+        }
+    }
+
+    const forceTerminate = () => {
+        try {
+            process.kill(-processGroup, 'SIGKILL');
+        } catch (error) {
+            if (error.code !== 'ESRCH') {
+                logHermesError('component-service', error, { processGroup, message: 'force terminate failed' });
+            }
+        }
+    };
+
+    if (forceImmediately) {
+        forceTerminate();
+        return;
+    }
+
+    setTimeout(forceTerminate, 1500).unref();
+};
+
+const stopComponentService = (folder, forceImmediately = false) => {
+    const current = componentServices.get(folder);
+
+    if (!current) {
+        return;
+    }
+
+    current.processGroups.forEach(processGroup => stopProcessGroup(processGroup, forceImmediately));
+    componentServices.delete(folder);
+    logServer('component-service', 'stopped', { folder });
+};
+
+const reconcileComponentServices = () => {
+    const desired = new Set(canvasGraph.componentServiceFolders());
+
+    Array.from(componentServices.keys())
+        .filter(folder => !desired.has(folder))
+        .forEach(stopComponentService);
+
+    desired.forEach(startComponentService);
+};
+
+const stopAllComponentServices = (forceImmediately = false) => {
+    Array.from(componentServices.keys()).forEach(folder => stopComponentService(folder, forceImmediately));
+};
+
 configureHermesAgent({
     output: writeProcessOutput,
     status: setCurrentAgentDebug
@@ -401,6 +554,7 @@ const createCanvasRuntime = canvasPath => {
             outputQueue.normalizeOutputJobs();
             outputQueue.clearActiveLanes();
             outputQueue.feedHermesOutput();
+            reconcileComponentServices();
             broadcastQueueState();
             return this;
         },
@@ -418,6 +572,7 @@ const createCanvasRuntime = canvasPath => {
             }
             watchers.forEach(watcher => watcher.close());
             watchers = [];
+            stopAllComponentServices();
             graphWatchStarted = false;
             graphWatchKey = '';
             outputQueue.clearActiveLanes();
@@ -859,6 +1014,7 @@ const scheduleWatchRefresh = () => {
         try {
             canvasGraph.renderedInput();
             refreshGraphWatchers();
+            reconcileComponentServices();
         } catch (error) {
             logHermesError('watch', error, { message: 'watch error' });
             broadcast();
@@ -1244,6 +1400,7 @@ const commitShutdownState = reason => {
 };
 
 const shutdownCanvasRuntime = reason => {
+    stopAllComponentServices(true);
     commitShutdownState(reason || 'application was shut down');
 
     if (activeCanvasRuntime) {
