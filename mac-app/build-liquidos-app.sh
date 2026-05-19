@@ -84,6 +84,8 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <string>LiquidOS uses Bluetooth access for local components that display and control Bluetooth device state.</string>
   <key>NSBluetoothPeripheralUsageDescription</key>
   <string>LiquidOS uses Bluetooth access for local components that display and control Bluetooth device state.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>LiquidOS uses microphone access for local components that display live microphone activity.</string>
 </dict>
 </plist>
 PLIST
