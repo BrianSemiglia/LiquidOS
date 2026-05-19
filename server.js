@@ -1043,7 +1043,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'GET' && url.pathname === '/agents/probe') {
-            send(res, 200, JSON.stringify(agentProviders.probe()), 'application/json; charset=utf-8');
+            send(res, 200, JSON.stringify(agentProviders.probe({ checkInstalled: false })), 'application/json; charset=utf-8');
             return;
         }
 

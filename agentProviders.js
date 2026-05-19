@@ -5,34 +5,42 @@ const createAgentProviders = ({ agents, workingDirectory, onStatus = () => {} })
     let initializationToken = 0;
     const initializedKinds = new Set();
 
-    const installed = provider => {
+    const installed = (provider, { refresh = false } = {}) => {
         if (!provider || typeof provider.isInstalled !== 'function') {
             return true;
         }
 
-        if (!installationCache.has(provider.kind)) {
+        if (refresh || !installationCache.has(provider.kind)) {
             installationCache.set(provider.kind, Boolean(provider.isInstalled()));
         }
 
         return installationCache.get(provider.kind);
     };
 
-    activeKind = (agents.find(installed) || agents[0]).kind;
+    const cachedInstalled = provider => {
+        if (!provider || typeof provider.isInstalled !== 'function') {
+            return true;
+        }
+
+        return installationCache.has(provider.kind) ? installationCache.get(provider.kind) : null;
+    };
+
+    activeKind = (agents[0] || {}).kind;
 
     const activeProvider = () => providers[activeKind] || agents[0];
 
-    const providerSnapshot = provider => ({
+    const providerSnapshot = (provider, { checkInstalled = false } = {}) => ({
         id: provider.kind,
         label: provider.label,
-        installed: installed(provider),
-        usable: installed(provider),
+        installed: checkInstalled ? installed(provider, { refresh: true }) : cachedInstalled(provider),
+        usable: checkInstalled ? installed(provider, { refresh: true }) : cachedInstalled(provider) !== false,
         command: provider.command || null,
         provider: provider.currentDebug ? provider.currentDebug().provider || provider.kind : provider.kind,
         model: provider.currentDebug ? provider.currentDebug().model || null : null,
         status: provider.currentDebug ? provider.currentDebug().status || null : null
     });
 
-    const availableKinds = () => agents.map(providerSnapshot);
+    const availableKinds = (options = {}) => agents.map(provider => providerSnapshot(provider, options));
 
     const initializeProvider = provider => {
         const token = ++initializationToken;
@@ -41,7 +49,7 @@ const createAgentProviders = ({ agents, workingDirectory, onStatus = () => {} })
             return;
         }
 
-        if (!installed(provider) || initializedKinds.has(provider.kind)) {
+        if (!installed(provider, { refresh: true }) || initializedKinds.has(provider.kind)) {
             return;
         }
 
@@ -78,11 +86,11 @@ const createAgentProviders = ({ agents, workingDirectory, onStatus = () => {} })
         });
     };
 
-    const probe = () => ({
-        agents: availableKinds(),
+    const probe = (options = {}) => ({
+        agents: availableKinds(options),
         agentKind: activeKind,
-        agentChoices: availableKinds(),
-        active: providerSnapshot(activeProvider())
+        agentChoices: availableKinds(options),
+        active: providerSnapshot(activeProvider(), options)
     });
 
     const setActiveKind = kind => {
@@ -96,7 +104,7 @@ const createAgentProviders = ({ agents, workingDirectory, onStatus = () => {} })
             };
         }
 
-        if (!installed(providers[normalized])) {
+        if (!installed(providers[normalized], { refresh: true })) {
             return {
                 ok: false,
                 statusCode: 409,
