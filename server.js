@@ -80,7 +80,7 @@ const absoluteScope = scope => {
     return path.resolve(CANVAS_PATH, relative);
 };
 
-const CANVASES_ROOT = resolveConfigPath(argValue('--canvases', path.join(os.homedir(), 'Documents', 'LiquidOS')));
+const CANVASES_ROOT = resolveConfigPath(argValue('--canvases', process.env.LIQUIDOS_CANVASES_ROOT || path.join(ROOT, 'LiquidOS.liquidos')));
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'skills', 'canvas-creator', 'templates');
 const DEFAULT_CANVAS_PATH = path.join(CANVASES_ROOT, 'home');
 let CANVAS_PATH = resolveConfigPath(argValue('--canvas', DEFAULT_CANVAS_PATH));

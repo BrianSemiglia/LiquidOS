@@ -15,9 +15,9 @@ output.json
 
 The prompt bar can switch canvases, create a new canvas, and send canvas-scoped prompts. The whole `canvases/` folder is tracked as one Git repo so activity across canvases has a single timeline.
 
-The live canvas root is `~/Documents/LiquidOS` in both the standalone server and the Mac app.
+The standalone live canvas root defaults to `./LiquidOS.liquidos`. The Mac app opens or creates `.liquidos` workspace folders.
 
-If you are editing the running Mac app or the standalone server, update the live `~/Documents/LiquidOS` tree.
+If you are editing the running Mac app, update the opened `<workspace>.liquidos` folder. If you are editing the standalone server, update the live `./LiquidOS.liquidos` tree.
 
 ## Listening components and plugins
 
@@ -55,10 +55,10 @@ That is usually the right split when the thing being watched is external and the
 
 For files that already exist on disk, serve the containing folder and reference the files with HTTP URLs.
 
-The Mac app starts a local static server automatically at launch. Its root is:
+The Mac app starts a local static server automatically after opening a workspace. Its root is:
 
 ```text
-~/Documents/LiquidOS/LocalFiles
+<workspace>.liquidos/LocalFiles
 ```
 
 The app passes these to the Node server and agents:
@@ -71,7 +71,7 @@ LIQUIDOS_LOCAL_FILES_URL
 For standalone development, run the same shape manually:
 
 ```bash
-cd ~/Documents/LiquidOS/LocalFiles
+cd ./LiquidOS.liquidos/LocalFiles
 python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
@@ -105,5 +105,5 @@ For the Mac app, put files or symlinks in the active workspace’s `LocalFiles` 
 }
 ```
 
-Default standalone path: `~/Documents/LiquidOS/LocalFiles`.
-Opened `.liquidos` workspace path: `<workspace>.liquidos/LocalFiles`.
+Standalone path: `./LiquidOS.liquidos/LocalFiles`.
+Mac workspace path: `<workspace>.liquidos/LocalFiles`.

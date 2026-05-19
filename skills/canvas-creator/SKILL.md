@@ -15,7 +15,7 @@ Scaffold a new live canvas instance with the correct directory structure, JSON m
 
 **Important**: When setting up a new canvas, follow the exact convention of existing instances. Don't reinvent the wheel.
 
-The established pattern (seen in `to-the-metal-hairscut`):
+The established pattern:
 - `canvas.html` is created inside the instance directory by the script
 - `canvas.html` is then **copied to project root as `index.html`** so the canvas is accessible at `http://localhost:xxxx/` (not `http://localhost:xxxx/canvas.html`)
 - The server serves `index.html` from the project root automatically

@@ -44,9 +44,14 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
       <string>Owner</string>
       <key>LSTypeIsPackage</key>
       <true/>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>liquidos</string>
+      </array>
       <key>LSItemContentTypes</key>
       <array>
         <string>local.liquidos.workspace</string>
+        <string>com.apple.package</string>
       </array>
     </dict>
   </array>

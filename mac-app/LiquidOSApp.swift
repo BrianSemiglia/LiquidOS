@@ -1,16 +1,18 @@
 import Cocoa
 import WebKit
+import UniformTypeIdentifiers
 import Darwin
 
-final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
+final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScriptMessageHandler {
     private var window: NSWindow?
     private var webView: WKWebView?
     private var server: Process?
     private var localFileServer: Process?
     private var port: Int = 0
     private var localFilePort: Int = 0
-    private var canvasesRootURL = LiquidOSApp.defaultCanvasesRoot()
-    private var localFilesRootURL = LiquidOSApp.defaultLocalFilesRoot()
+    private var canvasesRootURL: URL?
+    private var localFilesRootURL: URL?
+    private var pendingWorkspaceURL: URL?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -18,18 +20,31 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
         port = Self.freePort()
         localFilePort = Self.freePort()
         showWindow()
-        showStartingScreen()
-        startLocalFileServer()
-        startServer()
-        loadWhenReady(attempt: 0)
+
+        if let workspaceURL = pendingWorkspaceURL ?? Self.startupWorkspaceURL() {
+            pendingWorkspaceURL = nil
+            openWorkspace(workspaceURL)
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            if let workspaceURL = self.pendingWorkspaceURL {
+                self.pendingWorkspaceURL = nil
+                self.openWorkspace(workspaceURL)
+            } else if self.server == nil {
+                self.showWorkspaceChooser()
+            }
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        urls.first.map(openWorkspace)
+        if let url = urls.first {
+            receiveWorkspaceURL(url)
+        }
     }
 
     func application(_ sender: NSApplication, openFile filename: String) -> Bool {
-        openWorkspace(URL(fileURLWithPath: filename, isDirectory: true))
+        receiveWorkspaceURL(URL(fileURLWithPath: filename, isDirectory: true))
         return true
     }
     
@@ -52,6 +67,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
     private func showWindow() {
         let configuration = WKWebViewConfiguration()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        configuration.userContentController.add(self, name: "liquidosMac")
         
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView?.uiDelegate = self
@@ -108,6 +124,16 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
             sleep(1) // Allow OS to release the port
         }
         
+        guard let canvasesRootURL else {
+            showWorkspaceChooser()
+            return
+        }
+
+        guard let localFilesRootURL else {
+            showWorkspaceChooser()
+            return
+        }
+
         guard let appRoot = Bundle.main.resourceURL else {
             showError("Missing app resources.")
             return
@@ -224,6 +250,138 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
         }.resume()
     }
 
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        switch message.body as? String {
+        case "open":
+            showOpenWorkspacePanel()
+        case "create":
+            showCreateWorkspacePanel()
+        default:
+            break
+        }
+    }
+
+    private func showOpenWorkspacePanel() {
+        let panel = NSOpenPanel()
+        panel.title = "Open Workspace"
+        panel.prompt = "Open"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [Self.workspaceContentType]
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            self.openWorkspace(url)
+        }
+    }
+
+    private func showCreateWorkspacePanel() {
+        let panel = NSSavePanel()
+        panel.title = "Create Workspace"
+        panel.prompt = "Create"
+        panel.nameFieldStringValue = "Untitled.liquidos"
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [Self.workspaceContentType]
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+
+            do {
+                try FileManager.default.createDirectory(
+                    at: Self.workspaceURL(url),
+                    withIntermediateDirectories: true
+                )
+                self.openWorkspace(Self.workspaceURL(url))
+            } catch {
+                self.showError("Could not create workspace.\n\n" + error.localizedDescription)
+            }
+        }
+    }
+
+    private func showWorkspaceChooser() {
+        webView?.loadHTMLString("""
+        <!doctype html>
+        <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            :root {
+              color-scheme: dark;
+            }
+
+            html, body {
+              width: 100%;
+              height: 100%;
+              margin: 0;
+              background: #111827;
+            }
+
+            body {
+              display: grid;
+              place-items: center;
+              color: rgba(255, 255, 255, 0.9);
+              font: -apple-system-body;
+              -webkit-font-smoothing: antialiased;
+              text-rendering: optimizeLegibility;
+            }
+
+            main {
+              width: min(420px, calc(100vw - 48px));
+              padding: 32px;
+              border: 1px solid rgba(255, 255, 255, 0.12);
+              border-radius: 24px;
+              background: rgba(255, 255, 255, 0.06);
+              box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+            }
+
+            h1 {
+              margin: 0 0 8px;
+              font-size: 28px;
+              line-height: 1.1;
+            }
+
+            p {
+              margin: 0 0 24px;
+              color: rgba(255, 255, 255, 0.68);
+              line-height: 1.45;
+            }
+
+            .actions {
+              display: grid;
+              gap: 12px;
+            }
+
+            button {
+              width: 100%;
+              padding: 12px 14px;
+              border: 0;
+              border-radius: 14px;
+              background: rgba(255, 255, 255, 0.92);
+              color: #111827;
+              font: inherit;
+              font-weight: 600;
+              cursor: pointer;
+            }
+
+            button.secondary {
+              background: rgba(255, 255, 255, 0.12);
+              color: rgba(255, 255, 255, 0.9);
+            }
+          </style>
+        </head>
+        <body>
+          <main>
+            <h1>LiquidOS</h1>
+            <p>Open an existing workspace or create a new one.</p>
+            <div class="actions">
+              <button onclick="window.webkit.messageHandlers.liquidosMac.postMessage('open')">Open workspace</button>
+              <button class="secondary" onclick="window.webkit.messageHandlers.liquidosMac.postMessage('create')">Create workspace</button>
+            </div>
+          </main>
+        </body>
+        </html>
+        """, baseURL: nil)
+    }
+
     private func showStartingScreen() {
         webView?.loadHTMLString("""
         <!doctype html>
@@ -276,15 +434,24 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
         """, baseURL: nil)
     }
     
-    private func openWorkspace(_ url: URL) {
-        let openedURL = url.standardizedFileURL
-
-        guard openedURL != canvasesRootURL.standardizedFileURL else {
+    private func receiveWorkspaceURL(_ url: URL) {
+        guard webView != nil else {
+            pendingWorkspaceURL = url
             return
         }
 
-        canvasesRootURL = openedURL
-        localFilesRootURL = openedURL.appendingPathComponent("LocalFiles", isDirectory: true)
+        openWorkspace(url)
+    }
+
+    private func openWorkspace(_ url: URL) {
+        guard Self.isWorkspaceURL(url) else {
+            showError("Workspaces must be .liquidos folders.")
+            showWorkspaceChooser()
+            return
+        }
+
+        canvasesRootURL = url.standardizedFileURL
+        localFilesRootURL = url.standardizedFileURL.appendingPathComponent("LocalFiles", isDirectory: true)
         showStartingScreen()
         stopServer()
         stopLocalFileServer()
@@ -312,6 +479,11 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
 
     private func startLocalFileServer() {
         stopLocalFileServer()
+
+        guard let localFilesRootURL else {
+            showWorkspaceChooser()
+            return
+        }
 
         try? FileManager.default.createDirectory(
             at: localFilesRootURL,
@@ -398,14 +570,20 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
     }
 
 
-    private static func defaultCanvasesRoot() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents", isDirectory: true)
-            .appendingPathComponent("LiquidOS", isDirectory: true)
+    private static let workspaceContentType = UTType("local.liquidos.workspace") ?? .package
+
+    private static func startupWorkspaceURL() -> URL? {
+        CommandLine.arguments.dropFirst().first.map {
+            URL(fileURLWithPath: $0, isDirectory: true)
+        }
     }
 
-    private static func defaultLocalFilesRoot() -> URL {
-        defaultCanvasesRoot().appendingPathComponent("LocalFiles", isDirectory: true)
+    private static func workspaceURL(_ url: URL) -> URL {
+        url.pathExtension.lowercased() == "liquidos" ? url : url.appendingPathExtension("liquidos")
+    }
+
+    private static func isWorkspaceURL(_ url: URL) -> Bool {
+        url.pathExtension.lowercased() == "liquidos"
     }
 
     private static func agentRuntimeRoot() -> URL {
