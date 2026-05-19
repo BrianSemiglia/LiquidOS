@@ -84,7 +84,7 @@ Open `http://localhost:3000/canvas.html` in your browser.
 2. Update `input.json` to include the component JSON paths
 3. The page auto-reloads via SSE when files change
 
-See `component-creator/COMPONENT_GUIDE.md` for component structure and workflows.
+See `component-creator/SKILL.md` for component structure and workflows.
 
 ## File Paths Convention
 

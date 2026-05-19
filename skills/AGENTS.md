@@ -15,10 +15,10 @@ When adding files to a component folder, do not reference them directly with `co
 Before creating or updating components, read:
 
 ```text
-./component-creator/COMPONENT_GUIDE.md
+./component-creator/SKILL.md
 ```
 
-Do not look for `component-creator/COMPONENT_GUIDE.md` inside Scope.
+Do not look for `component-creator/SKILL.md` inside Scope.
 
 Use:
 

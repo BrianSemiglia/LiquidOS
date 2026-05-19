@@ -105,23 +105,23 @@ rsync -a \
   --exclude 'canvases/*' \
   "$PROJECT_ROOT/" "$RESOURCES/"
 
-if [ ! -f "$PROJECT_ROOT/agent/AGENTS.md" ]; then
-  echo "Error: agent/AGENTS.md is required." >&2
+if [ ! -f "$PROJECT_ROOT/skills/AGENTS.md" ]; then
+  echo "Error: skills/AGENTS.md is required." >&2
   exit 1
 fi
 
-if [ ! -f "$PROJECT_ROOT/agent/component-creator/COMPONENT_GUIDE.md" ]; then
-  echo "Error: agent/component-creator/COMPONENT_GUIDE.md is required." >&2
+if [ ! -f "$PROJECT_ROOT/skills/component-creator/SKILL.md" ]; then
+  echo "Error: skills/component-creator/SKILL.md is required." >&2
   exit 1
 fi
 
-if [ ! -f "$PROJECT_ROOT/agent/canvas-creator/SKILL.md" ]; then
-  echo "Error: agent/canvas-creator/SKILL.md is required." >&2
+if [ ! -f "$PROJECT_ROOT/skills/canvas-creator/SKILL.md" ]; then
+  echo "Error: skills/canvas-creator/SKILL.md is required." >&2
   exit 1
 fi
 
-if [ ! -f "$PROJECT_ROOT/agent/canvas-creator/scripts/create-instance.sh" ]; then
-  echo "Error: agent/canvas-creator/scripts/create-instance.sh is required." >&2
+if [ ! -f "$PROJECT_ROOT/skills/canvas-creator/scripts/create-instance.sh" ]; then
+  echo "Error: skills/canvas-creator/scripts/create-instance.sh is required." >&2
   exit 1
 fi
 
