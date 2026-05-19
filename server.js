@@ -1105,9 +1105,10 @@ const server = http.createServer(async (req, res) => {
         const inputResource = url.pathname.match(/^\/input\/(\d+)\/resources\/(.+)$/);
 
         if (req.method === 'GET' && inputResource) {
-            const component = canvasGraph.leafComponents()[Number(inputResource[1])]?.component;
+            const entry = canvasGraph.leafComponents()[Number(inputResource[1])];
+            const component = entry?.component;
             const name = decodeURIComponent(inputResource[2]);
-            const resource = component && canvasGraph.componentResources(component)[name];
+            const resource = component && canvasGraph.componentResources(entry.componentPath, component)[name];
 
             if (!resource?.path) {
                 send(res, 404, 'Input resource not found');
@@ -1139,7 +1140,7 @@ const server = http.createServer(async (req, res) => {
             const componentPath = decodeURIComponent(componentResource[1]);
             const component = canvasGraph.findLeafComponentByPath(componentPath)?.component;
             const name = decodeURIComponent(componentResource[2]);
-            const resource = component && canvasGraph.componentResources(component)[name];
+            const resource = component && canvasGraph.componentResources(resolveCanvasReference(componentPath), component)[name];
 
             if (!resource?.path) {
                 send(res, 404, 'Component resource not found');

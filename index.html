@@ -404,6 +404,7 @@
         let debugLines = [];
         const livePromptInFlight = new Set();
         const renderedItemsByIndex = new Map();
+        const componentMountsByItem = new WeakMap();
         let latestComponentByIndex = new Map();
         let lastCanvasSnapshot = '';
         const agentKindKey = 'live-edit-agent-kind';
@@ -783,6 +784,51 @@
 
             setBusy({ busy: true });
         };
+
+
+        const destroyComponentFunctions = item => {
+            const mounted = componentMountsByItem.get(item);
+
+            if (mounted && typeof mounted.destroy === 'function') {
+                mounted.destroy();
+            }
+
+            componentMountsByItem.delete(item);
+            item.__componentMountToken = null;
+        };
+
+        const mountComponentFunctions = (item, component) => {
+            destroyComponentFunctions(item);
+
+            const functionsUrl = component?.resources?.functions?.url;
+            const surface = item.querySelector('.surface');
+
+            if (!functionsUrl || !surface) {
+                return;
+            }
+
+            const token = {};
+            item.__componentMountToken = token;
+
+            import(functionsUrl + '?v=' + encodeURIComponent(JSON.stringify(component))).then(module => {
+                if (item.__componentMountToken !== token || typeof module.mount !== 'function') {
+                    return;
+                }
+
+                componentMountsByItem.set(item, module.mount(surface) || {});
+            }).catch(error => {
+                const status = item.querySelector('.status');
+
+                if (!status) {
+                    return;
+                }
+
+                status.hidden = false;
+                status.className = 'status error';
+                status.textContent = 'Component functions error: ' + error.message;
+            });
+        };
+
         const renderComponent = component => {
             const item = document.createElement('section');
             item.className = 'item';
@@ -852,6 +898,7 @@
             const surface = item.querySelector('.surface');
             if (surface) {
                 surface.innerHTML = component.html || '';
+                mountComponentFunctions(item, component);
             }
         };
 
@@ -926,8 +973,15 @@
                     }
                 });
 
+                Array.from(renderedItemsByIndex.entries()).forEach(([index, item]) => {
+                    if (!nextItems.includes(item)) {
+                        destroyComponentFunctions(item);
+                        renderedItemsByIndex.delete(index);
+                    }
+                });
+
                 app.replaceChildren(...nextItems);
-                applyLayout(items, layout);
+                applyLayout(nextItems, layout);
                 restoreScrollPosition();
             };
 

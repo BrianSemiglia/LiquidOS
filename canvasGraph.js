@@ -100,7 +100,7 @@ const createCanvasGraph = ({
         ) || null;
     };
 
-    const componentResources = component => {
+    const componentResources = (componentPath, component) => {
         const resources = Object.fromEntries(
             Object.entries(component.resources || {}).map(([name, resource]) => [
                 name,
@@ -115,6 +115,17 @@ const createCanvasGraph = ({
             };
         }
 
+        if (!resources.functions && componentPath) {
+            const functionsPath = path.join(path.dirname(componentPath), 'functions.js');
+
+            if (fs.existsSync(functionsPath)) {
+                resources.functions = {
+                    path: functionsPath,
+                    mime: 'text/javascript; charset=utf-8'
+                };
+            }
+        }
+
         return resources;
     };
 
@@ -124,7 +135,8 @@ const createCanvasGraph = ({
                 name,
                 {
                     ...resource,
-                    url: resourceUrl(componentPath, name)
+                    url: resourceUrl(componentPath, name),
+                    version: fs.existsSync(resource.path) ? String(fs.statSync(resource.path).mtimeMs) : ''
                 }
             ])
         );
@@ -143,7 +155,7 @@ const createCanvasGraph = ({
         canvasPath: getCanvasPath(),
         ...readJson(getInputPath()),
         components: leafComponents().map(({ index, componentPath, component }) => {
-            const resources = componentResources(component);
+            const resources = componentResources(componentPath, component);
 
             return {
                 ...component,
@@ -163,7 +175,7 @@ const createCanvasGraph = ({
                 [
                     componentPath,
                     component.file,
-                    ...Object.values(componentResources(component)).map(resource => resource.path)
+                    ...Object.values(componentResources(componentPath, component)).map(resource => resource.path)
                 ].filter(Boolean)
             )
         ]));

@@ -24,8 +24,9 @@ If the agent has a question, it should show a component with a way for the user 
 
 ## Writing
 
-The agent can write to anywhere in the working directory but nowhere else.
+The agent can write to anywhere in the working directory but nowhere else without the user's consent.
 If the user asks the agent to change something outside, the agent will copy the resource to the workspace before mutating.
+If the user asks the agent to change something outside that can't be copied, the agent will request the user's consent and optionally explain any danger.
 
 ## Purpose
 

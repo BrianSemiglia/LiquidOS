@@ -2,7 +2,7 @@ import Cocoa
 import WebKit
 import Darwin
 
-final class LiquidOSApp: NSObject, NSApplicationDelegate {
+final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
     private var window: NSWindow?
     private var webView: WKWebView?
     private var server: Process?
@@ -62,6 +62,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         
         webView = WKWebView(frame: .zero, configuration: configuration)
+        webView?.uiDelegate = self
         webView?.allowsBackForwardNavigationGestures = true
         
         // Create a visual effect view for vibrancy
@@ -92,6 +93,22 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
     
+
+    func webView(
+        _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping ([URL]?) -> Void
+    ) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.begin { response in
+            completionHandler(response == .OK ? panel.urls : nil)
+        }
+    }
+
     private func startServer() {
         // Kill any lingering Hermes processes on the same port first
         if let existingPID = Self.getPIDForPort(port) {

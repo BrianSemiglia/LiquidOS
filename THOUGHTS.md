@@ -30,8 +30,9 @@ undo:
   - "go back to how it was yesterday" ✅
   - canvases folder is separately tracked under git ✅
   - server commits after prompt is handled ✅
-  - agent uses it for undo. revert only, never reset or rebase. 
-    - can because side-effects can't be undo ☹️
+  - agent uses it for undo. revert only, never reset or rebase. ✅
+    - cant because side-effects can't be undo ☹️
+    - implemented anyway, harm reduced by copy on write
   
 callbacks:
   - indicate if callback is debounce-able
