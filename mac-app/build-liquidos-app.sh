@@ -75,6 +75,10 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <string>13.0</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>LiquidOS uses Bluetooth access for local components that display and control Bluetooth device state.</string>
+  <key>NSBluetoothPeripheralUsageDescription</key>
+  <string>LiquidOS uses Bluetooth access for local components that display and control Bluetooth device state.</string>
 </dict>
 </plist>
 PLIST
