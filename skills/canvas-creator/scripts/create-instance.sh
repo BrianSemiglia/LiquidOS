@@ -48,8 +48,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_DIR=""
 
 for CANDIDATE in \
-    "$PROJECT_ROOT/templates/canvas" \
-    "$SCRIPT_DIR/../templates/canvas"; do
+    "$PROJECT_ROOT/skills/canvas-creator/templates" \
+    "$SCRIPT_DIR/../templates"; do
     if [ -n "$CANDIDATE" ] && [ -d "$CANDIDATE" ]; then
         TEMPLATE_DIR="$CANDIDATE"
         break
@@ -71,8 +71,8 @@ copy_asset_dir() {
     local source=""
 
     for CANDIDATE in \
-        "$PROJECT_ROOT/$name" \
-        "$(dirname "$CANVASES_DIR")/$name"; do
+        "$PROJECT_ROOT/skills/canvas-creator/$name" \
+        "$(dirname "$CANVASES_DIR")/skills/canvas-creator/$name"; do
         if [ -n "$CANDIDATE" ] && [ -d "$CANDIDATE" ]; then
             source="$CANDIDATE"
             break

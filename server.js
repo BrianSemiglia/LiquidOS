@@ -3,15 +3,15 @@ const childProcess = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { createGitTimeline } = require('./gitTimeline');
+const { createGitTimeline } = require('./canvas/git-timeline');
 const { createAgentProviders } = require('./agent/providers');
 const { CodexAgent, configureCodexAgent } = require('./agent/codex');
 const { HermesAgent, configureHermesAgent } = require('./agent/hermes');
 const { ClaudeCodeAgent, configureClaudeCodeAgent } = require('./agent/claude-code');
-const { createCanvasFiles } = require('./canvasFiles');
-const { createCanvasGraph } = require('./canvasGraph');
-const { createOutputQueue } = require('./outputQueue');
-const { createPromptBuilder } = require('./promptBuilder');
+const { createCanvasFiles } = require('./canvas/files');
+const { createCanvasGraph } = require('./canvas/graph');
+const { createOutputQueue } = require('./canvas/output-queue');
+const { createPromptBuilder } = require('./canvas/prompt-builder');
 const pty = require('node-pty');
 
 const ROOT = __dirname;
@@ -81,7 +81,7 @@ const absoluteScope = scope => {
 };
 
 const CANVASES_ROOT = resolveConfigPath(argValue('--canvases', path.join(os.homedir(), 'Documents', 'LiquidOS')));
-const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'templates', 'canvas');
+const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'skills', 'canvas-creator', 'templates');
 const DEFAULT_CANVAS_PATH = path.join(CANVASES_ROOT, 'home');
 let CANVAS_PATH = resolveConfigPath(argValue('--canvas', DEFAULT_CANVAS_PATH));
 let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
@@ -503,7 +503,7 @@ const canvasFiles = createCanvasFiles({
     fs,
     canvasesRoot: CANVASES_ROOT,
     canvasTemplateRoot: CANVAS_TEMPLATE_ROOT,
-    localAssetRoot: ROOT,
+    localAssetRoot: path.join(ROOT, 'skills', 'canvas-creator'),
     getCanvasPath: () => CANVAS_PATH,
     setCanvasPath: canvasPath => setCanvasPath(canvasPath),
     readJson
