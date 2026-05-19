@@ -26,7 +26,13 @@ const createCanvasGraph = ({
         resource?.url ? expandResourceUrl(resource.url) : componentResourceUrl(componentPath, name);
 
     const localResourcePath = resource =>
-        resource?.path && !/^https?:\/\//i.test(String(resource.path)) ? resource.path : null;
+        resource?.path && !/^https?:\/\//i.test(String(resource.path)) ? String(resource.path) : null;
+
+    const canvasLocalPath = file =>
+        path.isAbsolute(file) ? path.normalize(file) : path.resolve(getCanvasPath(), file);
+
+    const localResourceFile = resource =>
+        localResourcePath(resource) ? canvasLocalPath(localResourcePath(resource)) : null;
 
     const componentScripts = html =>
         Array.from(String(html || '').matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi), match => match[1]);
@@ -148,7 +154,7 @@ const createCanvasGraph = ({
                 {
                     ...resource,
                     url: resourceUrl(componentPath, name, resource),
-                    version: localResourcePath(resource) && fs.existsSync(localResourcePath(resource)) ? String(fs.statSync(localResourcePath(resource)).mtimeMs) : ''
+                    version: localResourceFile(resource) && fs.existsSync(localResourceFile(resource)) ? String(fs.statSync(localResourceFile(resource)).mtimeMs) : ''
                 }
             ])
         );
@@ -180,17 +186,36 @@ const createCanvasGraph = ({
         })
     });
 
+    const isInsideCanvas = file => {
+        const relative = path.relative(getCanvasPath(), file);
+        return relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+    };
+
+    const inputReferenceFile = name => {
+        const input = readJson(getInputPath());
+        return typeof input[name] === 'string' ? resolveCanvasReference(input[name]) : null;
+    };
+
+    const componentFolderWatchPaths = componentPaths =>
+        Array.from(new Set(componentPaths
+            .map(componentPath => path.dirname(componentPath))
+            .filter(isInsideCanvas)));
+
+    const watchedPaths = () => {
+        const componentPaths = inputEntries().map(entry => entry.componentPath);
+
+        return [
+            ...[
+                getInputPath(),
+                inputReferenceFile('layoutPath'),
+                inputReferenceFile('transitionPath')
+            ].filter(Boolean).map(file => ({ path: file, recursive: false })),
+            ...componentFolderWatchPaths(componentPaths).map(file => ({ path: file, recursive: true }))
+        ];
+    };
+
     const watchedFiles = () =>
-        Array.from(new Set([
-            getInputPath(),
-            ...leafComponents().flatMap(({ componentPath, component }) =>
-                [
-                    componentPath,
-                    component.file,
-                    ...Object.values(componentResources(componentPath, component)).map(localResourcePath)
-                ].filter(Boolean)
-            )
-        ]));
+        watchedPaths().map(entry => entry.path);
 
     const validateComponentFile = componentPath => {
         const component = readJson(componentPath);
@@ -233,6 +258,7 @@ const createCanvasGraph = ({
         renderedResources,
         renderedHtml,
         renderedInput,
+        watchedPaths,
         watchedFiles,
         inputEntries,
         leafComponents,

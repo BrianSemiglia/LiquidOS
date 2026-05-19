@@ -3,6 +3,7 @@ const createAgentProviders = ({ agents, workingDirectory, onStatus = () => {} })
     const installationCache = new Map();
     let activeKind = null;
     let initializationToken = 0;
+    const initializedKinds = new Set();
 
     const installed = provider => {
         if (!provider || typeof provider.isInstalled !== 'function') {
@@ -40,7 +41,7 @@ const createAgentProviders = ({ agents, workingDirectory, onStatus = () => {} })
             return;
         }
 
-        if (!installed(provider)) {
+        if (!installed(provider) || initializedKinds.has(provider.kind)) {
             return;
         }
 
@@ -58,6 +59,7 @@ const createAgentProviders = ({ agents, workingDirectory, onStatus = () => {} })
 
             try {
                 provider.initialize({ workingDirectory });
+                initializedKinds.add(provider.kind);
                 onStatus({
                     ...(provider.currentDebug ? provider.currentDebug() : {}),
                     kind: provider.kind,
@@ -119,7 +121,6 @@ const createAgentProviders = ({ agents, workingDirectory, onStatus = () => {} })
         }
 
         activeKind = normalized;
-        initializeProvider(providers[activeKind]);
 
         return {
             ok: true,
@@ -130,8 +131,6 @@ const createAgentProviders = ({ agents, workingDirectory, onStatus = () => {} })
         };
     };
 
-    initializeProvider(activeProvider());
-
     return {
         availableKinds,
         probe,
@@ -141,7 +140,10 @@ const createAgentProviders = ({ agents, workingDirectory, onStatus = () => {} })
         preparePrompt: (prompt, options = {}) => activeProvider() && typeof activeProvider().preparePrompt === 'function'
             ? activeProvider().preparePrompt(prompt, options)
             : prompt,
-        runActive: (prompt, options = {}) => activeProvider().run(prompt, options)
+        runActive: (prompt, options = {}) => {
+            initializeProvider(activeProvider());
+            return activeProvider().run(prompt, options);
+        }
     };
 };
 

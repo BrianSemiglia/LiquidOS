@@ -176,6 +176,8 @@ const emitDebugEvent = payload => {
 let watchers = [];
 let canvasesRootWatcher = null;
 let watchTimer;
+let graphWatchStarted = false;
+let graphWatchKey = '';
 let activeCanvasRuntime = null;
 let outputQueue = null;
 let agentProviders = null;
@@ -398,8 +400,6 @@ const createCanvasRuntime = canvasPath => {
             ensureCanvasesGitRepo();
             outputQueue.normalizeOutputJobs();
             outputQueue.clearActiveLanes();
-            watchCanvasesRoot();
-            watchGraph();
             outputQueue.feedHermesOutput();
             broadcastQueueState();
             return this;
@@ -418,6 +418,8 @@ const createCanvasRuntime = canvasPath => {
             }
             watchers.forEach(watcher => watcher.close());
             watchers = [];
+            graphWatchStarted = false;
+            graphWatchKey = '';
             outputQueue.clearActiveLanes();
             this.started = false;
             return this;
@@ -856,7 +858,7 @@ const scheduleWatchRefresh = () => {
     watchTimer = setTimeout(() => {
         try {
             canvasGraph.renderedInput();
-            watchGraph();
+            refreshGraphWatchers();
         } catch (error) {
             logHermesError('watch', error, { message: 'watch error' });
             broadcast();
@@ -891,13 +893,48 @@ const watchCanvasesRoot = () => {
     canvasesRootWatcher = fs.watch(CANVASES_ROOT, { persistent: false }, scheduleCanvasesRootRefresh);
 };
 
-const watchGraph = () => {
+const safeWatchEntries = () =>
+    canvasGraph.watchedPaths()
+        .filter(entry => fs.existsSync(entry.path))
+        .filter(entry => {
+            try {
+                return path.relative(CANVAS_PATH, entry.path) === ''
+                    || (!path.relative(CANVAS_PATH, entry.path).startsWith('..') && !path.isAbsolute(path.relative(CANVAS_PATH, entry.path)));
+            } catch (error) {
+                return false;
+            }
+        });
+
+const refreshGraphWatchers = () => {
+    const entries = safeWatchEntries();
+    const nextKey = JSON.stringify(entries.map(entry => [entry.path, Boolean(entry.recursive)]).sort());
+
+    if (nextKey === graphWatchKey) {
+        return;
+    }
+
     watchers.forEach(watcher => watcher.close());
     watchers = [];
+    graphWatchKey = nextKey;
 
-    canvasGraph.watchedFiles().forEach(file => {
-        watchers.push(fs.watch(file, { persistent: false }, scheduleWatchRefresh));
+    entries.forEach(entry => {
+        try {
+            watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, scheduleWatchRefresh));
+        } catch (error) {
+            logHermesError('watch', error, { file: entry.path, message: 'file watch skipped' });
+        }
     });
+};
+
+const watchGraph = () => {
+    graphWatchStarted = true;
+    refreshGraphWatchers();
+};
+
+const startGraphWatchAfterFirstInput = () => {
+    if (!graphWatchStarted) {
+        setImmediate(watchGraph);
+    }
 };
 
 const readBody = req =>
@@ -1042,6 +1079,7 @@ const server = http.createServer(async (req, res) => {
 
         if (req.method === 'GET' && url.pathname === '/input') {
             send(res, 200, JSON.stringify(canvasGraph.renderedInput()), 'application/json; charset=utf-8');
+            startGraphWatchAfterFirstInput();
             return;
         }
 
@@ -1051,6 +1089,9 @@ const server = http.createServer(async (req, res) => {
                 currentPath: CANVAS_PATH,
                 canvases: canvasFiles.availableCanvases()
             }), 'application/json; charset=utf-8');
+            if (!canvasesRootWatcher) {
+                setImmediate(watchCanvasesRoot);
+            }
             return;
         }
 
