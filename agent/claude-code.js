@@ -1,6 +1,23 @@
 const fs = require('fs');
 const path = require('path');
-const pty = require('node-pty');
+
+
+const ptyInstalled = () => {
+    try {
+        require.resolve('node-pty');
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+const loadPty = () => {
+    try {
+        return require('node-pty');
+    } catch (error) {
+        throw new Error('node-pty is required to run ' + command + '. Run npm install or choose another agent.');
+    }
+};
 
 let host = {
     output: () => {},
@@ -61,7 +78,7 @@ const ClaudeCodeAgent = () => {
         kind: 'claude-code',
         label: 'Claude Code',
         command,
-        isInstalled: commandInstalled,
+        isInstalled: () => ptyInstalled() && commandInstalled(),
         initialize: () => setStatus({ status: 'waiting' }),
         dispose: () => {},
         currentDebug: () => ({ ...currentDebug }),
@@ -73,7 +90,7 @@ const ClaudeCodeAgent = () => {
 
             let output = '';
             let timedOut = false;
-            const processHandle = pty.spawn(command, [
+            const processHandle = loadPty().spawn(command, [
                 '-p',
                 prompt,
                 ...(systemPromptPath ? ['--system-prompt-file', systemPromptPath] : []),

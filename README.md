@@ -1,9 +1,17 @@
 # Live Edit
 
-Run a canvas:
+Run a workspace:
 
 ```sh
-node server.js --canvas canvases/random-pdfs
+node server.js --workspace /path/to/Workspace.liquidos --agent hermes --port 3000
+```
+
+Required arguments:
+
+```text
+--workspace <*.liquidos folder>
+--agent codex | claude-code | hermes
+--port <number>
 ```
 
 The server expects each canvas directory to contain:
@@ -15,9 +23,9 @@ output.json
 
 The prompt bar can switch canvases, create a new canvas, and send canvas-scoped prompts. The whole `canvases/` folder is tracked as one Git repo so activity across canvases has a single timeline.
 
-The standalone live canvas root defaults to `./LiquidOS.liquidos`. The Mac app opens or creates `.liquidos` workspace folders.
+The server does not create or guess a workspace. The Mac app opens or creates `.liquidos` workspace folders, then launches the server with explicit arguments.
 
-If you are editing the running Mac app, update the opened `<workspace>.liquidos` folder. If you are editing the standalone server, update the live `./LiquidOS.liquidos` tree.
+If you are editing the running Mac app, update the opened `<workspace>.liquidos` folder.
 
 ## Listening components and plugins
 
@@ -68,10 +76,10 @@ LIQUIDOS_LOCAL_FILES_ROOT
 LIQUIDOS_LOCAL_FILES_URL
 ```
 
-For standalone development, run the same shape manually:
+For standalone development, run the same shape manually from your workspace:
 
 ```bash
-cd ./LiquidOS.liquidos/LocalFiles
+cd /path/to/Workspace.liquidos/LocalFiles
 python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
@@ -105,5 +113,4 @@ For the Mac app, put files or symlinks in the active workspace’s `LocalFiles` 
 }
 ```
 
-Standalone path: `./LiquidOS.liquidos/LocalFiles`.
-Mac workspace path: `<workspace>.liquidos/LocalFiles`.
+Workspace path: `<workspace>.liquidos/LocalFiles`.

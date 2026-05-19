@@ -1,4 +1,4 @@
-const createAgentProviders = ({ agents, workingDirectory, onStatus = () => {} }) => {
+const createAgentProviders = ({ agents, workingDirectory, activeKind: initialKind = null, onStatus = () => {} }) => {
     const providers = Object.fromEntries(agents.map(agent => [agent.kind, agent]));
     const installationCache = new Map();
     let activeKind = null;
@@ -25,7 +25,7 @@ const createAgentProviders = ({ agents, workingDirectory, onStatus = () => {} })
         return installationCache.has(provider.kind) ? installationCache.get(provider.kind) : null;
     };
 
-    activeKind = (agents[0] || {}).kind;
+    activeKind = providers[initialKind] ? initialKind : (agents[0] || {}).kind;
 
     const activeProvider = () => providers[activeKind] || agents[0];
 

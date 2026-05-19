@@ -12,21 +12,58 @@ const { createCanvasFiles } = require('./canvas/files');
 const { createCanvasGraph } = require('./canvas/graph');
 const { createOutputQueue } = require('./canvas/output-queue');
 const { createPromptBuilder } = require('./canvas/prompt-builder');
-const pty = require('node-pty');
 
 const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
 
-const argValue = (name, fallback) => {
-    const prefix = name + '=';
-    const inline = process.argv.find(arg => arg.startsWith(prefix));
+const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes']);
 
-    if (inline) {
-        return inline.slice(prefix.length);
+const failStartup = message => {
+    console.error(message);
+    process.exit(1);
+};
+
+const argumentPairs = () => {
+    const values = new Map();
+    const args = process.argv.slice(2);
+
+    for (let index = 0; index < args.length; index += 1) {
+        const arg = args[index];
+
+        if (!arg.startsWith('--')) {
+            failStartup('Unexpected positional argument: ' + arg);
+        }
+
+        const equalsIndex = arg.indexOf('=');
+        const name = equalsIndex === -1 ? arg : arg.slice(0, equalsIndex);
+        const value = equalsIndex === -1 ? args[index + 1] : arg.slice(equalsIndex + 1);
+
+        if (!['--workspace', '--agent', '--port'].includes(name)) {
+            failStartup('Unknown argument: ' + name);
+        }
+
+        if (!value || value.startsWith('--')) {
+            failStartup('Missing value for ' + name);
+        }
+
+        values.set(name, value);
+
+        if (equalsIndex === -1) {
+            index += 1;
+        }
     }
 
-    const index = process.argv.indexOf(name);
-    return index === -1 ? fallback : process.argv[index + 1] || fallback;
+    return values;
+};
+
+const REQUIRED_ARGUMENTS = argumentPairs();
+
+const requiredArg = name => {
+    if (!REQUIRED_ARGUMENTS.has(name)) {
+        failStartup('Missing required argument: ' + name);
+    }
+
+    return REQUIRED_ARGUMENTS.get(name);
 };
 
 const expandUserPath = value => {
@@ -80,13 +117,27 @@ const absoluteScope = scope => {
     return path.resolve(CANVAS_PATH, relative);
 };
 
-const CANVASES_ROOT = resolveConfigPath(argValue('--canvases', process.env.LIQUIDOS_CANVASES_ROOT || path.join(ROOT, 'LiquidOS.liquidos')));
+const CANVASES_ROOT = resolveConfigPath(requiredArg('--workspace'));
+const SELECTED_AGENT_KIND = String(requiredArg('--agent')).trim().toLowerCase();
+
+if (!VALID_AGENT_KINDS.has(SELECTED_AGENT_KIND)) {
+    failStartup('Invalid --agent. Expected one of: codex, claude-code, hermes');
+}
+
+if (path.extname(CANVASES_ROOT) !== '.liquidos') {
+    failStartup('--workspace must be a .liquidos folder');
+}
+
+if (!fs.existsSync(CANVASES_ROOT) || !fs.statSync(CANVASES_ROOT).isDirectory()) {
+    failStartup('--workspace does not exist or is not a folder: ' + CANVASES_ROOT);
+}
+
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'skills', 'canvas-creator', 'templates');
 const DEFAULT_CANVAS_PATH = path.join(CANVASES_ROOT, 'home');
-let CANVAS_PATH = resolveConfigPath(argValue('--canvas', DEFAULT_CANVAS_PATH));
+let CANVAS_PATH = DEFAULT_CANVAS_PATH;
 let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
 let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
-const AGENT_RUNTIME_ROOT = resolveConfigPath(argValue('--agent-runtime', process.env.LIQUIDOS_AGENT_RUNTIME_ROOT || path.join(os.homedir(), 'Library/Application Support/LiquidOS/AgentRuntime')));
+const AGENT_RUNTIME_ROOT = path.join(CANVASES_ROOT, '.agent');
 const AGENT_RUNTIME_LOGS_DIR = path.join(AGENT_RUNTIME_ROOT, 'logs');
 const HERMES_AGENT_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'agent.log');
 const HERMES_ERRORS_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'errors.log');
@@ -97,7 +148,7 @@ const COMPONENT_CREATOR_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'component-
 const COMPONENT_GUIDE_PATH = path.join(COMPONENT_CREATOR_SOURCE_PATH, 'SKILL.md');
 const CANVAS_CREATOR_SOURCE_PATH = path.join(ROOT, 'skills', 'canvas-creator');
 const CANVAS_CREATOR_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'canvas-creator');
-const LIVE_CANVAS_ROOT = String(process.env.LIQUIDOS_LIVE_CANVAS_ROOT || CANVASES_ROOT).trim() || CANVASES_ROOT;
+const LIVE_CANVAS_ROOT = CANVASES_ROOT;
 
 
 const pathIsInside = (file, root) => {
@@ -162,7 +213,11 @@ if (!fs.existsSync(path.join(CANVAS_PATH, 'input.json'))) {
     INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
     OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
 }
-const PORT = Number.parseInt(argValue('--port', '3000'), 10);
+const PORT = Number.parseInt(requiredArg('--port'), 10);
+
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+    failStartup('--port must be an integer from 1 to 65535');
+}
 const AGENT_SOURCE = 'agent';
 const clients = new Set();
 const debugClients = new Set();
@@ -313,11 +368,16 @@ const parseProcessGroups = value => {
         .find(Boolean);
 
     if (!line) {
-        return null;
+        return [];
     }
 
-    const processGroups = JSON.parse(line).filter(entry => Number.isInteger(entry) && entry > 0);
-    return processGroups.length ? processGroups : null;
+    const parsed = JSON.parse(line);
+
+    if (!Array.isArray(parsed)) {
+        throw new Error('process group list must be an array');
+    }
+
+    return parsed.filter(entry => Number.isInteger(entry) && entry > 0);
 };
 
 const startComponentService = folder => {
@@ -348,7 +408,7 @@ const startComponentService = folder => {
     let started = false;
 
     const recordStarted = processGroups => {
-        if (started || !processGroups) {
+        if (started) {
             return;
         }
 
@@ -373,7 +433,7 @@ const startComponentService = folder => {
         writeProcessOutput('[component-service]', chunk, process.stderr);
     });
     child.on('error', error => {
-        componentServices.delete(folder);
+        recordStarted([]);
         logHermesError('component-service', error, { folder, message: 'start failed' });
     });
     child.on('close', code => {
@@ -381,24 +441,23 @@ const startComponentService = folder => {
             try {
                 recordStarted(parseProcessGroups(stdout));
             } catch (error) {
+                recordStarted([]);
                 logHermesError('component-service', error, { folder, stdout: shortText(stdout), message: 'invalid process group list' });
             }
         }
 
         if (code !== 0) {
-            componentServices.delete(folder);
-            logHermesError('component-service', new Error('start.sh exited ' + code), { folder, stderr: shortText(stderr) });
+            logHermesError('component-service', new Error('start.sh exited ' + code), { folder, stderr: shortText(stderr), processGroups: componentServices.get(folder)?.processGroups || [] });
             return;
         }
 
         if (started) {
-            logServer('component-service', 'exited', { folder });
-            componentServices.delete(folder);
+            logServer('component-service', 'registered', { folder, processGroups: componentServices.get(folder)?.processGroups || [] });
             return;
         }
 
-        componentServices.delete(folder);
-        logHermesError('component-service', new Error('start.sh exited without process groups'), { folder, stdout: shortText(stdout) });
+        recordStarted([]);
+        logServer('component-service', 'registered', { folder, processGroups: [] });
     });
     child.unref();
 };
@@ -478,6 +537,7 @@ agentProviders = createAgentProviders({
         ClaudeCodeAgent()
     ],
     workingDirectory: AGENT_RUNTIME_ROOT,
+    activeKind: SELECTED_AGENT_KIND,
     onStatus: setCurrentAgentDebug
 });
 

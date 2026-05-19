@@ -151,14 +151,12 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
         server?.arguments = [
             "node",
             "server.js",
-            "--port",
-            String(port),
-            "--canvases",
+            "--workspace",
             canvasesRootURL.path,
-            "--agent-runtime",
-            Self.agentRuntimeRoot().path,
             "--agent",
-            "hermes"
+            "hermes",
+            "--port",
+            String(port)
         ]
         server?.environment = [
             "PATH": [
@@ -176,8 +174,6 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
             "HOME": NSHomeDirectory(),
             "LIQUIDOS_NATIVE": "1",
             "LIQUIDOS_RUNTIME_KIND": "mac-app",
-            "LIQUIDOS_LIVE_CANVAS_ROOT": canvasesRootURL.path,
-            "LIQUIDOS_AGENT_RUNTIME_ROOT": Self.agentRuntimeRoot().path,
             "LIQUIDOS_LOCAL_FILES_ROOT": localFilesRootURL.path,
             "LIQUIDOS_LOCAL_FILES_URL": "http://127.0.0.1:\(localFilePort)/"
         ].merging(environment) { _, new in new }
@@ -586,18 +582,10 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
         url.pathExtension.lowercased() == "liquidos"
     }
 
-    private static func agentRuntimeRoot() -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("LiquidOS", isDirectory: true)
-            .appendingPathComponent("AgentRuntime", isDirectory: true)
-    }
 
     private static func serverEnvironment() -> [String: String] {
         [
-            "LIQUIDOS_RUNTIME_KIND": "mac-app",
-            "LIQUIDOS_AGENT_RUNTIME_ROOT": agentRuntimeRoot().path
+            "LIQUIDOS_RUNTIME_KIND": "mac-app"
         ]
     }
 
