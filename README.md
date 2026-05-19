@@ -50,3 +50,60 @@ The system-volume watcher plugin follows this pattern:
 - the server consumes that job and hands it back to Hermes
 
 That is usually the right split when the thing being watched is external and the canvas should stay elastic rather than hard-wired to one special case.
+
+## Using local files without copying them
+
+For files that already exist on disk, serve the containing folder and reference the files with HTTP URLs.
+
+The Mac app starts a local static server automatically at launch. Its root is:
+
+```text
+~/Documents/LiquidOS/LocalFiles
+```
+
+The app passes these to the Node server and agents:
+
+```text
+LIQUIDOS_LOCAL_FILES_ROOT
+LIQUIDOS_LOCAL_FILES_URL
+```
+
+For standalone development, run the same shape manually:
+
+```bash
+cd ~/Documents/LiquidOS/LocalFiles
+python3 -m http.server 8000 --bind 127.0.0.1
+```
+
+Then in a component:
+
+```json
+{
+  "title": "Photo",
+  "html": "<img src=\"{{ resources.photo.url }}\" style=\"max-width:100%\">",
+  "resources": {
+    "photo": {
+      "url": "http://localhost:8000/photo.jpg",
+      "mime": "image/jpeg"
+    }
+  }
+}
+```
+
+Use `resources.*.path` only for files inside the canvas folder. Files outside the canvas folder should be served over local HTTP and referenced through `resources.*.url`.
+
+For the Mac app, put files or symlinks in the active workspace’s `LocalFiles` folder, then use:
+
+```json
+{
+  "resources": {
+    "photo": {
+      "url": "{{ localFiles.url }}photo.jpg",
+      "mime": "image/jpeg"
+    }
+  }
+}
+```
+
+Default standalone path: `~/Documents/LiquidOS/LocalFiles`.
+Opened `.liquidos` workspace path: `<workspace>.liquidos/LocalFiles`.

@@ -6,15 +6,20 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
     private var window: NSWindow?
     private var webView: WKWebView?
     private var server: Process?
+    private var localFileServer: Process?
     private var port: Int = 0
+    private var localFilePort: Int = 0
     private var canvasesRootURL = LiquidOSApp.defaultCanvasesRoot()
+    private var localFilesRootURL = LiquidOSApp.defaultLocalFilesRoot()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         Self.installMainMenu()
         port = Self.freePort()
+        localFilePort = Self.freePort()
         showWindow()
         showStartingScreen()
+        startLocalFileServer()
         startServer()
         loadWhenReady(attempt: 0)
     }
@@ -29,32 +34,19 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // Clean up server before terminating
-        server?.terminate()
-        // Give the process 2 seconds to terminate gracefully
-        Thread.sleep(forTimeInterval: 2)
-        if server?.isRunning == true {
-            kill(server?.processIdentifier ?? 0, SIGKILL)
-        }
+        stopServer()
+        stopLocalFileServer()
         return true
     }
     
     func applicationWillTerminate(_ notification: Notification) {
-        // Double-check: ensure the server is dead
-        if server?.isRunning == true {
-            server?.terminate()
-            sleep(2) // Wait for cleanup
-            if server?.isRunning == true {
-                kill(server?.processIdentifier ?? 0, SIGKILL)
-            }
-        }
+        stopServer()
+        stopLocalFileServer()
     }
     
     deinit {
-        // Catch-all: kill the server if the app is deallocated
-        if server?.isRunning == true {
-            kill(server?.processIdentifier ?? 0, SIGKILL)
-        }
+        stopServer()
+        stopLocalFileServer()
     }
     
     private func showWindow() {
@@ -159,7 +151,9 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
             "LIQUIDOS_NATIVE": "1",
             "LIQUIDOS_RUNTIME_KIND": "mac-app",
             "LIQUIDOS_LIVE_CANVAS_ROOT": canvasesRootURL.path,
-            "LIQUIDOS_AGENT_RUNTIME_ROOT": Self.agentRuntimeRoot().path
+            "LIQUIDOS_AGENT_RUNTIME_ROOT": Self.agentRuntimeRoot().path,
+            "LIQUIDOS_LOCAL_FILES_ROOT": localFilesRootURL.path,
+            "LIQUIDOS_LOCAL_FILES_URL": "http://127.0.0.1:\(localFilePort)/"
         ].merging(environment) { _, new in new }
 
         let outputPipe = Pipe()
@@ -290,8 +284,11 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
         }
 
         canvasesRootURL = openedURL
+        localFilesRootURL = openedURL.appendingPathComponent("LocalFiles", isDirectory: true)
         showStartingScreen()
         stopServer()
+        stopLocalFileServer()
+        startLocalFileServer()
         startServer()
         loadWhenReady(attempt: 0)
     }
@@ -313,10 +310,102 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate {
         self.server = nil
     }
 
+    private func startLocalFileServer() {
+        stopLocalFileServer()
+
+        try? FileManager.default.createDirectory(
+            at: localFilesRootURL,
+            withIntermediateDirectories: true
+        )
+
+        if localFilePort == 0 {
+            localFilePort = Self.freePort()
+        }
+
+        if let existingPID = Self.getPIDForPort(localFilePort) {
+            kill(existingPID, SIGKILL)
+            sleep(1)
+        }
+
+        localFileServer = Process()
+        localFileServer?.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        localFileServer?.arguments = [
+            "python3",
+            "-m",
+            "http.server",
+            String(localFilePort),
+            "--bind",
+            "127.0.0.1",
+            "--directory",
+            localFilesRootURL.path
+        ]
+        localFileServer?.environment = [
+            "PATH": [
+                NSHomeDirectory() + "/.local/bin",
+                "/opt/homebrew/bin",
+                "/opt/homebrew/sbin",
+                "/usr/local/bin",
+                "/usr/bin",
+                "/bin",
+                "/usr/sbin",
+                "/sbin"
+            ].joined(separator: ":"),
+            "HOME": NSHomeDirectory()
+        ]
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        localFileServer?.standardOutput = outputPipe
+        localFileServer?.standardError = errorPipe
+
+        outputPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
+                print(text, terminator: "")
+            }
+        }
+
+        errorPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
+                FileHandle.standardError.write(Data(text.utf8))
+            }
+        }
+
+        do {
+            try localFileServer?.run()
+        } catch {
+            localFileServer = nil
+            print("Could not start local file server: \(error.localizedDescription)")
+        }
+    }
+
+    private func stopLocalFileServer() {
+        guard let localFileServer else {
+            return
+        }
+
+        if localFileServer.isRunning {
+            localFileServer.terminate()
+            Thread.sleep(forTimeInterval: 0.5)
+
+            if localFileServer.isRunning {
+                kill(localFileServer.processIdentifier, SIGKILL)
+            }
+        }
+
+        self.localFileServer = nil
+    }
+
+
     private static func defaultCanvasesRoot() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Documents", isDirectory: true)
             .appendingPathComponent("LiquidOS", isDirectory: true)
+    }
+
+    private static func defaultLocalFilesRoot() -> URL {
+        defaultCanvasesRoot().appendingPathComponent("LocalFiles", isDirectory: true)
     }
 
     private static func agentRuntimeRoot() -> URL {

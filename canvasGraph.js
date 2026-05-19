@@ -13,8 +13,20 @@ const createCanvasGraph = ({
     const componentFileUrl = componentPath =>
         '/component/' + encodeURIComponent(componentScopePath(componentPath)) + '/file';
 
-    const resourceUrl = (componentPath, name) =>
+    const componentResourceUrl = (componentPath, name) =>
         '/component/' + encodeURIComponent(componentScopePath(componentPath)) + '/resources/' + encodeURIComponent(name);
+
+    const localFilesUrl = () =>
+        String(process.env.LIQUIDOS_LOCAL_FILES_URL || '').replace(/\/?$/, '/');
+
+    const expandResourceUrl = value =>
+        String(value || '').replace(/\{\{\s*localFiles\.url\s*\}\}/g, localFilesUrl());
+
+    const resourceUrl = (componentPath, name, resource) =>
+        resource?.url ? expandResourceUrl(resource.url) : componentResourceUrl(componentPath, name);
+
+    const localResourcePath = resource =>
+        resource?.path && !/^https?:\/\//i.test(String(resource.path)) ? resource.path : null;
 
     const componentScripts = html =>
         Array.from(String(html || '').matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi), match => match[1]);
@@ -135,20 +147,20 @@ const createCanvasGraph = ({
                 name,
                 {
                     ...resource,
-                    url: resourceUrl(componentPath, name),
-                    version: fs.existsSync(resource.path) ? String(fs.statSync(resource.path).mtimeMs) : ''
+                    url: resourceUrl(componentPath, name, resource),
+                    version: localResourcePath(resource) && fs.existsSync(localResourcePath(resource)) ? String(fs.statSync(localResourcePath(resource)).mtimeMs) : ''
                 }
             ])
         );
 
     const renderedHtml = (componentPath, component, resources) =>
         (component.css ? '<style>' + String(component.css) + '</style>' : '')
-        + String(component.html || '')
+        + expandResourceUrl(String(component.html || ''))
             .replaceAll('data-input-file', 'src="' + componentFileUrl(componentPath) + '"')
             .replace(/\{\{\s*componentPath\s*\}\}/g, componentScopePath(componentPath))
             .replace(/\{\{\s*componentFolder\s*\}\}/g, componentScopePath(componentPath))
             .replace(/\{\{\s*resources\.(.+?)\.url\s*\}\}/g, (match, name) =>
-                resources[name.trim()] ? resourceUrl(componentPath, name.trim()) : match
+                resources[name.trim()] ? resourceUrl(componentPath, name.trim(), resources[name.trim()]) : match
             );
 
     const renderedInput = () => ({
@@ -175,7 +187,7 @@ const createCanvasGraph = ({
                 [
                     componentPath,
                     component.file,
-                    ...Object.values(componentResources(componentPath, component)).map(resource => resource.path)
+                    ...Object.values(componentResources(componentPath, component)).map(localResourcePath)
                 ].filter(Boolean)
             )
         ]));

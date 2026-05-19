@@ -98,6 +98,27 @@ const CANVAS_CREATOR_SOURCE_PATH = path.join(ROOT, 'agent', 'canvas-creator');
 const CANVAS_CREATOR_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'canvas-creator');
 const LIVE_CANVAS_ROOT = String(process.env.LIQUIDOS_LIVE_CANVAS_ROOT || CANVASES_ROOT).trim() || CANVASES_ROOT;
 
+
+const pathIsInside = (file, root) => {
+    const relative = path.relative(root, file);
+    return relative === '' || Boolean(relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+};
+
+const resolveCanvasLocalFile = file =>
+    path.isAbsolute(file) ? path.normalize(file) : path.resolve(CANVAS_PATH, file);
+
+const isCanvasLocalFile = file =>
+    pathIsInside(resolveCanvasLocalFile(file), path.resolve(CANVAS_PATH));
+
+const streamCanvasFile = (req, res, file, type) => {
+    if (!isCanvasLocalFile(file)) {
+        send(res, 403, 'Use a served URL for files outside the canvas folder');
+        return;
+    }
+
+    streamFile(req, res, resolveCanvasLocalFile(file), type);
+};
+
 fs.mkdirSync(AGENT_RUNTIME_ROOT, { recursive: true });
 fs.mkdirSync(AGENT_RUNTIME_LOGS_DIR, { recursive: true });
 
@@ -1098,7 +1119,7 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            streamFile(req, res, component.file, component.type);
+            streamCanvasFile(req, res, component.file, component.type);
             return;
         }
 
@@ -1115,7 +1136,7 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            streamFile(req, res, resource.path, resource.mime || resource.type);
+            streamCanvasFile(req, res, resource.path, resource.mime || resource.type);
             return;
         }
 
@@ -1130,7 +1151,7 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            streamFile(req, res, component.file, component.type);
+            streamCanvasFile(req, res, component.file, component.type);
             return;
         }
 
@@ -1147,7 +1168,7 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            streamFile(req, res, resource.path, resource.mime || resource.type);
+            streamCanvasFile(req, res, resource.path, resource.mime || resource.type);
             return;
         }
 

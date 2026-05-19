@@ -175,3 +175,69 @@ The canvas directory is version-tracked by git. Use the git history to get more 
   "transitionPath": "transitions/soft.json"
 }
 ```
+
+
+## Canvas-Local Files
+
+Files copied into the canvas/component folder are available to components only through declared resources.
+Do not write direct browser paths like `src="components/example/file.jpg"`; those resolve against the app server root, not the canvas folder.
+
+Correct pattern after copying a file to `<canvas>/components/random-image/photo.jpg`:
+
+```json
+{
+  "title": "Random Image",
+  "html": "<img src=\"{{ resources.photo.url }}\" style=\"max-width:100%\">",
+  "resources": {
+    "photo": {
+      "path": "components/random-image/photo.jpg",
+      "mime": "image/jpeg"
+    }
+  }
+}
+```
+
+`resources.*.path` should be canvas-relative or component-local only. LiquidOS turns it into a served `/component/.../resources/...` URL.
+
+## Local Files From Served Folders
+
+When a component needs files that already exist outside the canvas folder, do not use `file://` URLs and do not point `resources.*.path` at arbitrary absolute filesystem paths.
+
+Serve the folder separately, for example:
+
+```bash
+cd ~/Pictures
+python3 -m http.server 8000
+```
+
+Then reference files using HTTP URLs:
+
+```json
+{
+  "title": "Local image",
+  "html": "<img src=\"{{ resources.image.url }}\" style=\"max-width:100%\">",
+  "resources": {
+    "image": {
+      "url": "http://localhost:8000/example.png",
+      "mime": "image/png"
+    }
+  }
+}
+```
+
+For non-renderable files, link to the served URL:
+
+```json
+{
+  "title": "Local file",
+  "html": "<a href=\"{{ resources.file.url }}\" download>Download file</a>",
+  "resources": {
+    "file": {
+      "url": "http://localhost:8000/report.pdf",
+      "mime": "application/pdf"
+    }
+  }
+}
+```
+
+Use `resources.*.path` only for files inside the canvas/component folder that LiquidOS should watch and serve. Use `resources.*.url` for files served by the Mac app local static server, Python, or another local HTTP server.
