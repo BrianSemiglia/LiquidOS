@@ -65,13 +65,25 @@ const createCanvasGraph = ({
             ? componentPath
             : path.dirname(componentPath);
 
+    const componentObservedPath = componentPath => {
+        const folder = componentFolderPath(componentPath);
+        const observed = path.join(folder, 'observed');
+
+        return fs.existsSync(observed) && fs.statSync(observed).isDirectory()
+            ? observed
+            : folder;
+    };
+
+    const componentDataPath = componentPath =>
+        path.join(componentFolderPath(componentPath), 'data');
+
     const componentViewPath = componentPath =>
         fs.existsSync(componentPath) && fs.statSync(componentPath).isDirectory()
-            ? path.join(componentPath, 'view.json')
+            ? path.join(componentObservedPath(componentPath), 'view.json')
             : componentPath;
 
     const componentStartPath = componentPath =>
-        path.join(componentFolderPath(componentPath), 'start.sh');
+        path.join(componentObservedPath(componentPath), 'start.sh');
 
     const loadLeafComponent = entry => {
         try {
@@ -125,34 +137,7 @@ const createCanvasGraph = ({
         ) || null;
     };
 
-    const componentResources = (componentPath, component) => {
-        const resources = Object.fromEntries(
-            Object.entries(component.resources || {}).map(([name, resource]) => [
-                name,
-                typeof resource === 'string' ? { path: resource } : resource
-            ])
-        );
-
-        if (component.file && !resources.file) {
-            resources.file = {
-                path: component.file,
-                mime: component.type
-            };
-        }
-
-        if (!resources.functions && componentPath) {
-            const functionsPath = path.join(componentFolderPath(componentPath), 'functions.js');
-
-            if (fs.existsSync(functionsPath)) {
-                resources.functions = {
-                    path: functionsPath,
-                    mime: 'text/javascript; charset=utf-8'
-                };
-            }
-        }
-
-        return resources;
-    };
+    const componentResources = () => ({});
 
     const renderedResources = (componentPath, resources) =>
         Object.fromEntries(
@@ -166,32 +151,20 @@ const createCanvasGraph = ({
             ])
         );
 
-    const renderedHtml = (componentPath, component, resources) =>
+    const renderedHtml = (componentPath, component) =>
         (component.css ? '<style>' + String(component.css) + '</style>' : '')
-        + expandResourceUrl(String(component.html || ''))
-            .replaceAll('data-input-file', 'src="' + componentFileUrl(componentPath) + '"')
-            .replace(/\{\{\s*componentPath\s*\}\}/g, componentScopePath(componentPath))
-            .replace(/\{\{\s*componentFolder\s*\}\}/g, componentScopePath(componentPath))
-            .replace(/\{\{\s*resources\.(.+?)\.url\s*\}\}/g, (match, name) =>
-                resources[name.trim()] ? resourceUrl(componentPath, name.trim(), resources[name.trim()]) : match
-            );
+        + String(component.html || '');
+
+    const componentScope = componentPath =>
+        componentFolderPath(componentPath);
 
     const renderedInput = () => ({
         canvasPath: getCanvasPath(),
         ...readJson(getInputPath()),
-        components: leafComponents().map(({ index, componentPath, component }) => {
-            const resources = componentResources(componentPath, component);
-
-            return {
-                ...component,
-                index,
-                componentPath: componentViewPath(componentPath),
-                componentFolder: componentFolderPath(componentPath),
-                resources: renderedResources(componentPath, resources),
-                file: component.file ? componentFileUrl(componentPath) : undefined,
-                html: renderedHtml(componentPath, component, resources)
-            };
-        })
+        components: leafComponents().map(({ componentPath, component }) => ({
+            scope: componentScope(componentPath),
+            html: renderedHtml(componentPath, component)
+        }))
     });
 
     const isInsideCanvas = file => {
@@ -204,9 +177,25 @@ const createCanvasGraph = ({
         return typeof input[name] === 'string' ? resolveCanvasReference(input[name]) : null;
     };
 
-    const componentFolderWatchPaths = componentPaths =>
+    const listFiles = folder => {
+        if (!fs.existsSync(folder)) {
+            return [];
+        }
+
+        return fs.readdirSync(folder, { withFileTypes: true }).flatMap(entry => {
+            const file = path.join(folder, entry.name);
+
+            if (entry.isDirectory()) {
+                return listFiles(file);
+            }
+
+            return entry.isFile() ? [file] : [];
+        });
+    };
+
+    const componentObservedWatchPaths = componentPaths =>
         Array.from(new Set(componentPaths
-            .map(componentFolderPath)
+            .flatMap(componentPath => listFiles(componentObservedPath(componentPath)))
             .filter(isInsideCanvas)));
 
     const watchedPaths = () => {
@@ -217,9 +206,9 @@ const createCanvasGraph = ({
                 getInputPath(),
                 inputReferenceFile('layoutPath'),
                 inputReferenceFile('transitionPath')
-            ].filter(Boolean).map(file => ({ path: file, recursive: false })),
-            ...componentFolderWatchPaths(componentPaths).map(file => ({ path: file, recursive: true }))
-        ];
+            ].filter(Boolean),
+            ...componentObservedWatchPaths(componentPaths)
+        ].map(file => ({ path: file, recursive: false }));
     };
 
     const watchedFiles = () =>
@@ -260,13 +249,16 @@ const createCanvasGraph = ({
 
     const componentServiceFolders = () =>
         inputEntries()
-            .map(entry => componentFolderPath(entry.componentPath))
+            .map(entry => componentObservedPath(entry.componentPath))
             .filter(folder => fs.existsSync(path.join(folder, 'view.json')) && fs.existsSync(path.join(folder, 'start.sh')));
 
     return {
         componentScopePath,
+        componentScope,
         componentFileUrl,
         componentFolderPath,
+        componentObservedPath,
+        componentDataPath,
         componentViewPath,
         componentStartPath,
         resourceUrl,

@@ -833,7 +833,7 @@
             const item = document.createElement('section');
             item.className = 'item';
             item.dataset.componentIndex = component.index;
-            item.dataset.componentPath = component.componentPath || '';
+            item.dataset.componentPath = component.scope || '';
             item.__component = component;
 
             const surface = document.createElement('div');
@@ -894,7 +894,7 @@
 
         const updateComponentItem = (item, component) => {
             item.__component = component;
-            item.dataset.componentPath = component.componentPath || '';
+            item.dataset.componentPath = component.scope || '';
             const surface = item.querySelector('.surface');
             if (surface) {
                 surface.innerHTML = component.html || '';
@@ -1013,7 +1013,7 @@
                 return;
             }
 
-            latestComponents = data.components;
+            latestComponents = data.components.map((component, index) => ({ ...component, index }));
             latestComponentByIndex = new Map(latestComponents.map(component => [component.index, component]));
             const layout = typeof data.layoutPath === 'string' && data.layoutPath.trim()
                 ? await loadJsonResource(data.layoutPath)
