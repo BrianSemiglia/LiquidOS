@@ -6,7 +6,7 @@
 // TODO: revert just component, not whole timeline
 // TODO: feeding back to the user: what part is the agent changing? show indicator there ✅
 // TODO: the user cannot see the agent's text output. only components. if the agent has a question show a component with a way for the user to answer. ✅
-// TODO: serve files so HTML can read/edit
+// TODO: crash handling - logs, repair button, notify agent
 
 ## Canvas Writing
 
@@ -39,14 +39,14 @@ The agent should use the component folder to add and store files necessary for i
 ## Anatomy
 
 <canvas>/components/<component-name>/
-  view.json
-  start.sh        optional service launcher
-  truth.json      optional durable component state
-  functions.js    optional browser mount code
-  requirements.md optional behavior requirements
+  `view.json`               required
+  `start.sh`                required service launcher that returns an array of process group IDs
+  /truth                    required durable component state (json, sql, etc)
+  /service                  optional browser mount code (tiny-http-server.js, io-service.swift)
+  `feature-requirements.md` required behavior requirements
 
 The harness only treats `view.json` and `start.sh` as public component contract files. Everything else is component-private.
-If `start.sh` exists, it must print a JSON array of process group IDs to stdout and exit 0 after the component service has started. Every process needed by the component must stay inside one of those process groups.
+`start.sh` must print a JSON array of process group IDs to stdout and exit 0 after the component service has started. Every process needed by the component must stay inside one of those process groups.
 
 ## Views
 
