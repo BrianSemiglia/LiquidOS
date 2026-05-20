@@ -7,18 +7,14 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
     private var window: NSWindow?
     private var webView: WKWebView?
     private var server: Process?
-    private var localFileServer: Process?
     private var port: Int = 0
-    private var localFilePort: Int = 0
     private var canvasesRootURL: URL?
-    private var localFilesRootURL: URL?
     private var pendingWorkspaceURL: URL?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         Self.installMainMenu()
         port = Self.freePort()
-        localFilePort = Self.freePort()
         showWindow()
 
         if let workspaceURL = pendingWorkspaceURL ?? Self.startupWorkspaceURL() {
@@ -50,18 +46,15 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         stopServer()
-        stopLocalFileServer()
         return true
     }
     
     func applicationWillTerminate(_ notification: Notification) {
         stopServer()
-        stopLocalFileServer()
     }
     
     deinit {
         stopServer()
-        stopLocalFileServer()
     }
     
     private func showWindow() {
@@ -129,10 +122,6 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
             return
         }
 
-        guard let localFilesRootURL else {
-            showWorkspaceChooser()
-            return
-        }
 
         guard let appRoot = Bundle.main.resourceURL else {
             showError("Missing app resources.")
@@ -173,9 +162,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
             ].joined(separator: ":"),
             "HOME": NSHomeDirectory(),
             "LIQUIDOS_NATIVE": "1",
-            "LIQUIDOS_RUNTIME_KIND": "mac-app",
-            "LIQUIDOS_LOCAL_FILES_ROOT": localFilesRootURL.path,
-            "LIQUIDOS_LOCAL_FILES_URL": "http://127.0.0.1:\(localFilePort)/"
+            "LIQUIDOS_RUNTIME_KIND": "mac-app"
         ].merging(environment) { _, new in new }
 
         let outputPipe = Pipe()
@@ -447,11 +434,8 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
         }
 
         canvasesRootURL = url.standardizedFileURL
-        localFilesRootURL = url.standardizedFileURL.appendingPathComponent("LocalFiles", isDirectory: true)
         showStartingScreen()
         stopServer()
-        stopLocalFileServer()
-        startLocalFileServer()
         startServer()
         loadWhenReady(attempt: 0)
     }
@@ -472,99 +456,6 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
 
         self.server = nil
     }
-
-    private func startLocalFileServer() {
-        stopLocalFileServer()
-
-        guard let localFilesRootURL else {
-            showWorkspaceChooser()
-            return
-        }
-
-        try? FileManager.default.createDirectory(
-            at: localFilesRootURL,
-            withIntermediateDirectories: true
-        )
-
-        if localFilePort == 0 {
-            localFilePort = Self.freePort()
-        }
-
-        if let existingPID = Self.getPIDForPort(localFilePort) {
-            kill(existingPID, SIGKILL)
-            sleep(1)
-        }
-
-        localFileServer = Process()
-        localFileServer?.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        localFileServer?.arguments = [
-            "python3",
-            "-m",
-            "http.server",
-            String(localFilePort),
-            "--bind",
-            "127.0.0.1",
-            "--directory",
-            localFilesRootURL.path
-        ]
-        localFileServer?.environment = [
-            "PATH": [
-                NSHomeDirectory() + "/.local/bin",
-                "/opt/homebrew/bin",
-                "/opt/homebrew/sbin",
-                "/usr/local/bin",
-                "/usr/bin",
-                "/bin",
-                "/usr/sbin",
-                "/sbin"
-            ].joined(separator: ":"),
-            "HOME": NSHomeDirectory()
-        ]
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        localFileServer?.standardOutput = outputPipe
-        localFileServer?.standardError = errorPipe
-
-        outputPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
-                print(text, terminator: "")
-            }
-        }
-
-        errorPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
-                FileHandle.standardError.write(Data(text.utf8))
-            }
-        }
-
-        do {
-            try localFileServer?.run()
-        } catch {
-            localFileServer = nil
-            print("Could not start local file server: \(error.localizedDescription)")
-        }
-    }
-
-    private func stopLocalFileServer() {
-        guard let localFileServer else {
-            return
-        }
-
-        if localFileServer.isRunning {
-            localFileServer.terminate()
-            Thread.sleep(forTimeInterval: 0.5)
-
-            if localFileServer.isRunning {
-                kill(localFileServer.processIdentifier, SIGKILL)
-            }
-        }
-
-        self.localFileServer = nil
-    }
-
 
     private static let workspaceContentType = UTType("local.liquidos.workspace") ?? .package
 

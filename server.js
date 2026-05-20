@@ -133,8 +133,42 @@ if (!fs.existsSync(CANVASES_ROOT) || !fs.statSync(CANVASES_ROOT).isDirectory()) 
 }
 
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'skills', 'canvas-creator', 'templates');
-const DEFAULT_CANVAS_PATH = path.join(CANVASES_ROOT, 'home');
-let CANVAS_PATH = DEFAULT_CANVAS_PATH;
+const SELECTED_CANVAS_FILE = path.join(CANVASES_ROOT, 'selected-canvas.json');
+const DEFAULT_CANVAS_NAME = 'home';
+const DEFAULT_CANVAS_PATH = path.join(CANVASES_ROOT, DEFAULT_CANVAS_NAME);
+
+const validCanvasName = value =>
+    typeof value === 'string'
+        && value.trim() === value
+        && /^[^/][^/]*$/.test(value)
+        && !value.startsWith('.')
+        && !value.includes('..');
+
+const selectedCanvasNameFromFile = () => {
+    try {
+        if (!fs.existsSync(SELECTED_CANVAS_FILE)) {
+            return DEFAULT_CANVAS_NAME;
+        }
+
+        const value = JSON.parse(fs.readFileSync(SELECTED_CANVAS_FILE, 'utf8'));
+        const name = typeof value === 'string' ? value : value.canvas;
+        return validCanvasName(name) ? name : DEFAULT_CANVAS_NAME;
+    } catch (error) {
+        return DEFAULT_CANVAS_NAME;
+    }
+};
+
+const writeSelectedCanvasName = name => {
+    fs.writeFileSync(
+        SELECTED_CANVAS_FILE,
+        JSON.stringify({ canvas: validCanvasName(name) ? name : DEFAULT_CANVAS_NAME }, null, 2) + '\n'
+    );
+};
+
+const canvasNameFromPath = canvasPath =>
+    path.relative(CANVASES_ROOT, canvasPath) || path.basename(canvasPath);
+
+let CANVAS_PATH = path.join(CANVASES_ROOT, selectedCanvasNameFromFile());
 let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
 let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
 const AGENT_RUNTIME_ROOT = path.join(CANVASES_ROOT, '.agent');
@@ -212,6 +246,7 @@ if (!fs.existsSync(path.join(CANVAS_PATH, 'input.json'))) {
     CANVAS_PATH = DEFAULT_CANVAS_PATH;
     INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
     OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
+    writeSelectedCanvasName(DEFAULT_CANVAS_NAME);
 }
 const PORT = Number.parseInt(requiredArg('--port'), 10);
 
@@ -646,7 +681,9 @@ const setCanvasPath = canvasPath => {
     const nextCanvasPath = resolveConfigPath(canvasPath);
 
     if (activeCanvasRuntime && activeCanvasRuntime.canvasPath === nextCanvasPath) {
-        return activeCanvasRuntime.start();
+        activeCanvasRuntime.start();
+        writeSelectedCanvasName(canvasNameFromPath(nextCanvasPath));
+        return activeCanvasRuntime;
     }
 
     if (activeCanvasRuntime) {
@@ -654,7 +691,9 @@ const setCanvasPath = canvasPath => {
     }
 
     activeCanvasRuntime = createCanvasRuntime(nextCanvasPath);
-    return activeCanvasRuntime.start();
+    activeCanvasRuntime.start();
+    writeSelectedCanvasName(canvasNameFromPath(nextCanvasPath));
+    return activeCanvasRuntime;
 };
 
 const callbackPromptText = job => job.prompt || job.request || '';
@@ -799,8 +838,7 @@ const processOutputJob = async job => {
 
 outputQueue.setProcessJob(processOutputJob);
 
-const canvasName = canvasPath =>
-    path.relative(CANVASES_ROOT, canvasPath) || path.basename(canvasPath);
+const canvasName = canvasNameFromPath;
 
 const send = (res, status, body, type = 'text/plain; charset=utf-8') => {
     res.writeHead(status, {

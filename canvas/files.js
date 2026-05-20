@@ -116,7 +116,11 @@ const createCanvasFiles = ({
     const availableCanvases = () =>
         fs.existsSync(canvasesRoot)
             ? fs.readdirSync(canvasesRoot, { withFileTypes: true })
-                .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
+                .filter(entry =>
+                    entry.isDirectory() &&
+                    !entry.name.startsWith('.') &&
+                    fs.existsSync(path.join(canvasesRoot, entry.name, 'input.json'))
+                )
                 .map(entry => {
                     const canvasPath = path.join(canvasesRoot, entry.name);
 
@@ -124,7 +128,7 @@ const createCanvasFiles = ({
                         name: entry.name,
                         path: canvasPath,
                         current: canvasPath === getCanvasPath(),
-                        valid: fs.existsSync(path.join(canvasPath, 'input.json'))
+                        valid: true
                     };
                 })
             : [];
@@ -142,7 +146,9 @@ const createCanvasFiles = ({
         const canvasPath = path.join(canvasesRoot, name);
 
         if (!fs.existsSync(path.join(canvasPath, 'input.json'))) {
-            ensureCanvasDefaults(name);
+            const error = new Error('Canvas does not exist: ' + name);
+            error.statusCode = 404;
+            throw error;
         }
 
         setCanvasPath(canvasPath);

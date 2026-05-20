@@ -16,14 +16,8 @@ const createCanvasGraph = ({
     const componentResourceUrl = (componentPath, name) =>
         '/component/' + encodeURIComponent(componentScopePath(componentViewPath(componentPath))) + '/resources/' + encodeURIComponent(name);
 
-    const localFilesUrl = () =>
-        String(process.env.LIQUIDOS_LOCAL_FILES_URL || '').replace(/\/?$/, '/');
-
-    const expandResourceUrl = value =>
-        String(value || '').replace(/\{\{\s*localFiles\.url\s*\}\}/g, localFilesUrl());
-
     const resourceUrl = (componentPath, name, resource) =>
-        resource?.url ? expandResourceUrl(resource.url) : componentResourceUrl(componentPath, name);
+        resource?.url ? String(resource.url) : componentResourceUrl(componentPath, name);
 
     const localResourcePath = resource =>
         resource?.path && !/^https?:\/\//i.test(String(resource.path)) ? String(resource.path) : null;
