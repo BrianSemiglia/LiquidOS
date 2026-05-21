@@ -65,25 +65,19 @@ const createCanvasGraph = ({
             ? componentPath
             : path.dirname(componentPath);
 
-    const componentObservedPath = componentPath => {
-        const folder = componentFolderPath(componentPath);
-        const observed = path.join(folder, 'observed');
-
-        return fs.existsSync(observed) && fs.statSync(observed).isDirectory()
-            ? observed
-            : folder;
-    };
+    const componentServicesPath = componentPath =>
+        path.join(componentFolderPath(componentPath), 'services');
 
     const componentDataPath = componentPath =>
         path.join(componentFolderPath(componentPath), 'data');
 
     const componentViewPath = componentPath =>
         fs.existsSync(componentPath) && fs.statSync(componentPath).isDirectory()
-            ? path.join(componentObservedPath(componentPath), 'view.json')
+            ? path.join(componentFolderPath(componentPath), 'view.json')
             : componentPath;
 
     const componentStartPath = componentPath =>
-        path.join(componentObservedPath(componentPath), 'start.sh');
+        path.join(componentServicesPath(componentPath), 'start.sh');
 
     const loadLeafComponent = entry => {
         try {
@@ -177,25 +171,16 @@ const createCanvasGraph = ({
         return typeof input[name] === 'string' ? resolveCanvasReference(input[name]) : null;
     };
 
-    const listFiles = folder => {
-        if (!fs.existsSync(folder)) {
-            return [];
-        }
-
-        return fs.readdirSync(folder, { withFileTypes: true }).flatMap(entry => {
-            const file = path.join(folder, entry.name);
-
-            if (entry.isDirectory()) {
-                return listFiles(file);
-            }
-
-            return entry.isFile() ? [file] : [];
-        });
-    };
-
-    const componentObservedWatchPaths = componentPaths =>
+    const componentViewWatchPaths = componentPaths =>
         Array.from(new Set(componentPaths
-            .flatMap(componentPath => listFiles(componentObservedPath(componentPath)))
+            .map(componentFolderPath)
+            .filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
+            .filter(isInsideCanvas)));
+
+    const componentServiceWatchPaths = componentPaths =>
+        Array.from(new Set(componentPaths
+            .map(componentServicesPath)
+            .filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
             .filter(isInsideCanvas)));
 
     const watchedPaths = () => {
@@ -206,9 +191,10 @@ const createCanvasGraph = ({
                 getInputPath(),
                 inputReferenceFile('layoutPath'),
                 inputReferenceFile('transitionPath')
-            ].filter(Boolean),
-            ...componentObservedWatchPaths(componentPaths)
-        ].map(file => ({ path: file, recursive: false }));
+            ].filter(Boolean).map(file => ({ path: file, recursive: false, kind: 'canvas' })),
+            ...componentViewWatchPaths(componentPaths).map(file => ({ path: file, recursive: false, kind: 'view' })),
+            ...componentServiceWatchPaths(componentPaths).map(file => ({ path: file, recursive: true, kind: 'service' }))
+        ];
     };
 
     const watchedFiles = () =>
@@ -249,15 +235,15 @@ const createCanvasGraph = ({
 
     const componentServiceFolders = () =>
         inputEntries()
-            .map(entry => componentObservedPath(entry.componentPath))
-            .filter(folder => fs.existsSync(path.join(folder, 'view.json')) && fs.existsSync(path.join(folder, 'start.sh')));
+            .map(entry => componentServicesPath(entry.componentPath))
+            .filter(folder => fs.existsSync(path.join(folder, 'start.sh')));
 
     return {
         componentScopePath,
         componentScope,
         componentFileUrl,
         componentFolderPath,
-        componentObservedPath,
+        componentServicesPath,
         componentDataPath,
         componentViewPath,
         componentStartPath,

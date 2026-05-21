@@ -441,12 +441,36 @@ const parseProcessGroups = value => {
     return parsed.filter(entry => Number.isInteger(entry) && entry > 0);
 };
 
+const componentServiceSignature = folder => {
+    const files = [];
+
+    const walk = current => {
+        fs.readdirSync(current, { withFileTypes: true }).forEach(entry => {
+            const file = path.join(current, entry.name);
+
+            if (entry.isDirectory()) {
+                walk(file);
+                return;
+            }
+
+            if (entry.isFile()) {
+                files.push(file);
+            }
+        });
+    };
+
+    walk(folder);
+
+    return JSON.stringify(files.sort().map(file => ({
+        path: path.relative(folder, file),
+        mtimeMs: fs.statSync(file).mtimeMs,
+        size: fs.statSync(file).size
+    })));
+};
+
 const startComponentService = folder => {
     const startPath = path.join(folder, 'start.sh');
-    const signature = JSON.stringify({
-        mtimeMs: fs.statSync(startPath).mtimeMs,
-        size: fs.statSync(startPath).size
-    });
+    const signature = componentServiceSignature(folder);
     const current = componentServices.get(folder);
 
     if (current && current.signature === signature) {
@@ -1141,20 +1165,25 @@ const broadcastQueueState = (componentPath = '') => {
     broadcast(queueStatePayload(componentPath));
 };
 
-const scheduleWatchRefresh = () => {
+const scheduleWatchRefresh = (kind = 'canvas') => {
     clearTimeout(watchTimer);
     watchTimer = setTimeout(() => {
         try {
+            if (kind === 'service') {
+                reconcileComponentServices();
+                return;
+            }
+
             canvasGraph.renderedInput();
             refreshGraphWatchers();
-            reconcileComponentServices();
-        } catch (error) {
-            logHermesError('watch', error, { message: 'watch error' });
             broadcast();
-            return;
-        }
+        } catch (error) {
+            logHermesError('watch', error, { kind, message: 'watch error' });
 
-        broadcast();
+            if (kind !== 'service') {
+                broadcast();
+            }
+        }
     }, 50);
 };
 
@@ -1196,7 +1225,7 @@ const safeWatchEntries = () =>
 
 const refreshGraphWatchers = () => {
     const entries = safeWatchEntries();
-    const nextKey = JSON.stringify(entries.map(entry => [entry.path, Boolean(entry.recursive)]).sort());
+    const nextKey = JSON.stringify(entries.map(entry => [entry.path, Boolean(entry.recursive), entry.kind || 'canvas']).sort());
 
     if (nextKey === graphWatchKey) {
         return;
@@ -1208,7 +1237,7 @@ const refreshGraphWatchers = () => {
 
     entries.forEach(entry => {
         try {
-            watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, scheduleWatchRefresh));
+            watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, () => scheduleWatchRefresh(entry.kind || 'canvas')));
         } catch (error) {
             logHermesError('watch', error, { file: entry.path, message: 'file watch skipped' });
         }

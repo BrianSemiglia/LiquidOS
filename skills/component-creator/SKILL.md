@@ -8,12 +8,6 @@
 // TODO: the user cannot see the agent's text output. only components. if the agent has a question show a component with a way for the user to answer. ✅
 // TODO: crash handling - logs, repair button, notify agent
 
-## Local Examples
-
-Before creating or modifying a component, inspect the examples in this skill directory when relevant:
-
-`./examples/`
-
 ## Canvas Writing
 
 The agent may make changes to the canvas/desktop.
@@ -45,27 +39,33 @@ The agent should use the component folder to add and store files necessary for i
 ## Anatomy
 
 <canvas>/components/<component-name>/
-  `view.json`               required
-  `start.sh`                required service launcher that returns an array of process group IDs
-  /truth                    required durable component state (json, sql, etc)
-  /service                  optional browser mount code (tiny-http-server.js, io-service.swift)
+  `view.json`               required view file; changes refresh the canvas only
+  /services                 optional service code; changes restart the component service only
+    `start.sh`              service launcher that returns an array of process group IDs
+  /data                     durable component state; changes do not refresh or restart
   `feature-requirements.md` required behavior requirements
 
-The harness only treats `view.json` and `start.sh` as public component contract files. Everything else is component-private.
-`start.sh` must print a JSON array of process group IDs to stdout and exit 0 after the component service has started. Every process needed by the component must stay inside one of those process groups.
+The harness treats `view.json` and `services/` as separate public component contracts. `view.json` is the view output and is the only component file that refreshes the canvas. `services/` is the service lifecycle input; changes restart the service only. Everything in `data/` is component-owned runtime state.
+`services/start.sh` must print a JSON array of process group IDs to stdout and exit 0 after the component service has started. Every process needed by the component must stay inside one of those process groups.
 
 ## Views
-
-Scripts inside `view.json` HTML are inert after harness injection. Use inline element handlers or the supported `functions.js` mount path.
 
 Component views should be built to listen-to/render a source of truth (function, disk, network, etc) so they stay synchronized.
 This allows for the agent to simply make changes to the truth in order to update the view.
 Maintaining user data is important. Use git revert to undo mistakes.
+Scripts inside `view.json` HTML are inert after harness injection. Use inline element handlers or the supported `functions.js` mount path.
 
 ## Truth
 
 Truth should be some storage (json, sql, etc) of any user data and/or view/service state.
+Put runtime truth in `data/` so user interactions do not restart component services.
 If the shape of data changes, the agent should migrate the truth, view, service.
+
+## Local Examples
+
+Before creating or modifying a component, inspect the examples in this skill directory when relevant:
+
+`./examples/`
 
 ## Feature Requirements
 
@@ -253,3 +253,8 @@ For non-renderable files, link to the served URL:
 ```
 
 Use `resources.*.path` only for files inside the canvas/component folder that LiquidOS should watch and serve. Use `resources.*.url` for files served by the Mac app local static server, Python, or another local HTTP server.
+
+
+## View Refresh Watcher
+
+The harness watches the component folder so atomic replacements of `view.json` are detected. A component service may write `../view.json` using a temporary file and rename; that should refresh the canvas only, not restart the service.
