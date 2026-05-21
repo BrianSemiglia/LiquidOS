@@ -32,3 +32,15 @@ Every prompt-bar request must begin by materializing a visible loading component
 The user should see the component start first; logs and internal reasoning are not a substitute for a visible canvas update.
 
 If you are waiting for the next instruction, reply with `ready` and wait for further prompts.
+
+Use:
+
+```text
+./testing/SKILL.md
+```
+
+when testing a workspace or component through the actual app UI. The app location is available in:
+
+```text
+./runtime.json
+```

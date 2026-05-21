@@ -16,7 +16,7 @@ const { createPromptBuilder } = require('./canvas/prompt-builder');
 const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
 
-const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes']);
+const VALID_AGENT_KINDS = new Set(['none', 'codex', 'claude-code', 'hermes']);
 
 const failStartup = message => {
     console.error(message);
@@ -121,7 +121,7 @@ const CANVASES_ROOT = resolveConfigPath(requiredArg('--workspace'));
 const SELECTED_AGENT_KIND = String(requiredArg('--agent')).trim().toLowerCase();
 
 if (!VALID_AGENT_KINDS.has(SELECTED_AGENT_KIND)) {
-    failStartup('Invalid --agent. Expected one of: codex, claude-code, hermes');
+    failStartup('Invalid --agent. Expected one of: none, codex, claude-code, hermes');
 }
 
 if (path.extname(CANVASES_ROOT) !== '.liquidos') {
@@ -171,17 +171,33 @@ const canvasNameFromPath = canvasPath =>
 let CANVAS_PATH = path.join(CANVASES_ROOT, selectedCanvasNameFromFile());
 let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
 let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
-const AGENT_RUNTIME_ROOT = path.join(CANVASES_ROOT, '.agent');
+
+const applicationSupportRoot = () => {
+    if (process.platform === 'darwin') {
+        return path.join(os.homedir(), 'Library', 'Application Support', 'LiquidOS');
+    }
+
+    if (process.platform === 'win32') {
+        return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'LiquidOS');
+    }
+
+    return path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'), 'liquidos');
+};
+
+const AGENT_RUNTIME_ROOT = applicationSupportRoot();
 const AGENT_RUNTIME_LOGS_DIR = path.join(AGENT_RUNTIME_ROOT, 'logs');
 const HERMES_AGENT_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'agent.log');
 const HERMES_ERRORS_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'errors.log');
 const AGENTS_SOURCE_PATH = path.join(ROOT, 'skills', 'AGENTS.md');
 const AGENTS_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'AGENTS.md');
+const AGENT_RUNTIME_CONFIG_PATH = path.join(AGENT_RUNTIME_ROOT, 'runtime.json');
 const COMPONENT_CREATOR_SOURCE_PATH = path.join(ROOT, 'skills', 'component-creator');
 const COMPONENT_CREATOR_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'component-creator');
 const COMPONENT_GUIDE_PATH = path.join(COMPONENT_CREATOR_SOURCE_PATH, 'SKILL.md');
 const CANVAS_CREATOR_SOURCE_PATH = path.join(ROOT, 'skills', 'canvas-creator');
 const CANVAS_CREATOR_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'canvas-creator');
+const TESTING_SKILL_SOURCE_PATH = path.join(ROOT, 'skills', 'testing');
+const TESTING_SKILL_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'testing');
 const LIVE_CANVAS_ROOT = CANVASES_ROOT;
 
 
@@ -229,10 +245,20 @@ const materializeRuntimeDirectory = (sourcePath, destinationPath) => {
     return true;
 };
 
+const writeAgentRuntimeConfig = () => {
+    fs.mkdirSync(path.dirname(AGENT_RUNTIME_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(
+        AGENT_RUNTIME_CONFIG_PATH,
+        JSON.stringify({ app: ROOT }, null, 2) + '\n'
+    );
+};
+
 const materializeAgentRuntimeFiles = () => {
     materializeRuntimeFile(AGENTS_SOURCE_PATH, AGENTS_RUNTIME_PATH);
     materializeRuntimeDirectory(COMPONENT_CREATOR_SOURCE_PATH, COMPONENT_CREATOR_RUNTIME_PATH);
     materializeRuntimeDirectory(CANVAS_CREATOR_SOURCE_PATH, CANVAS_CREATOR_RUNTIME_PATH);
+    materializeRuntimeDirectory(TESTING_SKILL_SOURCE_PATH, TESTING_SKILL_RUNTIME_PATH);
+    writeAgentRuntimeConfig();
 };
 
 process.env.LIQUIDOS_AGENT_RUNTIME_ROOT = AGENT_RUNTIME_ROOT;
@@ -250,8 +276,8 @@ if (!fs.existsSync(path.join(CANVAS_PATH, 'input.json'))) {
 }
 const PORT = Number.parseInt(requiredArg('--port'), 10);
 
-if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
-    failStartup('--port must be an integer from 1 to 65535');
+if (!Number.isInteger(PORT) || PORT < 0 || PORT > 65535) {
+    failStartup('--port must be an integer from 0 to 65535');
 }
 const AGENT_SOURCE = 'agent';
 const clients = new Set();
@@ -565,16 +591,18 @@ configureClaudeCodeAgent({
     status: setCurrentAgentDebug
 });
 
-agentProviders = createAgentProviders({
-    agents: [
-        HermesAgent(),
-        CodexAgent(),
-        ClaudeCodeAgent()
-    ],
-    workingDirectory: AGENT_RUNTIME_ROOT,
-    activeKind: SELECTED_AGENT_KIND,
-    onStatus: setCurrentAgentDebug
-});
+agentProviders = SELECTED_AGENT_KIND === 'none'
+    ? null
+    : createAgentProviders({
+        agents: [
+            HermesAgent(),
+            CodexAgent(),
+            ClaudeCodeAgent()
+        ],
+        workingDirectory: AGENT_RUNTIME_ROOT,
+        activeKind: SELECTED_AGENT_KIND,
+        onStatus: setCurrentAgentDebug
+    });
 
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
@@ -740,10 +768,17 @@ const promptBuilder = createPromptBuilder({
     resolveCanvasReference
 });
 
-const buildAgentPrompt = job => agentProviders.preparePrompt(promptBuilder.buildJobPrompt(job));
+const buildAgentPrompt = job => agentProviders
+    ? agentProviders.preparePrompt(promptBuilder.buildJobPrompt(job))
+    : promptBuilder.buildJobPrompt(job);
 
-const runQueuedAgentJob = (prompt, context = {}) =>
-    agentProviders.runActive(prompt, context);
+const runQueuedAgentJob = (prompt, context = {}) => {
+    if (!agentProviders) {
+        throw new Error('Agent unavailable for this server instance.');
+    }
+
+    return agentProviders.runActive(prompt, context);
+};
 
 let activeOutputJob = null;
 let shutdownCommitAttempted = false;
@@ -1297,12 +1332,17 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'GET' && url.pathname === '/agents/probe') {
-            send(res, 200, JSON.stringify(agentProviders.probe({ checkInstalled: false })), 'application/json; charset=utf-8');
+            send(res, 200, JSON.stringify(agentProviders ? agentProviders.probe({ checkInstalled: false }) : { activeKind: 'none', providers: [] }), 'application/json; charset=utf-8');
             return;
         }
 
         if (req.method === 'POST' && url.pathname === '/agent/select') {
             const body = JSON.parse(await readBody(req));
+            if (!agentProviders) {
+                send(res, 409, JSON.stringify({ error: 'Agent unavailable for this server instance.' }), 'application/json; charset=utf-8');
+                return;
+            }
+
             const result = agentProviders.setActiveKind(body.kind);
 
             if (!result.ok) {
@@ -1534,8 +1574,11 @@ process.on('unhandledRejection', reason => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
+    const address = server.address();
+    const resolvedPort = address && typeof address === 'object' ? address.port : PORT;
+
     console.log('Build: ' + SERVER_BUILD);
-    console.log('Server at http://localhost:' + PORT);
+    console.log('Server at http://127.0.0.1:' + resolvedPort);
     console.log('Canvas: ' + CANVAS_PATH);
     console.log('Input: ' + INPUT_PATH);
     console.log('Output: ' + OUTPUT_PATH);

@@ -8,6 +8,12 @@
 // TODO: the user cannot see the agent's text output. only components. if the agent has a question show a component with a way for the user to answer. ✅
 // TODO: crash handling - logs, repair button, notify agent
 
+## Local Examples
+
+Before creating or modifying a component, inspect the examples in this skill directory when relevant:
+
+`./examples/`
+
 ## Canvas Writing
 
 The agent may make changes to the canvas/desktop.
@@ -49,6 +55,8 @@ The harness only treats `view.json` and `start.sh` as public component contract 
 `start.sh` must print a JSON array of process group IDs to stdout and exit 0 after the component service has started. Every process needed by the component must stay inside one of those process groups.
 
 ## Views
+
+Scripts inside `view.json` HTML are inert after harness injection. Use inline element handlers or the supported `functions.js` mount path.
 
 Component views should be built to listen-to/render a source of truth (function, disk, network, etc) so they stay synchronized.
 This allows for the agent to simply make changes to the truth in order to update the view.
