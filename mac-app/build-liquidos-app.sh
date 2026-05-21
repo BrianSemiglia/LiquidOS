@@ -91,6 +91,7 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 PLIST
 
 xcrun swiftc \
+  -target "$(uname -m)-apple-macos13.0" \
   "$MAC_ROOT/LiquidOSApp.swift" \
   -o "$MACOS/LiquidOS" \
   -framework Cocoa \
@@ -142,5 +143,15 @@ if [ -f "$RESOURCES/package.json" ]; then
 fi
 
 chmod +x "$MACOS/LiquidOS"
+
+if command -v otool >/dev/null 2>&1; then
+  BINARY_MINOS="$(otool -l "$MACOS/LiquidOS" | awk '/LC_BUILD_VERSION/{seen=1} seen && /minos/{print $2; exit}')"
+  if [ "$BINARY_MINOS" != "13.0" ]; then
+    echo "Error: built binary minos is $BINARY_MINOS, expected 13.0." >&2
+    echo "Check swiftc -target in mac-app/build-liquidos-app.sh." >&2
+    exit 1
+  fi
+fi
+
 echo "Built: $APP"
 echo "Open with: open '$APP'"
