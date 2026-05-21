@@ -1,23 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-
-
-const ptyInstalled = () => {
-    try {
-        require.resolve('node-pty');
-        return true;
-    } catch {
-        return false;
-    }
-};
-
-const loadPty = () => {
-    try {
-        return require('node-pty');
-    } catch (error) {
-        throw new Error('node-pty is required to run ' + command + '. Run npm install or choose another agent.');
-    }
-};
+const { spawn } = require('child_process');
 
 let host = {
     output: () => {},
@@ -78,7 +61,7 @@ const ClaudeCodeAgent = () => {
         kind: 'claude-code',
         label: 'Claude Code',
         command,
-        isInstalled: () => ptyInstalled() && commandInstalled(),
+        isInstalled: () => commandInstalled(),
         initialize: () => setStatus({ status: 'waiting' }),
         dispose: () => {},
         currentDebug: () => ({ ...currentDebug }),
@@ -90,7 +73,7 @@ const ClaudeCodeAgent = () => {
 
             let output = '';
             let timedOut = false;
-            const processHandle = loadPty().spawn(command, [
+            const processHandle = spawn(command, [
                 '-p',
                 prompt,
                 ...(systemPromptPath ? ['--system-prompt-file', systemPromptPath] : []),
@@ -99,11 +82,9 @@ const ClaudeCodeAgent = () => {
                 permissionMode(),
                 ...extraArguments()
             ], {
-                name: 'xterm-color',
-                cols: 160,
-                rows: 50,
                 cwd: workingDirectory,
-                env: process.env
+                env: process.env,
+                stdio: ['ignore', 'pipe', 'pipe']
             });
 
             setStatus({
@@ -121,12 +102,17 @@ const ClaudeCodeAgent = () => {
                 processHandle.kill('SIGTERM');
             }, timeoutMilliseconds());
 
-            processHandle.onData(chunk => {
+            processHandle.stdout.on('data', chunk => {
                 output += chunk;
                 host.output('claude-code-process', chunk);
             });
 
-            processHandle.onExit(({ exitCode, signal }) => {
+            processHandle.stderr.on('data', chunk => {
+                output += chunk;
+                host.output('claude-code-process', chunk);
+            });
+
+            processHandle.on('close', (exitCode, signal) => {
                 clearTimeout(timeout);
 
                 if (timedOut) {
@@ -145,13 +131,11 @@ const ClaudeCodeAgent = () => {
                 resolve(output.trim());
             });
 
-            if (typeof processHandle.on === 'function') {
-                processHandle.on('error', error => {
-                    clearTimeout(timeout);
-                    setStatus({ status: 'error', error: error.message });
-                    reject(error);
-                });
-            }
+            processHandle.on('error', error => {
+                clearTimeout(timeout);
+                setStatus({ status: 'error', error: error.message });
+                reject(error);
+            });
         })
     };
 };

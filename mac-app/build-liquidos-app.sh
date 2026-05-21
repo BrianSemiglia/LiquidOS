@@ -138,8 +138,6 @@ mkdir -p "$RESOURCES/canvases"
 # Hermes is not bundled. LiquidOS uses the user-installed `hermes` found on PATH.
 if [ -f "$RESOURCES/package.json" ]; then
  npm install --prefix "$RESOURCES" --omit=dev
- # Fix execute permissions for node-pty spawn-helper
- find "$RESOURCES/node_modules/node-pty/prebuilds" -name 'spawn-helper' -exec chmod +x {} \;
 fi
 
 chmod +x "$MACOS/LiquidOS"
