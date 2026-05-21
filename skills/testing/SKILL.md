@@ -4,8 +4,7 @@ Use this skill when changing a workspace or component and you need to verify the
 
 ## Contract
 
-The launcher receives a source workspace and the app path. 
-It creates a sandboxed copy, boots that copy, then prints one JSON object.
+The launcher receives a source workspace and the app path. It creates a sandboxed copy, boots that copy with testing disabled, then prints one JSON object.
 
 ```sh
 node ./testing/scripts/boot-workspace-sandbox.mjs \
@@ -84,3 +83,9 @@ await page.goto(url);
 ## Shutdown
 
 Terminate the launcher process when verification is complete.
+
+## Services during testing
+
+The sandbox boots the copied workspace the same way the app does. Components that include `services/start.sh` are started and stopped by the harness. Components without `services/start.sh` render from `view.json` only.
+
+Use the returned `url` for browser testing and the returned `workspace` for sandbox edits.

@@ -41,12 +41,13 @@ The agent should use the component folder to add and store files necessary for i
 <canvas>/components/<component-name>/
   `view.json`               required view file; changes refresh the canvas only
   /services                 optional service code; changes restart the component service only
-    `start.sh`              service launcher that returns an array of process group IDs
+    `start.sh`              optional service launcher
   /data                     durable component state; changes do not refresh or restart
   `feature-requirements.md` required behavior requirements
 
-The harness treats `view.json` and `services/` as separate public component contracts. `view.json` is the view output and is the only component file that refreshes the canvas. `services/` is the service lifecycle input; changes restart the service only. Everything in `data/` is component-owned runtime state.
-`services/start.sh` must print a JSON array of process group IDs to stdout and exit 0 after the component service has started. Every process needed by the component must stay inside one of those process groups.
+The harness treats `view.json`, `services/`, and `data/` as separate component contracts. `view.json` is the view output and is the only component file that refreshes the canvas. `services/` contains optional service code; changes restart the service when `services/start.sh` exists. Everything in `data/` is component-owned durable state.
+
+A static component only needs `view.json`. Add `services/start.sh` only when the component needs a running service such as an HTTP endpoint, native bridge, stream, or background process.
 
 ## Views
 
@@ -253,8 +254,3 @@ For non-renderable files, link to the served URL:
 ```
 
 Use `resources.*.path` only for files inside the canvas/component folder that LiquidOS should watch and serve. Use `resources.*.url` for files served by the Mac app local static server, Python, or another local HTTP server.
-
-
-## View Refresh Watcher
-
-The harness watches the component folder so atomic replacements of `view.json` are detected. A component service may write `../view.json` using a temporary file and rename; that should refresh the canvas only, not restart the service.

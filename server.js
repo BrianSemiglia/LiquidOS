@@ -441,27 +441,13 @@ const shortText = value => {
     return text.length > 160 ? text.slice(0, 157) + '...' : text;
 };
 
-const parseProcessGroups = value => {
-    const line = String(value || '')
-        .split(/\r?\n/)
-        .map(entry => entry.trim())
-        .find(Boolean);
-
-    if (!line) {
-        return [];
-    }
-
-    const parsed = JSON.parse(line);
-
-    if (!Array.isArray(parsed)) {
-        throw new Error('process group list must be an array');
-    }
-
-    return parsed.filter(entry => Number.isInteger(entry) && entry > 0);
-};
-
 const startComponentService = folder => {
     const startPath = path.join(folder, 'start.sh');
+
+    if (!fs.existsSync(startPath)) {
+        return;
+    }
+
     const signature = JSON.stringify({
         mtimeMs: fs.statSync(startPath).mtimeMs,
         size: fs.statSync(startPath).size
@@ -476,68 +462,41 @@ const startComponentService = folder => {
         stopComponentService(folder);
     }
 
-    componentServices.set(folder, { signature, processGroups: [] });
-
     const child = childProcess.spawn('/bin/bash', [startPath], {
         cwd: folder,
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe']
     });
-    let stdout = '';
+    const processGroups = [child.pid];
     let stderr = '';
-    let started = false;
 
-    const recordStarted = processGroups => {
-        if (started) {
-            return;
-        }
-
-        started = true;
-        componentServices.set(folder, { signature, processGroups });
-        logServer('component-service', 'started', { folder, processGroups });
-    };
+    componentServices.set(folder, { signature, processGroups });
+    logServer('component-service', 'started', { folder, processGroups });
 
     child.stdout.on('data', chunk => {
-        stdout += String(chunk);
-
-        try {
-            recordStarted(parseProcessGroups(stdout));
-        } catch (error) {
-            if (stdout.includes('\n')) {
-                logHermesError('component-service', error, { folder, stdout: shortText(stdout), message: 'invalid process group list' });
-            }
-        }
+        writeProcessOutput('[component-service]', chunk, process.stdout);
     });
     child.stderr.on('data', chunk => {
         stderr += String(chunk);
         writeProcessOutput('[component-service]', chunk, process.stderr);
     });
     child.on('error', error => {
-        recordStarted([]);
+        componentServices.delete(folder);
         logHermesError('component-service', error, { folder, message: 'start failed' });
     });
     child.on('close', code => {
-        if (!started) {
-            try {
-                recordStarted(parseProcessGroups(stdout));
-            } catch (error) {
-                recordStarted([]);
-                logHermesError('component-service', error, { folder, stdout: shortText(stdout), message: 'invalid process group list' });
-            }
+        const current = componentServices.get(folder);
+
+        if (current && current.signature === signature) {
+            componentServices.delete(folder);
         }
 
         if (code !== 0) {
-            logHermesError('component-service', new Error('start.sh exited ' + code), { folder, stderr: shortText(stderr), processGroups: componentServices.get(folder)?.processGroups || [] });
+            logHermesError('component-service', new Error('start.sh exited ' + code), { folder, stderr: shortText(stderr), processGroups });
             return;
         }
 
-        if (started) {
-            logServer('component-service', 'registered', { folder, processGroups: componentServices.get(folder)?.processGroups || [] });
-            return;
-        }
-
-        recordStarted([]);
-        logServer('component-service', 'registered', { folder, processGroups: [] });
+        logServer('component-service', 'exited', { folder, processGroups });
     });
     child.unref();
 };
