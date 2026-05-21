@@ -13,7 +13,7 @@ const createCanvasFiles = ({
         fs.mkdirSync(target, { recursive: true });
 
         for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
-            if (entry.name === '.gitkeep') {
+            if (entry.name === '.gitkeep' || entry.name === 'canvas.html') {
                 continue;
             }
 
@@ -89,26 +89,6 @@ const createCanvasFiles = ({
         ensureLocalAssetReferences(canvasPath);
 
         writeDefaultFile(path.join(canvasPath, 'output.json'), '[]\n');
-        writeDefaultFile(
-            path.join(canvasPath, 'canvas.html'),
-            `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Blank Canvas</title>
-  <style>
-    html, body {
-      margin: 0;
-      min-height: 100%;
-      background: #0b1120;
-    }
-  </style>
-</head>
-<body></body>
-</html>
-`
-        );
 
         return canvasPath;
     };

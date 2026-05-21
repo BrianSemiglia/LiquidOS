@@ -87,6 +87,7 @@ copy_asset_dir() {
 
 if [ -n "$TEMPLATE_DIR" ]; then
     cp -R "$TEMPLATE_DIR/." "$INSTANCE_DIR/"
+    rm -f "$INSTANCE_DIR/canvas.html"
     mkdir -p "$INSTANCE_DIR/components"
 fi
 
@@ -121,31 +122,10 @@ if [ ! -f "$INSTANCE_DIR/output.json" ]; then
     printf '[]\n' > "$INSTANCE_DIR/output.json"
 fi
 
-if [ ! -f "$INSTANCE_DIR/canvas.html" ]; then
-    cat > "$INSTANCE_DIR/canvas.html" <<'HTML'
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Blank Canvas</title>
-  <style>
-    html, body {
-      margin: 0;
-      min-height: 100%;
-      background: #0b1120;
-    }
-  </style>
-</head>
-<body></body>
-</html>
-HTML
-fi
 
 echo "Created:"
 echo "  $INSTANCE_DIR/input.json"
 echo "  $INSTANCE_DIR/output.json"
-echo "  $INSTANCE_DIR/canvas.html"
 echo "  $INSTANCE_DIR/components/"
 echo "  $INSTANCE_DIR/layouts/"
 echo "  $INSTANCE_DIR/transitions/"
