@@ -39,34 +39,40 @@ The agent should use the component folder to add and store files necessary for i
 ## Anatomy
 
 <canvas>/components/<component-name>/
-  `view.json`               required view file; changes refresh the canvas only
-  /services                 optional service code; changes restart the component service only
-    `start.sh`              optional service launcher
-  /data                     durable component state; changes do not refresh or restart
   `feature-requirements.md` required behavior requirements
+  `view.json`               required view output
+  `services/`               optional service code
+    `start.sh`              optional service launcher
+  `data/`                   optional durable component state (json, sql, etc)
 
-The harness treats `view.json`, `services/`, and `data/` as separate component contracts. `view.json` is the view output and is the only component file that refreshes the canvas. `services/` contains optional service code; changes restart the service when `services/start.sh` exists. Everything in `data/` is component-owned durable state.
+`view.json` is the rendered view output. A component without a service only needs `feature-requirements.md` and `view.json`.
 
-A static component only needs `view.json`. Add `services/start.sh` only when the component needs a running service such as an HTTP endpoint, native bridge, stream, or background process. When the harness starts a service, it calls `services/start.sh <dispatch-id>`. Treat the dispatch id as a function parameter: use it in `start.sh` to namespace ports, runtime files, native source names, and other external identities, then pass only the specific derived values each child process needs.
+`services/start.sh` is optional. Add it only when the component needs a running service such as an HTTP endpoint, native bridge, stream, or background process.
+
+When a service exists, the harness starts it with:
+
+```sh
+services/start.sh <dispatch-id>
+```
+
+Treat the dispatch id as a function parameter. Use it in `start.sh` to namespace collision-prone runtime resources such as local sockets, temporary files, native source names, and service instances. Pass only the specific values each child process needs.
+
+The harness starts and stops the service process group. `start.sh` should stay alive while the service is alive and should not daemonize or detach child processes.
+
+The harness observes `view.json` for canvas refreshes and `services/**` for service restarts. Other component files are component-owned and may be organized as needed.
 
 ## Views
 
 Component views should be built to listen-to/render a source of truth (function, disk, network, etc) so they stay synchronized.
 This allows for the agent to simply make changes to the truth in order to update the view.
 Maintaining user data is important. Use git revert to undo mistakes.
+
 Scripts inside `view.json` HTML are inert after harness injection. Use inline element handlers or the supported `functions.js` mount path.
 
 ## Truth
 
 Truth should be some storage (json, sql, etc) of any user data and/or view/service state.
-Put runtime truth in `data/` so user interactions do not restart component services.
 If the shape of data changes, the agent should migrate the truth, view, service.
-
-## Local Examples
-
-Before creating or modifying a component, inspect the examples in this skill directory when relevant:
-
-`./examples/`
 
 ## Feature Requirements
 
@@ -75,6 +81,14 @@ Each requirement should be stated simply.
 No requirement should be redundant to another.
 Requirements are not for technical details.
 
+## Local Examples
+
+Before creating or modifying a component, inspect the examples in this skill directory when relevant:
+
+```text
+./examples/
+```
+
 ## Adding/Updating
 
 1. Prompt arrives.
@@ -82,13 +96,13 @@ Requirements are not for technical details.
 3. Agent reads `<canvas>/input.json` and preserves every existing key and component path.
 4. Agent appends the new component folder path to `<canvas>/input.json` only if adding a new component and only if it is not already present. Existing `view.json` paths are also valid and should be preserved.
 5. Agent overwrites the component so that it displays the agent's next intended action so that the user is informed.
-6. Agent reads `<canvas>/components/<component_name>/requirements.md` if any.
+6. Agent reads `<canvas>/components/<component_name>/feature-requirements.md`.
 7. Agent begins work.
 8. Agent partially completes work and overwrites the component to show the partial output and the agent's next intended action so that the user is informed.
 9. Agent continues work.
 10. Agent partially completes work and overwrites the component to show the partial output and the agent's next intended action so that the user is informed.
 11. Agent completes work and overwrites the component to show the final state so that the user is informed.
-12. Agent creates or updates `<canvas>/components/<component_name>/requirements.md` if it has learned something new about the requirements.
+12. Agent creates or updates `<canvas>/components/<component_name>/feature-requirements.md` if it has learned something new about the requirements.
 
 Do not erase or mutate unrelated components!
 
@@ -166,6 +180,14 @@ Example:
 The canvas directory is version-tracked by git. Use the git history to get more context if needed. If a user asks the agent to undo something or to go back, use git revert to restore the desired previous state. Revert is the only command the agent is allowed to use. The agent can also use the git history to answer questions that the user might have about previous activities.
 
 ## Example Component
+
+`<canvas>/components/hello-world/feature-requirements.md`:
+
+```text
+# Feature Requirements
+
+- Show a greeting.
+```
 
 `<canvas>/components/hello-world/view.json`:
 
