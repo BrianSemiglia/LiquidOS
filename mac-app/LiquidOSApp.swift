@@ -2,6 +2,7 @@ import Cocoa
 import WebKit
 import UniformTypeIdentifiers
 import Darwin
+import UserNotifications
 
 final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScriptMessageHandler {
     private var window: NSWindow?
@@ -10,9 +11,11 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
     private var port: Int = 0
     private var canvasesRootURL: URL?
     private var pendingWorkspaceURL: URL?
+    private var serverOutputBuffer = ""
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        requestNotificationPermission()
         Self.installMainMenu()
         port = Self.freePort()
         showWindow()
@@ -171,10 +174,12 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
         server?.standardOutput = outputPipe
         server?.standardError = errorPipe
 
-        outputPipe.fileHandleForReading.readabilityHandler = { handle in
+        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
-                print(text, terminator: "")
+                DispatchQueue.main.async {
+                    self?.handleServerOutput(text)
+                }
             }
         }
 
@@ -405,6 +410,54 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
         """, baseURL: nil)
     }
     
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    private func handleServerOutput(_ text: String) {
+        print(text, terminator: "")
+        serverOutputBuffer += text
+
+        while let newlineRange = serverOutputBuffer.range(of: "\n") {
+            let line = String(serverOutputBuffer[..<newlineRange.lowerBound])
+            serverOutputBuffer.removeSubrange(...newlineRange.lowerBound)
+            handleServerOutputLine(line)
+        }
+    }
+
+    private func handleServerOutputLine(_ line: String) {
+        let prefix = "LIQUIDOS_NATIVE_NOTIFICATION "
+        guard line.hasPrefix(prefix) else { return }
+
+        let payload = String(line.dropFirst(prefix.count))
+        guard
+            let data = payload.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return
+        }
+
+        sendLocalNotification(
+            title: object["title"] as? String ?? "LiquidOS",
+            body: object["body"] as? String ?? ""
+        )
+    }
+
+    private func sendLocalNotification(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+
+        UNUserNotificationCenter.current().add(request)
+    }
+
     private func showError(_ message: String) {
         webView?.loadHTMLString("""
         <!doctype html>

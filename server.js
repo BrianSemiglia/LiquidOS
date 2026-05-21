@@ -441,36 +441,12 @@ const parseProcessGroups = value => {
     return parsed.filter(entry => Number.isInteger(entry) && entry > 0);
 };
 
-const componentServiceSignature = folder => {
-    const files = [];
-
-    const walk = current => {
-        fs.readdirSync(current, { withFileTypes: true }).forEach(entry => {
-            const file = path.join(current, entry.name);
-
-            if (entry.isDirectory()) {
-                walk(file);
-                return;
-            }
-
-            if (entry.isFile()) {
-                files.push(file);
-            }
-        });
-    };
-
-    walk(folder);
-
-    return JSON.stringify(files.sort().map(file => ({
-        path: path.relative(folder, file),
-        mtimeMs: fs.statSync(file).mtimeMs,
-        size: fs.statSync(file).size
-    })));
-};
-
 const startComponentService = folder => {
     const startPath = path.join(folder, 'start.sh');
-    const signature = componentServiceSignature(folder);
+    const signature = JSON.stringify({
+        mtimeMs: fs.statSync(startPath).mtimeMs,
+        size: fs.statSync(startPath).size
+    });
     const current = componentServices.get(folder);
 
     if (current && current.signature === signature) {
@@ -792,6 +768,16 @@ const promptBuilder = createPromptBuilder({
     resolveCanvasReference
 });
 
+
+const emitNativeNotification = ({ title, body }) => {
+    if (process.env.LIQUIDOS_RUNTIME_KIND !== 'mac-app') return;
+
+    process.stdout.write('LIQUIDOS_NATIVE_NOTIFICATION ' + JSON.stringify({
+        title: String(title || 'LiquidOS'),
+        body: String(body || '')
+    }) + '\n');
+};
+
 const buildAgentPrompt = job => agentProviders
     ? agentProviders.preparePrompt(promptBuilder.buildJobPrompt(job))
     : promptBuilder.buildJobPrompt(job);
@@ -872,6 +858,11 @@ const processOutputJob = async job => {
             lane: laneKey,
             durationMs: Date.now() - startedAt
         });
+
+        emitNativeNotification({
+            title: 'Agent finished',
+            body: canvasName(CANVAS_PATH)
+        });
     } catch (error) {
         commitFailedCanvases({ ...job, id: jobId }, error);
         canvasGraph.validateCanvasConfig();
@@ -886,6 +877,11 @@ const processOutputJob = async job => {
             lane: laneKey,
             durationMs: Date.now() - startedAt,
             error: error.message
+        });
+
+        emitNativeNotification({
+            title: 'Agent failed',
+            body: canvasName(CANVAS_PATH)
         });
 
     } finally {
@@ -1165,25 +1161,20 @@ const broadcastQueueState = (componentPath = '') => {
     broadcast(queueStatePayload(componentPath));
 };
 
-const scheduleWatchRefresh = (kind = 'canvas') => {
+const scheduleWatchRefresh = () => {
     clearTimeout(watchTimer);
     watchTimer = setTimeout(() => {
         try {
-            if (kind === 'service') {
-                reconcileComponentServices();
-                return;
-            }
-
             canvasGraph.renderedInput();
             refreshGraphWatchers();
-            broadcast();
+            reconcileComponentServices();
         } catch (error) {
-            logHermesError('watch', error, { kind, message: 'watch error' });
-
-            if (kind !== 'service') {
-                broadcast();
-            }
+            logHermesError('watch', error, { message: 'watch error' });
+            broadcast();
+            return;
         }
+
+        broadcast();
     }, 50);
 };
 
@@ -1225,7 +1216,7 @@ const safeWatchEntries = () =>
 
 const refreshGraphWatchers = () => {
     const entries = safeWatchEntries();
-    const nextKey = JSON.stringify(entries.map(entry => [entry.path, Boolean(entry.recursive), entry.kind || 'canvas']).sort());
+    const nextKey = JSON.stringify(entries.map(entry => [entry.path, Boolean(entry.recursive)]).sort());
 
     if (nextKey === graphWatchKey) {
         return;
@@ -1237,7 +1228,7 @@ const refreshGraphWatchers = () => {
 
     entries.forEach(entry => {
         try {
-            watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, () => scheduleWatchRefresh(entry.kind || 'canvas')));
+            watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, scheduleWatchRefresh));
         } catch (error) {
             logHermesError('watch', error, { file: entry.path, message: 'file watch skipped' });
         }
