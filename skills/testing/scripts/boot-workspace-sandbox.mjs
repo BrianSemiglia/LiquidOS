@@ -67,8 +67,8 @@ fs.cpSync(sourceWorkspace, sandboxWorkspace, { recursive: true });
 const appProcess = spawn(
   useServerJs ? 'node' : 'npm',
   useServerJs
-    ? ['server.js', '--workspace', sandboxWorkspace, '--agent', 'none', '--port', '0']
-    : ['start', '--', '--workspace', sandboxWorkspace, '--agent', 'none', '--port', '0'],
+    ? ['server.js', '--workspace', sandboxWorkspace, '--agent', 'hermes', '--testing', 'false', '--port', '0']
+    : ['start', '--', '--workspace', sandboxWorkspace, '--agent', 'hermes', '--testing', 'false', '--port', '0'],
   {
     cwd: appDirectory,
     env: process.env,

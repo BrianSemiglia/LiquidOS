@@ -4,7 +4,8 @@ Use this skill when changing a workspace or component and you need to verify the
 
 ## Contract
 
-The launcher receives a source workspace and the app path. It creates a sandboxed copy, boots that copy with agents disabled, then prints one JSON object.
+The launcher receives a source workspace and the app path. 
+It creates a sandboxed copy, boots that copy, then prints one JSON object.
 
 ```sh
 node ./testing/scripts/boot-workspace-sandbox.mjs \

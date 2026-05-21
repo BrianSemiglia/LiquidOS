@@ -16,7 +16,7 @@ const { createPromptBuilder } = require('./canvas/prompt-builder');
 const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
 
-const VALID_AGENT_KINDS = new Set(['none', 'codex', 'claude-code', 'hermes']);
+const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes']);
 
 const failStartup = message => {
     console.error(message);
@@ -38,7 +38,7 @@ const argumentPairs = () => {
         const name = equalsIndex === -1 ? arg : arg.slice(0, equalsIndex);
         const value = equalsIndex === -1 ? args[index + 1] : arg.slice(equalsIndex + 1);
 
-        if (!['--workspace', '--agent', '--port'].includes(name)) {
+        if (!['--workspace', '--agent', '--port', '--testing'].includes(name)) {
             failStartup('Unknown argument: ' + name);
         }
 
@@ -121,8 +121,27 @@ const CANVASES_ROOT = resolveConfigPath(requiredArg('--workspace'));
 const SELECTED_AGENT_KIND = String(requiredArg('--agent')).trim().toLowerCase();
 
 if (!VALID_AGENT_KINDS.has(SELECTED_AGENT_KIND)) {
-    failStartup('Invalid --agent. Expected one of: none, codex, claude-code, hermes');
+    failStartup('Invalid --agent. Expected one of: codex, claude-code, hermes');
 }
+
+const optionalArg = (name, fallback) =>
+    REQUIRED_ARGUMENTS.has(name) ? REQUIRED_ARGUMENTS.get(name) : fallback;
+
+const parseBooleanArg = (name, fallback) => {
+    const value = String(optionalArg(name, fallback ? 'true' : 'false')).trim().toLowerCase();
+
+    if (value === 'true') {
+        return true;
+    }
+
+    if (value === 'false') {
+        return false;
+    }
+
+    failStartup(name + ' must be true or false');
+};
+
+const TESTING_ENABLED = parseBooleanArg('--testing', true);
 
 if (path.extname(CANVASES_ROOT) !== '.liquidos') {
     failStartup('--workspace must be a .liquidos folder');
@@ -591,9 +610,8 @@ configureClaudeCodeAgent({
     status: setCurrentAgentDebug
 });
 
-agentProviders = SELECTED_AGENT_KIND === 'none'
-    ? null
-    : createAgentProviders({
+agentProviders = TESTING_ENABLED
+    ? createAgentProviders({
         agents: [
             HermesAgent(),
             CodexAgent(),
@@ -602,7 +620,8 @@ agentProviders = SELECTED_AGENT_KIND === 'none'
         workingDirectory: AGENT_RUNTIME_ROOT,
         activeKind: SELECTED_AGENT_KIND,
         onStatus: setCurrentAgentDebug
-    });
+    })
+    : null;
 
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
@@ -784,7 +803,7 @@ const buildAgentPrompt = job => agentProviders
 
 const runQueuedAgentJob = (prompt, context = {}) => {
     if (!agentProviders) {
-        throw new Error('Agent unavailable for this server instance.');
+        throw new Error('Agent unavailable because testing is disabled for this server instance.');
     }
 
     return agentProviders.runActive(prompt, context);
@@ -1352,14 +1371,14 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'GET' && url.pathname === '/agents/probe') {
-            send(res, 200, JSON.stringify(agentProviders ? agentProviders.probe({ checkInstalled: false }) : { activeKind: 'none', providers: [] }), 'application/json; charset=utf-8');
+            send(res, 200, JSON.stringify(agentProviders ? agentProviders.probe({ checkInstalled: false }) : { activeKind: SELECTED_AGENT_KIND, testingEnabled: TESTING_ENABLED, providers: [] }), 'application/json; charset=utf-8');
             return;
         }
 
         if (req.method === 'POST' && url.pathname === '/agent/select') {
             const body = JSON.parse(await readBody(req));
             if (!agentProviders) {
-                send(res, 409, JSON.stringify({ error: 'Agent unavailable for this server instance.' }), 'application/json; charset=utf-8');
+                send(res, 409, JSON.stringify({ error: 'Agent unavailable because testing is disabled for this server instance.' }), 'application/json; charset=utf-8');
                 return;
             }
 
