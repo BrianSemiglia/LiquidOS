@@ -47,7 +47,7 @@ The agent should use the component folder to add and store files necessary for i
 
 The harness treats `view.json`, `services/`, and `data/` as separate component contracts. `view.json` is the view output and is the only component file that refreshes the canvas. `services/` contains optional service code; changes restart the service when `services/start.sh` exists. Everything in `data/` is component-owned durable state.
 
-A static component only needs `view.json`. Add `services/start.sh` only when the component needs a running service such as an HTTP endpoint, native bridge, stream, or background process.
+A static component only needs `view.json`. Add `services/start.sh` only when the component needs a running service such as an HTTP endpoint, native bridge, stream, or background process. When the harness starts a service, it calls `services/start.sh <dispatch-id>`. Treat the dispatch id as a function parameter: use it in `start.sh` to namespace ports, runtime files, native source names, and other external identities, then pass only the specific derived values each child process needs.
 
 ## Views
 

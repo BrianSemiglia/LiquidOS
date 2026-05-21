@@ -1,5 +1,6 @@
 const http = require('http');
 const childProcess = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -441,6 +442,11 @@ const shortText = value => {
     return text.length > 160 ? text.slice(0, 157) + '...' : text;
 };
 
+const createServiceDispatchId = folder => [
+    path.basename(path.dirname(folder)).replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'component',
+    crypto.randomUUID().slice(0, 8)
+].join('-');
+
 const startComponentService = folder => {
     const startPath = path.join(folder, 'start.sh');
 
@@ -462,16 +468,17 @@ const startComponentService = folder => {
         stopComponentService(folder);
     }
 
-    const child = childProcess.spawn('/bin/bash', [startPath], {
+    const dispatchId = createServiceDispatchId(folder);
+    const child = childProcess.spawn('/bin/bash', [startPath, dispatchId], {
         cwd: folder,
         detached: true,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
     });
     const processGroups = [child.pid];
     let stderr = '';
 
-    componentServices.set(folder, { signature, processGroups });
-    logServer('component-service', 'started', { folder, processGroups });
+    componentServices.set(folder, { signature, processGroups, dispatchId });
+    logServer('component-service', 'started', { folder, processGroups, dispatchId });
 
     child.stdout.on('data', chunk => {
         writeProcessOutput('[component-service]', chunk, process.stdout);
@@ -492,11 +499,11 @@ const startComponentService = folder => {
         }
 
         if (code !== 0) {
-            logHermesError('component-service', new Error('start.sh exited ' + code), { folder, stderr: shortText(stderr), processGroups });
+            logHermesError('component-service', new Error('start.sh exited ' + code), { folder, stderr: shortText(stderr), processGroups, dispatchId });
             return;
         }
 
-        logServer('component-service', 'exited', { folder, processGroups });
+        logServer('component-service', 'exited', { folder, processGroups, dispatchId });
     });
     child.unref();
 };
