@@ -187,6 +187,120 @@
         }
 
 
+        .new-canvas-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 60;
+            display: grid;
+            place-items: center;
+            padding: 1.25rem;
+            background: rgba(0, 0, 0, 0.28);
+            backdrop-filter: blur(18px) saturate(1.2);
+            -webkit-backdrop-filter: blur(18px) saturate(1.2);
+            opacity: 1;
+            transition: opacity 160ms ease;
+        }
+
+        .new-canvas-backdrop[hidden] {
+            display: none;
+        }
+
+        .new-canvas-modal {
+            display: grid;
+            gap: 0.9rem;
+            width: min(92vw, 24rem);
+            padding: 1.1rem;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 28px;
+            background: rgba(44, 44, 46, 0.84);
+            color: rgba(255, 255, 255, 0.94);
+            box-shadow:
+                0 34px 90px rgba(0, 0, 0, 0.44),
+                inset 0 1px 0 rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(36px) saturate(1.45);
+            -webkit-backdrop-filter: blur(36px) saturate(1.45);
+            transform: translateY(0) scale(1);
+            animation: modal-pop 180ms cubic-bezier(.2, .9, .2, 1);
+        }
+
+        @keyframes modal-pop {
+            from {
+                opacity: 0;
+                transform: translateY(0.6rem) scale(0.97);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .new-canvas-modal h2 {
+            margin: 0;
+            font-size: 1.05rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            text-align: center;
+        }
+
+        .new-canvas-modal p {
+            margin: -0.35rem 0 0;
+            color: rgba(255, 255, 255, 0.58);
+            font-size: 0.88rem;
+            text-align: center;
+        }
+
+        .new-canvas-modal input {
+            width: 100%;
+            height: 2.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 16px;
+            padding: 0 0.85rem;
+            background: rgba(255, 255, 255, 0.10);
+            color: rgba(255, 255, 255, 0.94);
+            font: inherit;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.08),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.16);
+        }
+
+        .new-canvas-modal input:focus {
+            outline: none;
+            border-color: rgba(10, 132, 255, 0.86);
+            box-shadow:
+                0 0 0 4px rgba(10, 132, 255, 0.18),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+
+        .new-canvas-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.55rem;
+        }
+
+        .new-canvas-actions button {
+            height: 2.65rem;
+            border: 0;
+            border-radius: 16px;
+            padding: 0 0.8rem;
+            font: inherit;
+            font-weight: 680;
+        }
+
+        .new-canvas-actions button[type="button"] {
+            background: rgba(255, 255, 255, 0.10);
+            color: rgba(255, 255, 255, 0.78);
+        }
+
+        .new-canvas-actions button[type="submit"] {
+            background: rgba(10, 132, 255, 0.92);
+            color: white;
+        }
+
+        .new-canvas-actions button:disabled {
+            opacity: 0.42;
+        }
+
+
         .global-status {
             position: fixed;
             left: calc(var(--debug-rail-space) + (100vw - var(--debug-rail-space)) / 2);
@@ -365,6 +479,16 @@
     </aside>
     <div class="debug-resizer" id="debug-resizer" role="separator" aria-orientation="vertical" aria-label="Resize debug panel"></div>
     <div class="global-status" id="global-status"></div>
+    <div class="new-canvas-backdrop" id="new-canvas-backdrop" hidden>
+        <form class="new-canvas-modal" id="new-canvas-modal" role="dialog" aria-modal="true" aria-labelledby="new-canvas-title">
+            <h2 id="new-canvas-title">New Canvas</h2>
+            <input id="new-canvas-name" name="name" type="text" autocomplete="off" placeholder="Name">
+            <div class="new-canvas-actions">
+                <button type="button" id="new-canvas-cancel">Cancel</button>
+                <button type="submit" id="new-canvas-create">Create</button>
+            </div>
+        </form>
+    </div>
     <form class="global-prompt" id="global-prompt">
         <div class="canvas-nav" aria-label="Canvas selection">
             <select id="agent-select" class="agent-select" aria-label="Agent"></select>
@@ -384,6 +508,11 @@
         const agentSelect = document.getElementById('agent-select');
         const canvasSelect = document.getElementById('canvas-select');
         const newCanvas = document.getElementById('new-canvas');
+        const newCanvasBackdrop = document.getElementById('new-canvas-backdrop');
+        const newCanvasModal = document.getElementById('new-canvas-modal');
+        const newCanvasName = document.getElementById('new-canvas-name');
+        const newCanvasCancel = document.getElementById('new-canvas-cancel');
+        const newCanvasCreate = document.getElementById('new-canvas-create');
         const debugCurrentAgent = document.getElementById('debug-current-agent');
         const debugCurrentBackend = document.getElementById('debug-current-backend');
         const debugCurrentCanvas = document.getElementById('debug-current-canvas');
@@ -1156,6 +1285,23 @@
             await loadCanvases();
         };
 
+        const createCanvas = async name => {
+            const response = await fetch('/canvases', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ name })
+            });
+
+            if (!response.ok) {
+                throw new Error('/canvases returned ' + response.status);
+            }
+
+            await load();
+            await loadCanvases();
+        };
+
         globalText.addEventListener('keydown', event => {
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
@@ -1192,22 +1338,60 @@
                 });
         });
 
-        newCanvas.addEventListener('click', () => {
-            const name = window.prompt('Canvas name');
+        const showNewCanvasModal = () => {
+            newCanvasName.value = '';
+            newCanvasCreate.disabled = false;
+            newCanvasBackdrop.hidden = false;
+            requestAnimationFrame(() => newCanvasName.focus());
+        };
 
-            if (!name) {
+        const hideNewCanvasModal = () => {
+            newCanvasBackdrop.hidden = true;
+            newCanvas.focus();
+        };
+
+        newCanvas.addEventListener('click', showNewCanvasModal);
+
+        newCanvasCancel.addEventListener('click', hideNewCanvasModal);
+
+        newCanvasBackdrop.addEventListener('click', event => {
+            if (event.target === newCanvasBackdrop) {
+                hideNewCanvasModal();
+            }
+        });
+
+        newCanvasModal.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                hideNewCanvasModal();
+            }
+        });
+
+        newCanvasModal.addEventListener('submit', event => {
+            event.preventDefault();
+
+            if (newCanvasCreate.disabled) {
                 return;
             }
 
+            if (!newCanvasName.value.trim()) {
+                newCanvasName.focus();
+                return;
+            }
+
+            newCanvasCreate.disabled = true;
             globalStatus.className = 'global-status';
             globalStatus.textContent = 'Creating canvas';
-            createCanvas(name)
+            createCanvas(newCanvasName.value.trim())
                 .then(() => {
+                    hideNewCanvasModal();
                     globalStatus.textContent = 'Canvas created';
                 })
                 .catch(error => {
+                    newCanvasCreate.disabled = false;
                     globalStatus.className = 'global-status error';
                     globalStatus.textContent = 'Error: ' + error.message;
+                    newCanvasName.focus();
                 });
         });
 
