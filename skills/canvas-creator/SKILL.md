@@ -1,47 +1,57 @@
 ---
 name: canvas-creator
-description: Create a new LiquidOS canvas workspace with the current directory structure
+description: Create a new LiquidOS canvas inside an existing .liquidos workspace
 triggers:
   - User asks to create a new canvas instance
   - User wants to set up a new live canvas
   - User mentions creating a canvas
 ---
 
-# Canvas Instance Creator
+# Canvas Creator
 
-Use this skill when the user asks to create a new canvas/workspace.
+Use this skill when the user asks to create a new canvas inside an existing `.liquidos` workspace.
+
+Read `../workspace-model.md` before creating canvases.
 
 ## Current Shape
 
-A canvas contains:
+The `.liquidos` folder is the workspace root and the canvas root. A canvas is a direct child of that folder:
 
 ```text
-<input canvas>/
-  input.json
-  output.json
-  components/
-  layouts/
-  transitions/
+Workspace.liquidos/
+  selected-canvas.json
+  home/
+    input.json
+    output.json
+    components/
+    layouts/
+    transitions/
+  <canvas-name>/
+    input.json
+    output.json
+    components/
+    layouts/
+    transitions/
 ```
 
-`input.json` is the component manifest. `components/` contains component folders. See `./component-creator/SKILL.md` for component structure.
+`input.json` is the component manifest. `components/` contains component folders. See `../component-creator/SKILL.md` for component structure.
 
 ## Quick Start
 
 Run from the AgentRuntime directory:
 
 ```bash
-bash canvas-creator/scripts/create-instance.sh <instance-name>
+bash skills/canvas-creator/scripts/create-instance.sh <canvas-name> /path/to/Workspace.liquidos
 ```
 
 This creates:
 
 ```text
-canvases/<instance-name>/input.json
-canvases/<instance-name>/output.json
-canvases/<instance-name>/components/
-canvases/<instance-name>/layouts/
-canvases/<instance-name>/transitions/
+Workspace.liquidos/<canvas-name>/input.json
+Workspace.liquidos/<canvas-name>/output.json
+Workspace.liquidos/<canvas-name>/components/
+Workspace.liquidos/<canvas-name>/layouts/
+Workspace.liquidos/<canvas-name>/transitions/
 ```
 
 ## Core Principle

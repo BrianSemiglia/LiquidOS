@@ -1,3 +1,12 @@
+---
+name: component-creator
+description: Create and modify LiquidOS canvas components
+triggers:
+  - User asks to create a component
+  - User asks to update a component
+  - User asks to build visible UI
+---
+
 # Component Guide
 
 // TODO: agent can create temporary components to show activity, if scope is zero or many components
@@ -115,10 +124,10 @@ Do not erase or mutate unrelated components!
 
 ## Callbacks
 
-For functionality that can be achieved programmatically and is expected to finish quickly, use Programmtic Callbacks. 
+For functionality that can be achieved programmatically and is expected to finish quickly, use Programmatic Callbacks. 
 For functionality that would benefit from the dynamism or intelligence of an agent, or if the building of something can be deferred until interacted with use Prompt Callbacks.
 
-### Programmtic Callbacks
+### Programmatic Callbacks
 
 Example:
 

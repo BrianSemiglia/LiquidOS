@@ -8,6 +8,7 @@ The canvas is the screen surface of the operating system, and the user will send
 
 The current working directory is the AgentRuntime directory.
 Scope is the target canvas or component filesystem path. Scope is not the instruction directory.
+The `.liquidos` folder is the workspace root and canvas root. See `./workspace-model.md`.
 
 
 When adding files to a component folder, do not reference them directly with `components/...` URLs in HTML. Declare them in the component `resources` object and use `{{ resources.name.url }}` in markup.

@@ -1,3 +1,12 @@
+---
+name: testing
+description: Test a LiquidOS workspace or component through the actual app UI
+triggers:
+  - User asks to test a workspace
+  - User asks to verify a component in the app
+  - User asks to inspect the actual UI
+---
+
 # Testing Workspaces
 
 Use this skill when changing a workspace or component and you need to verify the result through the actual app UI.

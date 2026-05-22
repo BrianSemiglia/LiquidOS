@@ -1,101 +1,71 @@
 #!/bin/bash
 set -euo pipefail
 
-INSTANCE_NAME="${1:-}"
-CANVASES_DIR="${2:-${CANVASES_ROOT:-}}"
+CANVAS_NAME="${1:-}"
+WORKSPACE_DIR="${2:-${LIQUIDOS_WORKSPACE:-}}"
 
-if [ -z "$INSTANCE_NAME" ]; then
-    echo "Usage: $0 <instance-name> [canvases-root]"
+if [ -z "$CANVAS_NAME" ] || [ -z "$WORKSPACE_DIR" ]; then
+    echo "Usage: $0 <canvas-name> <workspace.liquidos>"
     echo ""
-    echo "Creates a new canvas instance."
-    echo "Uses [canvases-root], CANVASES_ROOT, or the nearest ./canvases folder."
+    echo "Creates a canvas as a direct child of the .liquidos workspace."
+    echo "You may also provide LIQUIDOS_WORKSPACE instead of the second argument."
     exit 1
 fi
 
-PROJECT_ROOT=""
-if [ -f "server.js" ]; then
-    PROJECT_ROOT="$(pwd)"
-else
-    DIR="$(pwd)"
-    for _ in 1 2 3 4 5; do
-        if [ -f "$DIR/server.js" ]; then
-            PROJECT_ROOT="$DIR"
-            break
-        fi
-        DIR="$(dirname "$DIR")"
-    done
+if [ ! -d "$WORKSPACE_DIR" ]; then
+    echo "Error: workspace does not exist: $WORKSPACE_DIR"
+    exit 1
 fi
 
-if [ -z "$CANVASES_DIR" ]; then
-    if [ -n "$PROJECT_ROOT" ]; then
-        CANVASES_DIR="$PROJECT_ROOT/canvases"
-    elif [ -d "canvases" ]; then
-        CANVASES_DIR="$(pwd)/canvases"
-    else
-        CANVASES_DIR="$(pwd)"
-    fi
-fi
+WORKSPACE_DIR="$(cd "$WORKSPACE_DIR" && pwd)"
 
-SAFE_NAME="$(printf '%s' "$INSTANCE_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//')"
+case "$WORKSPACE_DIR" in
+    *.liquidos) ;;
+    *)
+        echo "Error: workspace must be a .liquidos folder: $WORKSPACE_DIR"
+        exit 1
+        ;;
+esac
+
+SAFE_NAME="$(printf '%s' "$CANVAS_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//')"
 
 if [ -z "$SAFE_NAME" ]; then
     echo "Error: canvas name is required."
     exit 1
 fi
 
-INSTANCE_DIR="$CANVASES_DIR/$SAFE_NAME"
+CANVAS_DIR="$WORKSPACE_DIR/$SAFE_NAME"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEMPLATE_DIR=""
+TEMPLATE_DIR="$SCRIPT_DIR/../templates"
 
-for CANDIDATE in \
-    "$PROJECT_ROOT/skills/canvas-creator/templates" \
-    "$SCRIPT_DIR/../templates"; do
-    if [ -n "$CANDIDATE" ] && [ -d "$CANDIDATE" ]; then
-        TEMPLATE_DIR="$CANDIDATE"
-        break
-    fi
-done
-
-if [ -e "$INSTANCE_DIR" ]; then
-    echo "Error: canvas already exists: $INSTANCE_DIR"
+if [ -e "$CANVAS_DIR" ]; then
+    echo "Error: canvas already exists: $CANVAS_DIR"
     exit 1
 fi
 
-echo "Canvases root: $CANVASES_DIR"
-echo "Creating canvas: $INSTANCE_DIR"
+echo "Workspace: $WORKSPACE_DIR"
+echo "Creating canvas: $CANVAS_DIR"
 
-mkdir -p "$INSTANCE_DIR/components"
+mkdir -p "$CANVAS_DIR/components"
 
-copy_asset_dir() {
-    local name="$1"
-    local source=""
-
-    for CANDIDATE in \
-        "$PROJECT_ROOT/skills/canvas-creator/$name" \
-        "$(dirname "$CANVASES_DIR")/skills/canvas-creator/$name"; do
-        if [ -n "$CANDIDATE" ] && [ -d "$CANDIDATE" ]; then
-            source="$CANDIDATE"
-            break
-        fi
-    done
-
-    if [ -n "$source" ]; then
-        mkdir -p "$INSTANCE_DIR/$name"
-        cp -R "$source/." "$INSTANCE_DIR/$name/"
-    fi
-}
-
-if [ -n "$TEMPLATE_DIR" ]; then
-    cp -R "$TEMPLATE_DIR/." "$INSTANCE_DIR/"
-    rm -f "$INSTANCE_DIR/canvas.html"
-    mkdir -p "$INSTANCE_DIR/components"
+if [ -d "$TEMPLATE_DIR" ]; then
+    cp -R "$TEMPLATE_DIR/." "$CANVAS_DIR/"
+    rm -f "$CANVAS_DIR/canvas.html"
 fi
 
-copy_asset_dir layouts
-copy_asset_dir transitions
+for name in layouts transitions; do
+    if [ -d "$SCRIPT_DIR/../$name" ]; then
+        mkdir -p "$CANVAS_DIR/$name"
+        cp -R "$SCRIPT_DIR/../$name/." "$CANVAS_DIR/$name/"
+    else
+        mkdir -p "$CANVAS_DIR/$name"
+    fi
+done
 
-if [ ! -f "$INSTANCE_DIR/input.json" ]; then
-    cat > "$INSTANCE_DIR/input.json" <<'JSON'
+mkdir -p "$CANVAS_DIR/components"
+
+if [ ! -f "$CANVAS_DIR/input.json" ]; then
+    cat > "$CANVAS_DIR/input.json" <<'JSON'
 {
   "components": [],
   "layoutPath": "layouts/stack.json",
@@ -109,23 +79,14 @@ node -e '
 const fs = require("fs");
 const inputPath = process.argv[1];
 const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
-if (typeof input.layoutPath !== "string" || !input.layoutPath.trim()) {
-  input.layoutPath = "layouts/stack.json";
-}
-if (typeof input.transitionPath !== "string" || !input.transitionPath.trim()) {
-  input.transitionPath = "transitions/soft.json";
-}
+if (!Array.isArray(input.components)) input.components = [];
+if (typeof input.layoutPath !== "string" || !input.layoutPath.trim()) input.layoutPath = "layouts/stack.json";
+if (typeof input.transitionPath !== "string" || !input.transitionPath.trim()) input.transitionPath = "transitions/soft.json";
 fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + "\n");
-' "$INSTANCE_DIR/input.json"
+' "$CANVAS_DIR/input.json"
 
-if [ ! -f "$INSTANCE_DIR/output.json" ]; then
-    printf '[]\n' > "$INSTANCE_DIR/output.json"
+if [ ! -f "$CANVAS_DIR/output.json" ]; then
+    printf '[]\n' > "$CANVAS_DIR/output.json"
 fi
 
-
-echo "Created:"
-echo "  $INSTANCE_DIR/input.json"
-echo "  $INSTANCE_DIR/output.json"
-echo "  $INSTANCE_DIR/components/"
-echo "  $INSTANCE_DIR/layouts/"
-echo "  $INSTANCE_DIR/transitions/"
+printf '{"canvas":"%s","path":"%s"}\n' "$SAFE_NAME" "$CANVAS_DIR"

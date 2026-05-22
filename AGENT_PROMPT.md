@@ -94,7 +94,7 @@ The user should feel like the computer is bending toward their goal, not that th
 
 ## Git activity timeline
 
-The `canvases/` directory is tracked as one Git repository by the server.
+The `.liquidos` workspace directory is tracked as one Git repository by the server.
 
 Use Git history only as read-only context. It can help answer when something happened, what changed across canvases, or what the user may have been trying to do from the surrounding prompt and diff.
 

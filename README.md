@@ -14,14 +14,26 @@ Required arguments:
 --port <number>
 ```
 
-The server expects each canvas directory to contain:
+The server expects the `.liquidos` workspace itself to be the canvas root. Each top-level canvas directory contains:
 
 ```text
-input.json
-output.json
+Workspace.liquidos/
+  selected-canvas.json
+  home/
+    input.json
+    output.json
+    components/
+    layouts/
+    transitions/
+  <other-canvas>/
+    input.json
+    output.json
+    components/
+    layouts/
+    transitions/
 ```
 
-The prompt bar can switch canvases, create a new canvas, and send canvas-scoped prompts. The whole `canvases/` folder is tracked as one Git repo so activity across canvases has a single timeline.
+The prompt bar can switch canvases, create a new canvas, and send canvas-scoped prompts. The whole `.liquidos` workspace folder is tracked as one Git repo so activity across canvases has a single timeline.
 
 The server does not create or guess a workspace. The Mac app opens or creates `.liquidos` workspace folders, then launches the server with explicit arguments.
 
