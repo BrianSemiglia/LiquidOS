@@ -85,6 +85,10 @@
             -webkit-font-smoothing: antialiased;
         }
 
+        .global-prompt > form {
+            display: contents;
+        }
+
         .canvas-nav {
             display: flex;
             gap: 0.35rem;
@@ -532,17 +536,6 @@
         }
 
 
-        .global-status {
-            position: fixed;
-            left: calc(var(--debug-rail-space) + (100vw - var(--debug-rail-space)) / 2);
-            bottom: 5.2rem;
-            z-index: 21;
-            width: min(calc(100vw - var(--debug-rail-space) - 2rem), 58rem);
-            min-height: 1rem;
-            color: rgba(255, 255, 255, 0.62);
-            font-size: 0.8rem;
-            transform: translateX(-50%);
-        }
 
         .debug-rail {
             position: sticky;
@@ -678,8 +671,7 @@
                 grid-column: 1 / -1;
             }
 
-            .global-prompt,
-            .global-status {
+            .global-prompt {
                 left: 50%;
             }
         }
@@ -710,7 +702,6 @@
         <pre class="debug-output" id="debug-output"></pre>
     </aside>
     <div class="debug-resizer" id="debug-resizer" role="separator" aria-orientation="vertical" aria-label="Resize debug panel"></div>
-    <div class="global-status" id="global-status"></div>
     <div class="new-canvas-backdrop" id="new-canvas-backdrop" hidden>
         <form class="new-canvas-modal" id="new-canvas-modal" role="dialog" aria-modal="true" aria-labelledby="new-canvas-title">
             <h2 id="new-canvas-title">New Canvas</h2>
@@ -721,22 +712,24 @@
             </div>
         </form>
     </div>
-    <form class="global-prompt" id="global-prompt">
-        <div class="canvas-nav" aria-label="Canvas selection">
-            <select id="agent-select" class="agent-select" aria-label="Agent"></select>
-            <select id="canvas-select" aria-label="Canvas"></select>
-            <button type="button" id="new-canvas">New</button>
-        </div>
-        <textarea id="global-text"></textarea>
-        <button type="submit">Send</button>
-    </form>
+    <liquidos-callback class="global-prompt" id="global-submit-callback" on="submit" scope="" prompt-from="prompt">
+        <form id="global-prompt">
+            <div class="canvas-nav" aria-label="Canvas selection">
+                <select id="agent-select" class="agent-select" aria-label="Agent"></select>
+                <select id="canvas-select" aria-label="Canvas"></select>
+                <button type="button" id="new-canvas">New</button>
+            </div>
+            <textarea id="global-text" name="prompt"></textarea>
+            <button type="submit">Send</button>
+        </form>
+    </liquidos-callback>
 
     <script>
         const app = document.getElementById('app');
         const canvasShell = document.getElementById('canvas-shell');
         const globalForm = document.getElementById('global-prompt');
         const globalText = document.getElementById('global-text');
-        const globalStatus = document.getElementById('global-status');
+        const globalSubmitCallback = document.getElementById('global-submit-callback');
         const agentSelect = document.getElementById('agent-select');
         const canvasSelect = document.getElementById('canvas-select');
         const newCanvas = document.getElementById('new-canvas');
@@ -762,6 +755,7 @@
         let debugResizeFrame = null;
         let debugLines = [];
         const livePromptInFlight = new Set();
+        const liveCallbackElements = new Set();
         const renderedItemsByIndex = new Map();
         const componentMountsByItem = new WeakMap();
         let latestComponentByIndex = new Map();
@@ -799,11 +793,19 @@
 
         const currentScrollKey = () => scrollKey(canvasSelect.value);
 
+        const stopLiveCallbackLoading = () => {
+            liveCallbackElements.forEach(element => element?.setLoading?.(false));
+            liveCallbackElements.clear();
+            livePromptInFlight.clear();
+        };
+
         const setBusy = state => {
             globalForm.dataset.busy = state?.busy ? 'true' : 'false';
-            globalStatus.className = state?.busy ? 'global-status busy' : 'global-status';
-            globalStatus.textContent = state?.busy ? 'Working' : '';
-            globalForm.querySelector('button[type="submit"]').disabled = Boolean(state?.busy);
+
+            if (!state?.busy) {
+                stopLiveCallbackLoading();
+            }
+
             updatePromptChromeSpace();
         };
 
@@ -1003,14 +1005,9 @@
         };
 
         const updatePromptChromeSpace = () => {
-            const promptTop = globalForm.getBoundingClientRect().top;
-            const statusTop = globalStatus.textContent.trim()
-                ? globalStatus.getBoundingClientRect().top
-                : promptTop;
-
             document.documentElement.style.setProperty(
                 '--prompt-chrome-space',
-                Math.ceil(window.innerHeight - Math.min(promptTop, statusTop) + 16) + 'px'
+                Math.ceil(window.innerHeight - globalSubmitCallback.getBoundingClientRect().top + 16) + 'px'
             );
             canvasShell.style.paddingBottom = 'var(--prompt-chrome-space)';
         };
@@ -1372,6 +1369,8 @@
                 status.className = 'status';
                 status.textContent = '';
                 setBusy({ busy: true });
+                event.target?.setLoading?.(true);
+                liveCallbackElements.add(event.target);
                 livePromptInFlight.add(promptKey);
 
                 submitPrompt(scope, prompt)
@@ -1383,9 +1382,6 @@
                         setBusy({ busy: false, job: null });
                         status.className = 'status error';
                         status.textContent = 'Error: ' + error.message;
-                    })
-                    .finally(() => {
-                        livePromptInFlight.delete(promptKey);
                     });
             });
 
@@ -1479,8 +1475,6 @@
                 event.currentTarget.disabled = true;
                 submitCanvasPrompt('Repair required due to error: ' + (error && error.message ? error.message : 'unknown')).catch(repairError => {
                     event.currentTarget.disabled = false;
-                    globalStatus.className = 'global-status error';
-                    globalStatus.textContent = 'Error: ' + repairError.message;
                 });
             });
         };
@@ -1505,6 +1499,7 @@
             }
 
             currentCanvasPath = typeof data.canvasPath === 'string' && data.canvasPath ? data.canvasPath : currentCanvasPath;
+            globalSubmitCallback.setAttribute('scope', currentCanvasPath);
             latestComponents = data.components.map((component, index) => ({
                 ...component,
                 index,
@@ -1683,30 +1678,20 @@
 
 
         canvasSelect.addEventListener('change', () => {
-            globalStatus.className = 'global-status';
-            globalStatus.textContent = 'Switching canvas';
             switchCanvas(canvasSelect.value)
                 .then(() => {
-                    globalStatus.textContent = 'Canvas switched';
                 })
                 .catch(error => {
-                    globalStatus.className = 'global-status error';
-                    globalStatus.textContent = 'Error: ' + error.message;
                     loadCanvases().catch(() => {});
                     showCanvasDamaged(error);
                 });
         });
 
         agentSelect.addEventListener('change', () => {
-            globalStatus.className = 'global-status';
-            globalStatus.textContent = 'Switching agent';
             switchAgentKind(agentSelect.value)
                 .then(() => {
-                    globalStatus.textContent = 'Agent switched';
                 })
                 .catch(error => {
-                    globalStatus.className = 'global-status error';
-                    globalStatus.textContent = 'Error: ' + error.message;
                     loadAgentChoices().catch(() => {});
                 });
         });
@@ -1753,49 +1738,45 @@
             }
 
             newCanvasCreate.disabled = true;
-            globalStatus.className = 'global-status';
-            globalStatus.textContent = 'Creating canvas';
             createCanvas(newCanvasName.value.trim())
                 .then(() => {
                     hideNewCanvasModal();
-                    globalStatus.textContent = 'Canvas created';
                 })
                 .catch(error => {
                     newCanvasCreate.disabled = false;
-                    globalStatus.className = 'global-status error';
-                    globalStatus.textContent = 'Error: ' + error.message;
                     newCanvasName.focus();
                 });
         });
 
-        globalForm.addEventListener('submit', event => {
+        globalSubmitCallback.addEventListener('liquidos:callback', event => {
             event.preventDefault();
 
             if (globalForm.dataset.busy === 'true') {
                 return;
             }
 
-            const prompt = globalText.value.trim();
-            const button = globalForm.querySelector('button[type="submit"]');
+            const prompt = String(event.detail?.prompt || '').trim();
+            const scope = String(event.detail?.scope || '').trim();
 
             if (!prompt) {
                 globalText.focus();
                 return;
             }
 
-            button.disabled = true;
-            globalStatus.className = 'global-status';
-            globalStatus.textContent = 'Sending';
-            setBusy({ busy: true });
+            if (!scope) {
+                return;
+            }
 
-            submitCanvasPrompt(prompt)
+            setBusy({ busy: true });
+            event.currentTarget.setLoading(true);
+            liveCallbackElements.add(event.currentTarget);
+
+            submitPrompt(scope, prompt)
                 .then(() => {
                     globalText.value = '';
                 })
                 .catch(error => {
                     setBusy({ busy: false, job: null });
-                    globalStatus.className = 'global-status error';
-                    globalStatus.textContent = 'Error: ' + error.message;
                 });
         });
 
@@ -1809,15 +1790,9 @@
         if (window.ResizeObserver) {
             const chromeResizeObserver = new ResizeObserver(updatePromptChromeSpace);
 
-            chromeResizeObserver.observe(globalForm);
-            chromeResizeObserver.observe(globalStatus);
+            chromeResizeObserver.observe(globalSubmitCallback);
         }
 
-        new MutationObserver(updatePromptChromeSpace).observe(globalStatus, {
-            childList: true,
-            characterData: true,
-            subtree: true
-        });
 
         updatePromptChromeSpace();
 
@@ -1862,8 +1837,9 @@
             .then(load)
             .catch(showCanvasDamaged);
         loadAgentChoices().catch(error => {
-            globalStatus.className = 'global-status error';
-            globalStatus.textContent = 'Error: ' + error.message;
+            if (debugOutput) {
+                debugOutput.textContent = 'Error: ' + error.message;
+            }
         });
 
     </script>
