@@ -39,25 +39,41 @@ const createCanvasGraph = ({
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
 
-    const invalidComponentCard = (componentPath, error) => ({
-        title: 'This part needs a quick repair',
-        componentPath,
-        parseError: error.message,
+
+    const displayNameFromPath = value =>
+        String(path.basename(path.dirname(value)) || path.basename(value) || 'Component')
+            .replace(/\.[^.]+$/, '')
+            .replace(/[-_]+/g, ' ')
+            .replace(/\b\w/g, character => character.toUpperCase());
+
+    const repairCard = ({ level, title, scope, error }) => ({
+        title,
+        scope,
+        repairLevel: level,
         html:
-            '<div style="padding:16px;border:1px solid #ef4444;border-radius:8px;background:#2a0f14;color:#fecaca;display:grid;gap:10px;">' +
-            '<div style="font-weight:700;margin-bottom:8px;">This part needs a quick repair</div>' +
-            '<div style="font-size:13px;line-height:1.45;color:#fecaca;">Something in this card could not be loaded correctly.</div>' +
-            '<liquidos-callback on="click" scope="' +
-            escapeHTML(componentScopePath(componentPath)) +
-            '" prompt="' +
-            escapeHTML(
-                'The component at path ' +
-                componentScopePath(componentPath) +
-                ' has invalid JSON. Please repair.'
-            ) +
-            '"><button style="justify-self:start;border:1px solid rgba(252,165,165,0.35);border-radius:999px;background:rgba(127,29,29,0.55);color:#fecaca;padding:0.55rem 0.85rem;font:inherit;font-weight:700;cursor:pointer;">Repair it</button></liquidos-callback>' +
+            '<div role="group" aria-label="' + escapeHTML(title) + '" style="min-height:9rem;padding:1rem;border:1px solid rgba(248,113,113,0.45);border-radius:16px;background:rgba(127,29,29,0.22);color:#fecaca;display:grid;place-items:center;text-align:center;" data-repair-level="' + escapeHTML(level) + '">' +
+            '<div style="display:grid;gap:0.75rem;justify-items:center;max-width:28rem;">' +
+            '<div style="font-weight:750;font-size:1.05rem;letter-spacing:-0.01em;">' + escapeHTML(title) + '</div>' +
+            '<liquidos-callback on="click" scope="' + escapeHTML(scope) + '" prompt="' + escapeHTML('Repair required due to error: ' + error.message) + '">' +
+            '<button style="border:1px solid rgba(252,165,165,0.35);border-radius:999px;background:rgba(127,29,29,0.55);color:#fecaca;padding:0.55rem 0.9rem;font:inherit;font-weight:700;cursor:pointer;">Repair</button>' +
+            '</liquidos-callback>' +
+            '</div>' +
             '</div>',
         css: ''
+    });
+
+    const invalidComponentCard = (componentPath, error) => repairCard({
+        level: 'component',
+        title: displayNameFromPath(componentPath) + ' component is damaged',
+        scope: componentScopePath(componentPath),
+        error
+    });
+
+    const invalidCanvasCard = error => repairCard({
+        level: 'canvas',
+        title: 'Canvas is damaged',
+        scope: getCanvasPath(),
+        error
     });
 
     const componentFolderPath = componentPath =>
@@ -152,14 +168,40 @@ const createCanvasGraph = ({
     const componentScope = componentPath =>
         componentFolderPath(componentPath);
 
-    const renderedInput = () => ({
-        canvasPath: getCanvasPath(),
-        ...readJson(getInputPath()),
-        components: leafComponents().map(({ componentPath, component }) => ({
-            scope: componentScope(componentPath),
-            html: renderedHtml(componentPath, component)
-        }))
-    });
+    const renderedInput = () => {
+        try {
+            const input = readJson(getInputPath());
+
+            if (!Array.isArray(input.components)) {
+                throw new Error('input.json must contain { "components": [...] }');
+            }
+
+            if (typeof input.presentation !== 'string' || !input.presentation.trim()) {
+                throw new Error('input.json must contain { "presentation": "presentations/name.css" }');
+            }
+
+            return {
+                canvasPath: getCanvasPath(),
+                ...input,
+                components: leafComponents().map(({ componentPath, component }) => ({
+                    scope: componentScope(componentPath),
+                    repairLevel: component.repairLevel || '',
+                    html: renderedHtml(componentPath, component)
+                }))
+            };
+        } catch (error) {
+            return {
+                canvasPath: getCanvasPath(),
+                presentation: '',
+                canvasError: error.message,
+                components: [{
+                    scope: getCanvasPath(),
+                    repairLevel: 'canvas',
+                    html: renderedHtml(getCanvasPath(), invalidCanvasCard(error))
+                }]
+            };
+        }
+    };
 
     const isInsideCanvas = file => {
         const relative = path.relative(getCanvasPath(), file);
@@ -261,7 +303,8 @@ const createCanvasGraph = ({
         validateComponentFiles,
         validateComponentFile,
         loadLeafComponent,
-        invalidComponentCard
+        invalidComponentCard,
+        invalidCanvasCard
     };
 };
 

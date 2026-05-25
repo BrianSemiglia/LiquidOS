@@ -51,13 +51,19 @@ const createCanvasFiles = ({
             return;
         }
 
-        const input = readJson(inputPath);
+        try {
+            const input = readJson(inputPath);
 
-        if (typeof input.presentation !== 'string' || !input.presentation.trim()) {
-            input.presentation = 'presentations/stack.css';
+            if (typeof input.presentation !== 'string' || !input.presentation.trim()) {
+                fs.writeFileSync(inputPath, JSON.stringify({
+                    ...input,
+                    presentation: 'presentations/stack.css'
+                }, null, 2) + '\n');
+            }
+        } catch (error) {
+            // A damaged input.json is a canvas-level repair case. Startup/default
+            // materialization must not throw before the web UI can render that card.
         }
-
-        fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + '\n');
     };
 
     const ensureCanvasDefaults = name => {

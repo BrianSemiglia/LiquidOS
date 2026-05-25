@@ -15,7 +15,7 @@ const git = (cwd, args, options = {}) =>
         stdio: options.stdio || 'pipe'
     });
 
-const callbackPromptText = job => job && (job.prompt || job.request) ? job.prompt || job.request : '';
+const callbackPromptText = job => job && job.prompt ? job.prompt : '';
 
 const scopeText = (scope, currentCanvasPath) => {
     const value = String(scope || '').trim();

@@ -548,13 +548,22 @@ const stopComponentService = (folder, forceImmediately = false) => {
 };
 
 const reconcileComponentServices = () => {
-    const desired = new Set(canvasGraph.componentServiceFolders());
+    try {
+        const desired = new Set(canvasGraph.componentServiceFolders());
 
-    Array.from(componentServices.keys())
-        .filter(folder => !desired.has(folder))
-        .forEach(stopComponentService);
+        Array.from(componentServices.keys())
+            .filter(folder => !desired.has(folder))
+            .forEach(stopComponentService);
 
-    desired.forEach(startComponentService);
+        desired.forEach(startComponentService);
+    } catch (error) {
+        // Canvas input damage should render as a canvas repair card from /input,
+        // not crash startup or canvas switching.
+        stopAllComponentServices();
+        logHermesError('component-service', error, {
+            message: 'component services paused until canvas config is repaired'
+        });
+    }
 };
 
 const stopAllComponentServices = (forceImmediately = false) => {
@@ -709,7 +718,7 @@ const setCanvasPath = canvasPath => {
     return activeCanvasRuntime;
 };
 
-const callbackPromptText = job => job.prompt || job.request || '';
+const callbackPromptText = job => job.prompt || '';
 
 const isCanvasScope = scope => {
     if (!scope) {
@@ -1187,17 +1196,27 @@ const watchCanvasesRoot = () => {
     canvasesRootWatcher = fs.watch(CANVASES_ROOT, { persistent: false }, scheduleCanvasesRootRefresh);
 };
 
-const safeWatchEntries = () =>
-    canvasGraph.watchedPaths()
-        .filter(entry => fs.existsSync(entry.path))
-        .filter(entry => {
-            try {
-                return path.relative(CANVAS_PATH, entry.path) === ''
-                    || (!path.relative(CANVAS_PATH, entry.path).startsWith('..') && !path.isAbsolute(path.relative(CANVAS_PATH, entry.path)));
-            } catch (error) {
-                return false;
-            }
+const safeWatchEntries = () => {
+    try {
+        return canvasGraph.watchedPaths()
+            .filter(entry => fs.existsSync(entry.path))
+            .filter(entry => {
+                try {
+                    return path.relative(CANVAS_PATH, entry.path) === ''
+                        || (!path.relative(CANVAS_PATH, entry.path).startsWith('..') && !path.isAbsolute(path.relative(CANVAS_PATH, entry.path)));
+                } catch (error) {
+                    return false;
+                }
+            });
+    } catch (error) {
+        logHermesError('watch', error, {
+            message: 'graph watch paused until canvas config is repaired'
         });
+        return fs.existsSync(INPUT_PATH)
+            ? [{ path: INPUT_PATH, recursive: false, kind: 'canvas' }]
+            : [];
+    }
+};
 
 const refreshGraphWatchers = () => {
     const entries = safeWatchEntries();

@@ -17,12 +17,50 @@
         }
 
         body {
+            display: grid;
+            grid-template-columns: var(--debug-rail-width) minmax(0, 1fr);
             min-height: 100vh;
             margin: 0;
             background: #111827;
             color: #f9fafb;
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
+
+        .canvas-shell {
+            grid-column: 2;
+            grid-row: 1;
+            min-width: 0;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        #app {
+            min-width: 0;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        .canvas-repair-item {
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            display: grid;
+            place-items: center;
+            width: 100%;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .canvas-repair-item .harness-component-frame-watcher,
+        .canvas-repair-item .component-front,
+        .canvas-repair-item .surface {
+            width: min(24rem, 100%);
+        }
+
+        .canvas-repair-item .component-flip-button {
+            display: none;
+        }
+
 
         .global-prompt {
             position: fixed;
@@ -141,6 +179,54 @@
         .global-prompt button:disabled {
             cursor: default;
             opacity: 0.45;
+        }
+
+
+        .canvas-damaged-shell {
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            display: grid;
+            place-items: center;
+            min-width: 0;
+            min-height: 0;
+            padding: 2rem;
+        }
+
+        .canvas-damaged-dialog {
+            display: grid;
+            gap: 1rem;
+            justify-items: center;
+            width: min(24rem, 100%);
+            min-width: 0;
+            padding: 1.35rem;
+            border: 1px solid rgba(248, 113, 113, 0.45);
+            border-radius: 22px;
+            background: rgba(31, 41, 55, 0.92);
+            color: #fecaca;
+            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+            text-align: center;
+        }
+
+        .canvas-damaged-dialog h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            line-height: 1.2;
+            letter-spacing: -0.02em;
+        }
+
+        .canvas-damaged-dialog button {
+            border: 1px solid rgba(252, 165, 165, 0.35);
+            border-radius: 999px;
+            background: rgba(127, 29, 29, 0.55);
+            color: #fecaca;
+            padding: 0.65rem 1rem;
+            font: inherit;
+            font-weight: 700;
+        }
+
+        .canvas-damaged-dialog button:disabled {
+            opacity: 0.55;
         }
 
 
@@ -459,15 +545,16 @@
         }
 
         .debug-rail {
-            position: fixed;
-            left: 0;
+            position: sticky;
             top: 0;
-            bottom: 0;
+            grid-column: 1;
+            grid-row: 1;
             z-index: 25;
             display: grid;
             grid-template-rows: auto auto 1fr;
             gap: 1rem;
-            width: var(--debug-rail-width);
+            width: auto;
+            height: 100vh;
             padding: 1rem;
             border-right: 1px solid rgba(255, 255, 255, 0.08);
             background: rgba(8, 15, 30, 0.84);
@@ -585,6 +672,10 @@
 
             .debug-resizer {
                 display: none;
+            }
+
+            .canvas-shell {
+                grid-column: 1 / -1;
             }
 
             .global-prompt,
@@ -935,9 +1026,29 @@
             return response.text();
         };
 
+        const escapeHTML = value =>
+            String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+
+        const repairCardHtml = ({ level, title, scope, message }) =>
+            '<div role="group" aria-label="' + escapeHTML(title) + '" style="min-height:9rem;padding:1rem;border:1px solid rgba(248,113,113,0.45);border-radius:16px;background:rgba(127,29,29,0.22);color:#fecaca;display:grid;place-items:center;text-align:center;" data-repair-level="' + escapeHTML(level) + '">' +
+            '<div style="display:grid;gap:0.75rem;justify-items:center;max-width:28rem;">' +
+            '<div style="font-weight:750;font-size:1.05rem;letter-spacing:-0.01em;">' + escapeHTML(title) + '</div>' +
+            '<liquidos-callback on="click" scope="' + escapeHTML(scope) + '" prompt="' + escapeHTML('Repair required due to error: ' + message) + '">' +
+            '<button style="border:1px solid rgba(252,165,165,0.35);border-radius:999px;background:rgba(127,29,29,0.55);color:#fecaca;padding:0.55rem 0.9rem;font:inherit;font-weight:700;cursor:pointer;">Repair</button>' +
+            '</liquidos-callback>' +
+            '</div>' +
+            '</div>';
+
         const setPresentation = async presentation => {
             if (typeof presentation !== 'string' || !presentation.trim()) {
-                throw new Error('/input must include { presentation: "presentations/name.css" }');
+                presentationStyle.textContent = '';
+                updatePromptChromeSpace();
+                return;
             }
 
             presentationStyle.textContent = await loadTextResource(presentation);
@@ -974,41 +1085,13 @@
             return (currentCanvasPath ? currentCanvasPath.replace(/\/$/, '') + '/' : '') + value.replace(/^\.\//, '');
         };
 
-        const submitPrompt = async (scope, request, parseError = '') => {
-            if (parseError) {
-                const repairPrompt = [
-                    request,
-                    '',
-                    'Broken component:',
-                    absoluteScope(scope) || '(unknown)',
-                    'Parse error: ' + parseError
-                ].filter(Boolean).join('\n');
-
-                const response = await fetch('/output', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        scope: absoluteScope('./'),
-                        prompt: repairPrompt
-                    })
-                });
-
-                if (!response.ok) {
-                    throw new Error('/output returned ' + response.status);
-                }
-
-                setBusy({ busy: true });
-                return;
-            }
-
+        const submitPrompt = async (scope, prompt) => {
             const response = await fetch('/output', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ scope: absoluteScope(scope), prompt: request })
+                body: JSON.stringify({ scope: absoluteScope(scope), prompt })
             });
 
             if (!response.ok) {
@@ -1198,6 +1281,8 @@
             item.className = 'item';
             item.dataset.componentIndex = component.index;
             item.dataset.componentPath = component.scope || '';
+            item.dataset.repairLevel = component.repairLevel || '';
+            item.classList.toggle('canvas-repair-item', component.repairLevel === 'canvas');
             item.dataset.layoutEnter = 'true';
             item.__component = component;
 
@@ -1272,7 +1357,6 @@
                     : {};
                 const prompt = String(detail.prompt || '').trim();
                 const scope = String(detail.scope || '').trim();
-
                 if (!prompt || !scope) {
                     return;
                 }
@@ -1311,6 +1395,8 @@
         const updateComponentItem = (item, component) => {
             item.__component = component;
             item.dataset.componentPath = component.scope || '';
+            item.dataset.repairLevel = component.repairLevel || '';
+            item.classList.toggle('canvas-repair-item', component.repairLevel === 'canvas');
             const surface = item.querySelector('.surface');
             if (surface) {
                 surface.innerHTML = component.html || '';
@@ -1379,6 +1465,26 @@
             }
         };
 
+        const showCanvasDamaged = error => {
+            app.replaceChildren(Object.assign(document.createElement('div'), {
+                className: 'canvas-damaged-shell'
+            }));
+            app.firstElementChild.innerHTML = [
+                '<div class="canvas-damaged-dialog" role="dialog" aria-modal="true" aria-labelledby="canvas-damaged-title">',
+                '<h1 id="canvas-damaged-title">Canvas is damaged</h1>',
+                '<button type="button">Repair</button>',
+                '</div>'
+            ].join('');
+            app.firstElementChild.querySelector('button').addEventListener('click', event => {
+                event.currentTarget.disabled = true;
+                submitCanvasPrompt('Repair required due to error: ' + (error && error.message ? error.message : 'unknown')).catch(repairError => {
+                    event.currentTarget.disabled = false;
+                    globalStatus.className = 'global-status error';
+                    globalStatus.textContent = 'Error: ' + repairError.message;
+                });
+            });
+        };
+
         const load = async () => {
             const data = await fetch('/input', { cache: 'no-store' }).then(response => {
                 if (!response.ok) {
@@ -1398,9 +1504,30 @@
                 return;
             }
 
-            latestComponents = data.components.map((component, index) => ({ ...component, index }));
+            currentCanvasPath = typeof data.canvasPath === 'string' && data.canvasPath ? data.canvasPath : currentCanvasPath;
+            latestComponents = data.components.map((component, index) => ({
+                ...component,
+                index,
+                repairLevel: component.repairLevel || (data.canvasError && component.scope === data.canvasPath ? 'canvas' : '')
+            }));
             latestComponentByIndex = new Map(latestComponents.map(component => [component.index, component]));
-            await setPresentation(data.presentation);
+            try {
+                await setPresentation(data.presentation);
+            } catch (error) {
+                presentationStyle.textContent = '';
+                latestComponents = [{
+                    index: 0,
+                    scope: currentCanvasPath || '.',
+                    repairLevel: 'canvas',
+                    html: repairCardHtml({
+                        level: 'canvas',
+                        title: 'Canvas is damaged',
+                        scope: currentCanvasPath || '.',
+                        message: error.message
+                    })
+                }];
+                latestComponentByIndex = new Map([[0, latestComponents[0]]]);
+            }
             const items = latestComponents.map(renderComponent);
             instanceStyle.textContent = '';
             renderCanvas(items, null);
@@ -1526,8 +1653,8 @@
                 throw new Error('/canvas returned ' + response.status);
             }
 
-            await load();
             await loadCanvases();
+            await load();
         };
 
         const createCanvas = async name => {
@@ -1543,8 +1670,8 @@
                 throw new Error('/canvases returned ' + response.status);
             }
 
-            await load();
             await loadCanvases();
+            await load();
         };
 
         globalText.addEventListener('keydown', event => {
@@ -1566,6 +1693,7 @@
                     globalStatus.className = 'global-status error';
                     globalStatus.textContent = 'Error: ' + error.message;
                     loadCanvases().catch(() => {});
+                    showCanvasDamaged(error);
                 });
         });
 
@@ -1704,9 +1832,7 @@
 
             if (payload && payload.type === 'queue-status') {
                 setBusy(payload.state || { busy: false, job: null });
-                load().catch(error => {
-                    app.textContent = 'Error: ' + error.message;
-                });
+                load().catch(showCanvasDamaged);
                 return;
             }
 
@@ -1721,9 +1847,7 @@
                 return;
             }
 
-            load().catch(error => {
-                app.textContent = 'Error: ' + error.message;
-            });
+            load().catch(showCanvasDamaged);
         };
 
         loadDebugPanel()
@@ -1734,14 +1858,10 @@
                 }
             });
 
-        load().catch(error => {
-            app.textContent = 'Error: ' + error.message;
-        });
+        loadCanvases()
+            .then(load)
+            .catch(showCanvasDamaged);
         loadAgentChoices().catch(error => {
-            globalStatus.className = 'global-status error';
-            globalStatus.textContent = 'Error: ' + error.message;
-        });
-        loadCanvases().catch(error => {
             globalStatus.className = 'global-status error';
             globalStatus.textContent = 'Error: ' + error.message;
         });
