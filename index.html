@@ -86,20 +86,12 @@
             width: auto;
             max-width: 100%;
             min-width: 0;
-            transform-style: preserve-3d;
-            transition: transform 220ms cubic-bezier(.2, .8, .2, 1);
             overflow: visible;
-        }
-
-        .item[data-side="back"] .component-frame {
-            transform: rotateY(180deg);
         }
 
         .component-face {
             grid-area: 1 / 1;
             min-width: 0;
-            backface-visibility: hidden;
-            -webkit-backface-visibility: hidden;
         }
 
         .component-back {
@@ -112,7 +104,7 @@
             background: rgb(31, 41, 55);
             color: rgba(255, 255, 255, 0.92);
             box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
-            transform: rotateY(180deg);
+            display: none;
         }
 
         .component-back-header {
@@ -202,6 +194,10 @@
             opacity: 1;
         }
 
+        .component-front {
+            pointer-events: auto;
+        }
+
         .component-requirements-status {
             color: rgba(255, 255, 255, 0.58);
             font-size: 0.82rem;
@@ -251,6 +247,7 @@
         }
 
         .requirements-overlay .component-back {
+            display: grid;
             grid-template-rows: auto minmax(0, 1fr) auto;
             padding: 1.25rem;
         }
