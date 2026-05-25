@@ -80,12 +80,50 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <string>13.0</string>
   <key>NSHighResolutionCapable</key>
   <true/>
-  <key>NSBluetoothAlwaysUsageDescription</key>
-  <string>LiquidOS uses Bluetooth access for local components that display and control Bluetooth device state.</string>
-  <key>NSBluetoothPeripheralUsageDescription</key>
-  <string>LiquidOS uses Bluetooth access for local components that display and control Bluetooth device state.</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>LiquidOS uses microphone access for local components that display live microphone activity.</string>
+  <string>LiquidOS uses microphone access only when a component you run asks to capture or analyze audio.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>LiquidOS uses camera access only when a component you run asks to capture photos or video.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>LiquidOS uses Bluetooth access only when a component you run asks to discover or communicate with nearby Bluetooth devices.</string>
+  <key>NSBluetoothPeripheralUsageDescription</key>
+  <string>LiquidOS uses Bluetooth access only when a component you run asks to discover or communicate with nearby Bluetooth devices.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>LiquidOS uses local network access only when a component you run asks to discover or serve devices on your network.</string>
+  <key>NSBonjourServices</key>
+  <array/>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>LiquidOS uses location access only when a component you run asks for your current location.</string>
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+  <string>LiquidOS uses location access only when a component you run asks for location while the app is open or running.</string>
+  <key>NSLocationUsageDescription</key>
+  <string>LiquidOS uses location access only when a component you run asks for your current location.</string>
+  <key>NSContactsUsageDescription</key>
+  <string>LiquidOS uses contacts access only when a component you run asks to read or select contacts.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>LiquidOS uses calendar access only when a component you run asks to read or manage calendar events.</string>
+  <key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+  <string>LiquidOS uses calendar write access only when a component you run asks to create calendar events.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>LiquidOS uses calendar access only when a component you run asks to read or manage calendar events.</string>
+  <key>NSRemindersFullAccessUsageDescription</key>
+  <string>LiquidOS uses reminders access only when a component you run asks to read or manage reminders.</string>
+  <key>NSRemindersUsageDescription</key>
+  <string>LiquidOS uses reminders access only when a component you run asks to read or manage reminders.</string>
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>LiquidOS uses photo library access only when a component you run asks to read photos or videos.</string>
+  <key>NSPhotoLibraryAddUsageDescription</key>
+  <string>LiquidOS uses photo library add access only when a component you run asks to save photos or videos.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>LiquidOS uses speech recognition only when a component you run asks to transcribe speech.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>LiquidOS uses automation access only when a component you run asks to control another app.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>LiquidOS uses screen recording access only when a component you run asks to view or capture the screen.</string>
+  <key>NSMotionUsageDescription</key>
+  <string>LiquidOS uses motion access only when a component you run asks to read motion data.</string>
+  <key>NSMediaLibraryUsageDescription</key>
+  <string>LiquidOS uses media library access only when a component you run asks to read music, movies, or other media.</string>
 </dict>
 </plist>
 PLIST
