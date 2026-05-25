@@ -1,6 +1,6 @@
 {
   "name": "stack",
-  "css": "#app{display:flex;flex-direction:column;gap:.75rem;max-width:980px;margin:0 auto;padding:1rem;box-sizing:border-box;align-items:stretch}#app>.item{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:.5rem;margin:0;max-width:100%}#app>.item .surface>*{max-width:100%}",
+  "css": "#app{display:flex;flex-direction:column;gap:.75rem;margin:0;padding:1rem;box-sizing:border-box;align-items:flex-start;width:100%;max-width:none}#app>.item{position:relative;display:inline-block;width:auto;max-width:100%;min-width:0;margin:0}#app>.item .component-frame{width:auto;max-width:none;overflow:visible}#app>.item .surface{width:auto;max-width:none;min-width:0;overflow:visible}",
   "appStyle": {
     "position": "relative",
     "display": "block",

@@ -1270,6 +1270,56 @@ const appendOutput = async req => {
     });
 };
 
+
+const componentFolderPath = componentPath =>
+    fs.existsSync(componentPath) && fs.statSync(componentPath).isDirectory()
+        ? componentPath
+        : path.dirname(componentPath);
+
+const componentFeatureFile = componentPath =>
+    path.join(componentFolderPath(componentPath), 'feature-requirements.md');
+
+const readComponentFeatureText = componentPath => {
+    const file = componentFeatureFile(componentPath);
+    return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+};
+
+const writeComponentFeatureText = (componentPath, text) => {
+    fs.mkdirSync(path.dirname(componentFeatureFile(componentPath)), { recursive: true });
+    fs.writeFileSync(componentFeatureFile(componentPath), String(text || ''), 'utf8');
+};
+
+const appendInternalOutputJob = async ({ scope, prompt }) => {
+    await outputQueue.appendOutputJob({
+        id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+        scope,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        componentKey: scope,
+        prompt
+    });
+    outputQueue.feedHermesOutput();
+    broadcastQueueState();
+};
+
+const componentFeaturePrompt = ({ componentScope, before, after }) => [
+    'The user edited the feature requirements for this component.',
+    '',
+    'Component:',
+    componentScope,
+    '',
+    'Previous requirements:',
+    before || '(none)',
+    '',
+    'Updated requirements:',
+    after || '(none)',
+    '',
+    'Review the actual component before changing anything.',
+    'Keep feature-requirements.md user-facing, concise, plain-language, and faithful to what the component does or is meant to do.',
+    "If the requirements and implementation disagree, resolve the mismatch by updating the implementation, the requirements, or both, based on the user's intent.",
+    'Do not add unrelated capabilities or preserve inaccurate requirements.'
+].join('\n');
+
 const streamFile = (req, res, file, type = 'application/octet-stream') => {
     const stat = fs.statSync(file);
     const range = req.headers.range;
@@ -1478,6 +1528,48 @@ const server = http.createServer(async (req, res) => {
 
             streamCanvasFile(req, res, resource.path, resource.mime || resource.type);
             return;
+        }
+
+
+        const componentFeatures = url.pathname.match(/^\/component\/(.+)\/features$/);
+
+        if (componentFeatures) {
+            const componentPath = decodeURIComponent(componentFeatures[1]);
+            const entry = canvasGraph.findLeafComponentByPath(componentPath);
+
+            if (!entry) {
+                send(res, 404, 'Component not found');
+                return;
+            }
+
+            if (req.method === 'GET') {
+                send(res, 200, JSON.stringify({
+                    text: readComponentFeatureText(entry.componentPath)
+                }), 'application/json; charset=utf-8');
+                return;
+            }
+
+            if (req.method === 'POST') {
+                const body = JSON.parse(await readBody(req));
+                const before = readComponentFeatureText(entry.componentPath);
+                const after = String(body.text || '');
+                const changed = before !== after;
+
+                if (changed) {
+                    writeComponentFeatureText(entry.componentPath, after);
+                    await appendInternalOutputJob({
+                        scope: canvasGraph.componentScope(entry.componentPath),
+                        prompt: componentFeaturePrompt({
+                            componentScope: canvasGraph.componentScopePath(entry.componentPath),
+                            before,
+                            after
+                        })
+                    });
+                }
+
+                send(res, 200, JSON.stringify({ changed }), 'application/json; charset=utf-8');
+                return;
+            }
         }
 
         const componentFile = url.pathname.match(/^\/component\/(.+)\/file$/);

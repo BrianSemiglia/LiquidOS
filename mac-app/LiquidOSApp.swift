@@ -12,6 +12,8 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
     private var canvasesRootURL: URL?
     private var pendingWorkspaceURL: URL?
     private var serverOutputBuffer = ""
+    private var serverErrorBuffer = ""
+    private var intentionallyStoppingServer = false
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -136,6 +138,8 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
             return
         }
         
+        serverErrorBuffer = ""
+        intentionallyStoppingServer = false
         server = Process()
         server?.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         server?.currentDirectoryURL = appRoot
@@ -183,10 +187,31 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
             }
         }
 
-        errorPipe.fileHandleForReading.readabilityHandler = { handle in
+        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
                 FileHandle.standardError.write(Data(text.utf8))
+                DispatchQueue.main.async {
+                    self?.serverErrorBuffer += text
+                }
+            }
+        }
+
+        server?.terminationHandler = { [weak self] process in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard !self.intentionallyStoppingServer else { return }
+                guard self.server?.processIdentifier == process.processIdentifier else { return }
+
+                self.showError([
+                    "LiquidOS server stopped before the workspace loaded.",
+                    "",
+                    "Exit code: \(process.terminationStatus)",
+                    "",
+                    self.serverErrorBuffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "No server error output was captured."
+                        : self.serverErrorBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                ].joined(separator: "\n"))
             }
         }
         
@@ -220,8 +245,14 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
     }
     
     private func loadWhenReady(attempt: Int) {
-        guard attempt < 400 else {
-            showError("LiquidOS server did not start on localhost port \(port).")
+        guard attempt < 120 else {
+            showError([
+                "LiquidOS server did not answer on localhost port \(port).",
+                "",
+                serverErrorBuffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "No server error output was captured."
+                    : serverErrorBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+            ].joined(separator: "\n"))
             return
         }
         
@@ -498,6 +529,8 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
             return
         }
 
+        intentionallyStoppingServer = true
+
         if server.isRunning {
             server.terminate()
             Thread.sleep(forTimeInterval: 0.5)
@@ -508,6 +541,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
         }
 
         self.server = nil
+        intentionallyStoppingServer = false
     }
 
     private static let workspaceContentType = UTType("local.liquidos.workspace") ?? .package

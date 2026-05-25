@@ -36,17 +36,19 @@
 
         #app {
             position: relative;
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            display: flex;
+            flex-direction: column;
             gap: 1rem;
-            align-items: start;
+            align-items: flex-start;
             width: 100%;
             min-height: calc(100vh - var(--prompt-chrome-space) - 4rem);
         }
 
         .item {
-            display: grid;
-            gap: 0.75rem;
+            position: relative;
+            display: inline-block;
+            width: auto;
+            max-width: 100%;
             min-width: 0;
             border-radius: 10px;
             outline: 2px solid transparent;
@@ -54,7 +56,12 @@
         }
 
         .surface {
+            display: inline-block;
+            width: auto;
+            max-width: 100%;
             min-width: 0;
+            overflow: visible;
+            vertical-align: top;
         }
 
         .status {
@@ -65,6 +72,203 @@
 
         .error {
             color: #fecaca;
+        }
+
+
+
+        .item {
+            position: relative;
+        }
+
+        .component-frame {
+            position: relative;
+            display: inline-grid;
+            width: auto;
+            max-width: 100%;
+            min-width: 0;
+            transform-style: preserve-3d;
+            transition: transform 220ms cubic-bezier(.2, .8, .2, 1);
+            overflow: visible;
+        }
+
+        .item[data-side="back"] .component-frame {
+            transform: rotateY(180deg);
+        }
+
+        .component-face {
+            grid-area: 1 / 1;
+            min-width: 0;
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+        }
+
+        .component-back {
+            display: grid;
+            gap: 0.75rem;
+            min-height: 12rem;
+            padding: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 18px;
+            background: rgb(31, 41, 55);
+            color: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
+            transform: rotateY(180deg);
+        }
+
+        .component-back-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .component-back h2 {
+            margin: 0;
+            font-size: 1rem;
+            letter-spacing: -0.02em;
+        }
+
+        .component-back p {
+            margin: 0;
+            color: rgba(255, 255, 255, 0.58);
+            font-size: 0.86rem;
+            line-height: 1.35;
+        }
+
+        .component-back textarea {
+            width: 100%;
+            min-height: 10rem;
+            resize: vertical;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 14px;
+            padding: 0.75rem;
+            background: rgb(43, 52, 65);
+            color: rgba(255, 255, 255, 0.92);
+            font: inherit;
+            line-height: 1.35;
+        }
+
+        .component-back textarea:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.34);
+            background: rgb(48, 57, 70);
+        }
+
+        .component-back-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: end;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .component-back button,
+        .component-flip-button {
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            padding: 0.45rem 0.75rem;
+            background: rgba(255, 255, 255, 0.10);
+            color: rgba(255, 255, 255, 0.88);
+            font: inherit;
+            font-size: 0.86rem;
+            font-weight: 650;
+        }
+
+        .component-back button:hover:not(:disabled),
+        .component-flip-button:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.16);
+        }
+
+        .component-back button:disabled {
+            opacity: 0.48;
+        }
+
+        .component-save-button {
+            background: rgba(255, 255, 255, 0.76) !important;
+            color: rgba(17, 24, 39, 0.94) !important;
+        }
+
+        .component-flip-button {
+            position: absolute;
+            right: 0.75rem;
+            top: -1.45rem;
+            z-index: 40;
+            opacity: 0;
+            transition: opacity 120ms ease, background 120ms ease;
+        }
+
+        .component-frame:hover .component-flip-button,
+        .component-flip-button:focus-visible {
+            opacity: 1;
+        }
+
+        .component-requirements-status {
+            color: rgba(255, 255, 255, 0.58);
+            font-size: 0.82rem;
+        }
+
+        .component-requirements-status:empty {
+            display: none;
+        }
+
+        .requirements-overlay .component-requirements-status {
+            justify-self: end;
+        }
+
+
+        .requirements-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: grid;
+            place-items: center;
+            padding: 2rem;
+            background: rgba(3, 7, 18, 0.82);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
+
+        .requirements-overlay .item {
+            width: min(760px, calc(100vw - 3rem));
+            min-width: 0;
+        }
+
+        .requirements-overlay .component-frame {
+            width: 100%;
+            height: min(620px, calc(100vh - 4rem));
+        }
+
+        .requirements-overlay .component-face {
+            min-height: 0;
+            height: 100%;
+            box-sizing: border-box;
+        }
+
+        .requirements-overlay .component-front {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .requirements-overlay .component-back {
+            grid-template-rows: auto minmax(0, 1fr) auto;
+            padding: 1.25rem;
+        }
+
+        .requirements-overlay .component-flip-button {
+            display: none;
+        }
+
+        .requirements-overlay .component-back textarea {
+            min-height: 0;
+            height: 100%;
+            resize: none;
+        }
+
+        .requirements-placeholder {
+            min-height: 3rem;
+            visibility: hidden;
+            pointer-events: none;
         }
 
         .global-prompt {
@@ -103,7 +307,7 @@
             height: 2.45rem;
             border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 15px;
-            background: rgba(255, 255, 255, 0.08);
+            background: rgb(43, 52, 65);
             color: rgba(255, 255, 255, 0.92);
             font: inherit;
             box-shadow:
@@ -135,7 +339,7 @@
         .global-prompt textarea:focus {
             outline: none;
             border-color: rgba(255, 255, 255, 0.28);
-            background: rgba(255, 255, 255, 0.11);
+            background: rgb(48, 57, 70);
         }
 
         .global-prompt textarea::placeholder {
@@ -787,11 +991,26 @@
             canvasShell.style.paddingBottom = 'var(--prompt-chrome-space)';
         };
 
+
+        const generatedLayoutCss = layout => {
+            if (!layout || typeof layout !== 'object' || typeof layout.css === 'string') {
+                return typeof layout?.css === 'string' ? layout.css : '';
+            }
+
+            if (layout.type === 'stack') {
+                return '#app{display:flex;flex-direction:column;align-items:'
+                    + (layout.align === 'center' ? 'center' : layout.align === 'end' ? 'flex-end' : 'flex-start')
+                    + ';gap:' + (Number.isFinite(Number(layout.gap)) ? Number(layout.gap) : 16) + 'px;padding:'
+                    + (Number.isFinite(Number(layout.padding)) ? Number(layout.padding) : 16)
+                    + 'px;box-sizing:border-box;width:100%}#app>.item{width:auto;max-width:100%;min-width:0}#app>.item .component-frame{width:auto;max-width:100%}#app>.item .surface{width:auto;max-width:100%;overflow:visible}';
+            }
+
+            return '';
+        };
+
         const setLayout = layout => {
             currentLayout = layout && typeof layout === 'object' ? layout : null;
-            layoutStyle.textContent = currentLayout && typeof currentLayout.css === 'string'
-                ? currentLayout.css
-                : '';
+            layoutStyle.textContent = generatedLayoutCss(currentLayout);
             const style = currentLayout?.appStyle;
 
             if (style && typeof style === 'object') {
@@ -958,6 +1177,118 @@
             });
         };
 
+
+        const componentFeatureUrl = component =>
+            '/component/' + encodeURIComponent(String(component.scope || '')) + '/features';
+
+        const loadComponentFeatures = async item => {
+            const textarea = item.querySelector('[data-feature-requirements]');
+            const status = item.querySelector('[data-feature-status]');
+
+            if (!textarea || !item.__component?.scope) {
+                return;
+            }
+
+            status.textContent = 'Loading…';
+            const response = await fetch(componentFeatureUrl(item.__component), { cache: 'no-store' });
+
+            if (!response.ok) {
+                throw new Error('/features returned ' + response.status);
+            }
+
+            const data = await response.json();
+            textarea.value = String(data.text || '');
+            textarea.dataset.savedValue = textarea.value;
+            status.textContent = '';
+            item.querySelector('[data-feature-save]').disabled = true;
+        };
+
+        const closeRequirementsOverlay = item => {
+            if (!item.__requirementsPlaceholder || !item.__requirementsOverlay) {
+                return;
+            }
+
+            item.dataset.side = 'front';
+            item.querySelector('[data-component-flip]').textContent = 'Requirements';
+            item.__requirementsPlaceholder.replaceWith(item);
+            item.__requirementsOverlay.remove();
+            item.__requirementsPlaceholder = null;
+            item.__requirementsOverlay = null;
+        };
+
+        const openRequirementsOverlay = item => {
+            if (item.__requirementsOverlay) {
+                return;
+            }
+
+            const placeholder = document.createElement('div');
+            placeholder.className = 'requirements-placeholder';
+            item.__requirementsPlaceholder = placeholder;
+            item.replaceWith(placeholder);
+
+            const overlay = document.createElement('div');
+            overlay.className = 'requirements-overlay';
+            item.__requirementsOverlay = overlay;
+            overlay.append(item);
+            document.body.append(overlay);
+
+            item.dataset.side = 'back';
+            item.querySelector('[data-component-flip]').textContent = 'Requirements';
+        };
+
+        const showComponentSide = (item, side) => {
+            if (side === 'back') {
+                openRequirementsOverlay(item);
+            } else {
+                closeRequirementsOverlay(item);
+            }
+
+            if (side === 'back' && item.querySelector('[data-feature-requirements]')?.dataset.loaded !== 'true') {
+                loadComponentFeatures(item).then(() => {
+                    const textarea = item.querySelector('[data-feature-requirements]');
+
+                    if (textarea) {
+                        textarea.dataset.loaded = 'true';
+                    }
+                }).catch(error => {
+                    const status = item.querySelector('[data-feature-status]');
+
+                    if (status) {
+                        status.textContent = 'Could not load requirements: ' + error.message;
+                    }
+                });
+            }
+        };
+
+        const saveComponentFeatures = async item => {
+            const textarea = item.querySelector('[data-feature-requirements]');
+            const status = item.querySelector('[data-feature-status]');
+            const button = item.querySelector('[data-feature-save]');
+
+            if (!textarea || !status || !button) {
+                return;
+            }
+
+            button.disabled = true;
+            status.textContent = 'Saving…';
+            const response = await fetch(componentFeatureUrl(item.__component), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ text: textarea.value })
+            });
+
+            if (!response.ok) {
+                button.disabled = false;
+                throw new Error(await response.text() || ('/features returned ' + response.status));
+            }
+
+            const data = await response.json();
+            textarea.dataset.savedValue = textarea.value;
+            status.textContent = data.changed ? 'Saved.' : 'No changes.';
+        };
+
         const renderComponent = component => {
             const item = document.createElement('section');
             item.className = 'item';
@@ -965,15 +1296,66 @@
             item.dataset.componentPath = component.scope || '';
             item.__component = component;
 
+            const frame = document.createElement('div');
+            frame.className = 'component-frame';
+
+            const front = document.createElement('div');
+            front.className = 'component-face component-front';
+
             const surface = document.createElement('div');
             surface.className = 'surface';
             surface.innerHTML = component.html || '';
+
+            const back = document.createElement('div');
+            back.className = 'component-face component-back';
+            back.innerHTML = [
+                '<div class="component-back-header">',
+                '<div><h2>Requirements</h2></div>',
+                '</div>',
+                '<textarea data-feature-requirements spellcheck="true" placeholder="Describe what this component should do, what it may use, and any limits it should respect."></textarea>',
+                '<div class="component-back-actions">',
+                '<button type="button" data-feature-cancel>Cancel</button>',
+                '<button type="button" class="component-save-button" data-feature-save disabled>Save</button>',
+                '</div>',
+                '<div class="component-requirements-status" data-feature-status aria-live="polite"></div>'
+            ].join('');
+
+            const flipButton = document.createElement('button');
+            flipButton.type = 'button';
+            flipButton.className = 'component-flip-button';
+            flipButton.dataset.componentFlip = 'true';
+            flipButton.textContent = 'Requirements';
 
             const status = document.createElement('div');
             status.className = 'status';
             status.hidden = true;
 
-            item.append(surface, status);
+            front.append(surface);
+            frame.append(flipButton, front, back);
+            item.append(frame, status);
+            flipButton.addEventListener('click', () => {
+                showComponentSide(item, item.dataset.side === 'back' ? 'front' : 'back');
+            });
+
+            back.querySelector('[data-feature-requirements]').addEventListener('input', event => {
+                back.querySelector('[data-feature-save]').disabled = event.currentTarget.value === (event.currentTarget.dataset.savedValue || '');
+            });
+
+            back.querySelector('[data-feature-cancel]').addEventListener('click', () => {
+                const textarea = back.querySelector('[data-feature-requirements]');
+                textarea.value = textarea.dataset.savedValue || '';
+                back.querySelector('[data-feature-save]').disabled = true;
+                back.querySelector('[data-feature-status]').textContent = '';
+                showComponentSide(item, 'front');
+            });
+
+            back.querySelector('[data-feature-save]').addEventListener('click', () => {
+                saveComponentFeatures(item)
+                    .then(() => showComponentSide(item, 'front'))
+                    .catch(error => {
+                        back.querySelector('[data-feature-status]').textContent = 'Could not save: ' + error.message;
+                    });
+            });
 
             surface.addEventListener('liquidos:callback', event => {
                 if (globalForm.dataset.busy === 'true') {

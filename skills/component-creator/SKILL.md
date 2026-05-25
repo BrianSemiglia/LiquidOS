@@ -85,9 +85,12 @@ If the shape of data changes, the agent should migrate the truth, view, service.
 
 ## Feature Requirements
 
-Components define a `feature-requirements.md` so that they behaves consistently.
-Each requirement should be stated simply.
-No requirement should be redundant to another.
+Components define a `feature-requirements.md` so they behave consistently.
+This file is user-facing.
+Write requirements in plain language, not implementation jargon.
+Each requirement should be simple, specific, and non-redundant.
+Requirements must be faithful to the component: do not claim behavior, resources, permissions, or limits that the component does not actually provide or intend to provide.
+When requirements and implementation disagree, resolve the mismatch instead of preserving inaccurate text.
 Requirements are not for technical details.
 
 ## Local Examples

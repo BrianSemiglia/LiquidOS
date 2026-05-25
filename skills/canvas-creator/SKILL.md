@@ -68,6 +68,7 @@ When creating or updating a component instance, the first visible response shoul
 
 1. Create a component folder under `components/`.
 2. Ensure the component includes `feature-requirements.md` and `view.json`.
+   `feature-requirements.md` is user-facing. Keep it plain-language, concise, and faithful to the component.
 3. Add the component folder path to `input.json` if it is not already present.
 4. Preserve existing `input.json` keys and component paths.
 
