@@ -53,12 +53,8 @@ const createCanvasFiles = ({
 
         const input = readJson(inputPath);
 
-        if (typeof input.layoutPath !== 'string' || !input.layoutPath.trim()) {
-            input.layoutPath = 'layouts/stack.json';
-        }
-
-        if (typeof input.transitionPath !== 'string' || !input.transitionPath.trim()) {
-            input.transitionPath = 'transitions/soft.json';
+        if (typeof input.presentation !== 'string' || !input.presentation.trim()) {
+            input.presentation = 'presentations/stack.css';
         }
 
         fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + '\n');
@@ -74,16 +70,13 @@ const createCanvasFiles = ({
         }
 
         fs.mkdirSync(path.join(canvasPath, 'components'), { recursive: true });
-        copyLocalAssetDirectory('layouts', canvasPath);
-        copyLocalAssetDirectory('transitions', canvasPath);
+        copyLocalAssetDirectory('presentations', canvasPath);
 
         writeDefaultFile(
             path.join(canvasPath, 'input.json'),
             JSON.stringify({
                 components: [],
-                layoutPath: 'layouts/stack.json',
-                transitionPath: 'transitions/soft.json',
-                css: 'body{background:#0b1120}'
+                presentation: 'presentations/stack.css'
             }, null, 2) + '\n'
         );
         ensureLocalAssetReferences(canvasPath);

@@ -53,12 +53,13 @@ if [ -d "$TEMPLATE_DIR" ]; then
     rm -f "$CANVAS_DIR/canvas.html"
 fi
 
-for name in layouts transitions; do
+for name in presentations; do
     if [ -d "$SCRIPT_DIR/../$name" ]; then
         mkdir -p "$CANVAS_DIR/$name"
         cp -R "$SCRIPT_DIR/../$name/." "$CANVAS_DIR/$name/"
     else
-        mkdir -p "$CANVAS_DIR/$name"
+        echo "Error: missing required $name directory in canvas-creator skill." >&2
+        exit 1
     fi
 done
 
@@ -68,9 +69,7 @@ if [ ! -f "$CANVAS_DIR/input.json" ]; then
     cat > "$CANVAS_DIR/input.json" <<'JSON'
 {
   "components": [],
-  "layoutPath": "layouts/stack.json",
-  "transitionPath": "transitions/soft.json",
-  "css": "body{background:#0b1120}"
+  "presentation": "presentations/stack.css"
 }
 JSON
 fi
@@ -80,8 +79,7 @@ const fs = require("fs");
 const inputPath = process.argv[1];
 const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
 if (!Array.isArray(input.components)) input.components = [];
-if (typeof input.layoutPath !== "string" || !input.layoutPath.trim()) input.layoutPath = "layouts/stack.json";
-if (typeof input.transitionPath !== "string" || !input.transitionPath.trim()) input.transitionPath = "transitions/soft.json";
+if (typeof input.presentation !== "string" || !input.presentation.trim()) input.presentation = "presentations/stack.css";
 fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + "\n");
 ' "$CANVAS_DIR/input.json"
 

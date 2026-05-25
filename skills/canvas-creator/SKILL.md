@@ -25,13 +25,11 @@ Workspace.liquidos/
     output.json
     components/
     layouts/
-    transitions/
   <canvas-name>/
     input.json
     output.json
     components/
     layouts/
-    transitions/
 ```
 
 `input.json` is the component manifest. `components/` contains component folders. See `../component-creator/SKILL.md` for component structure.
@@ -51,7 +49,6 @@ Workspace.liquidos/<canvas-name>/input.json
 Workspace.liquidos/<canvas-name>/output.json
 Workspace.liquidos/<canvas-name>/components/
 Workspace.liquidos/<canvas-name>/layouts/
-Workspace.liquidos/<canvas-name>/transitions/
 ```
 
 ## Core Principle
@@ -75,3 +72,17 @@ When creating or updating a component instance, the first visible response shoul
 ## Starting the App
 
 Use the app/server workflow provided by the LiquidOS runtime. Do not create or copy HTML entry files for the canvas.
+
+## Presentation contract
+
+Every canvas must include the presentation file referenced by `input.json`.
+
+```json
+{
+  "components": [],
+  "presentation": "presentations/stack.css"
+}
+```
+
+The `presentations/` folder is required inside the canvas. Do not reference skill-folder presentation files from a canvas.
+

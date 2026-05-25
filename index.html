@@ -720,15 +720,13 @@
         const debugOutput = document.getElementById('debug-output');
         const debugResizer = document.getElementById('debug-resizer');
         const instanceStyle = document.createElement('style');
-        const layoutStyle = document.createElement('style');
-        const transitionStyle = document.createElement('style');
+        const presentationStyle = document.createElement('style');
         let latestComponents = [];
         let currentCanvasName = '';
         let currentCanvasPath = '';
         let statusTimer;
         let scrollSaveTimer;
         let currentLayout = null;
-        let currentTransition = null;
         let debugResizePointerId = null;
         let debugResizeFrame = null;
         let debugLines = [];
@@ -741,10 +739,8 @@
 
         instanceStyle.id = 'instance-style';
         document.head.append(instanceStyle);
-        layoutStyle.id = 'layout-style';
-        document.head.append(layoutStyle);
-        transitionStyle.id = 'transition-style';
-        document.head.append(transitionStyle);
+        presentationStyle.id = 'presentation-style';
+        document.head.append(presentationStyle);
         const scrollKey = canvasName => 'live-edit-scroll:' + (canvasName || 'default');
         const debugRailWidthKey = 'live-edit-debug-rail-width';
 
@@ -989,44 +985,22 @@
         };
 
 
-        const generatedLayoutCss = layout => {
-            if (!layout || typeof layout !== 'object' || typeof layout.css === 'string') {
-                return typeof layout?.css === 'string' ? layout.css : '';
+        const loadTextResource = async resourcePath => {
+            const response = await fetch(resourcePath, { cache: 'no-store' });
+
+            if (!response.ok) {
+                throw new Error(resourcePath + ' returned ' + response.status);
             }
 
-            if (layout.type === 'stack') {
-                return '#app{display:flex;flex-direction:column;align-items:'
-                    + (layout.align === 'center' ? 'center' : layout.align === 'end' ? 'flex-end' : 'flex-start')
-                    + ';gap:' + (Number.isFinite(Number(layout.gap)) ? Number(layout.gap) : 16) + 'px;padding:'
-                    + (Number.isFinite(Number(layout.padding)) ? Number(layout.padding) : 16)
-                    + 'px;box-sizing:border-box;width:100%}#app>.item{width:auto;max-width:100%;min-width:0}#app>.item .component-frame{width:auto;max-width:100%}#app>.item .surface{width:auto;max-width:100%;overflow:visible}';
-            }
-
-            return '';
+            return response.text();
         };
 
-        const setLayout = layout => {
-            currentLayout = layout && typeof layout === 'object' ? layout : null;
-            layoutStyle.textContent = generatedLayoutCss(currentLayout);
-            const style = currentLayout?.appStyle;
-
-            if (style && typeof style === 'object') {
-                Object.entries(style).forEach(([property, value]) => {
-                    app.style.setProperty(property, String(value));
-                });
-            } else {
-                app.removeAttribute('style');
+        const setPresentation = async presentation => {
+            if (typeof presentation !== 'string' || !presentation.trim()) {
+                throw new Error('/input must include { presentation: "presentations/name.css" }');
             }
 
-            if (currentLayout?.bodyStyle && typeof currentLayout.bodyStyle === 'object') {
-                Object.entries(currentLayout.bodyStyle).forEach(([property, value]) => {
-                    canvasShell.style.setProperty(property, String(value));
-                });
-            } else {
-                canvasShell.style.overflow = '';
-                canvasShell.style.padding = '';
-            }
-
+            presentationStyle.textContent = await loadTextResource(presentation);
             updatePromptChromeSpace();
         };
 
@@ -1035,13 +1009,6 @@
             debugResizer.addEventListener('pointerdown', startDebugResize);
         }
         updatePromptChromeSpace();
-
-        const setTransition = transition => {
-            currentTransition = transition && typeof transition === 'object' ? transition : null;
-            transitionStyle.textContent = currentTransition && typeof currentTransition.css === 'string'
-                ? currentTransition.css
-                : '';
-        };
 
         const loadJsonResource = async resourcePath => {
             const response = await fetch(resourcePath, { cache: 'no-store' });
@@ -1291,6 +1258,7 @@
             item.className = 'item';
             item.dataset.componentIndex = component.index;
             item.dataset.componentPath = component.scope || '';
+            item.dataset.layoutEnter = 'true';
             item.__component = component;
 
             const frame = document.createElement('div');
@@ -1410,50 +1378,16 @@
             }
         };
 
-        const applyLayout = (items, layout) => {
-            setLayout(layout);
-
-            if (!layout || typeof layout !== 'object') {
-                return;
-            }
-
-            const itemStyles = Array.isArray(layout.items) ? layout.items : [];
-            const byIndex = new Map(itemStyles.map(entry => [entry.index, entry]));
-            const bodyStyle = layout.bodyStyle && typeof layout.bodyStyle === 'object' ? layout.bodyStyle : null;
-
-            if (bodyStyle) {
-                if (typeof bodyStyle.overflow === 'string') {
-                    canvasShell.style.overflow = bodyStyle.overflow;
-                }
-                if (typeof bodyStyle.padding === 'string') {
-                    canvasShell.style.padding = bodyStyle.padding;
-                }
-                updatePromptChromeSpace();
-            }
-
+        const applyLayout = items => {
             items.forEach(item => {
-                const layout = byIndex.get(Number(item.dataset.componentIndex));
-
-                if (!layout) {
-                    item.style.position = '';
-                    item.style.left = '';
-                    item.style.top = '';
-                    item.style.width = '';
-                    item.style.transformOrigin = '';
-                    item.style.transform = '';
-                    item.style.animation = '';
-                    item.style.zIndex = '';
-                    return;
-                }
-
-                item.style.position = layout.position || 'absolute';
-                item.style.left = layout.left || '';
-                item.style.top = layout.top || '';
-                item.style.width = layout.width || '';
-                item.style.transformOrigin = layout.transformOrigin || 'center center';
-                item.style.transform = layout.transform || '';
-                item.style.animation = layout.animation || '';
-                item.style.zIndex = layout.zIndex != null ? String(layout.zIndex) : '';
+                item.style.position = '';
+                item.style.left = '';
+                item.style.top = '';
+                item.style.width = '';
+                item.style.transformOrigin = '';
+                item.style.transform = '';
+                item.style.animation = '';
+                item.style.zIndex = '';
             });
         };
 
@@ -1490,6 +1424,9 @@
 
                 app.replaceChildren(...nextItems);
                 applyLayout(nextItems, layout);
+                requestAnimationFrame(() => {
+                    nextItems.forEach(item => delete item.dataset.layoutEnter);
+                });
                 restoreScrollPosition();
             };
 
@@ -1523,21 +1460,10 @@
 
             latestComponents = data.components.map((component, index) => ({ ...component, index }));
             latestComponentByIndex = new Map(latestComponents.map(component => [component.index, component]));
-            const layout = typeof data.layoutPath === 'string' && data.layoutPath.trim()
-                ? await loadJsonResource(data.layoutPath)
-                : typeof data.layout === 'object' && data.layout
-                    ? data.layout
-                    : null;
-            const transition = typeof data.transitionPath === 'string' && data.transitionPath.trim()
-                ? await loadJsonResource(data.transitionPath)
-                : typeof data.transition === 'object' && data.transition
-                    ? data.transition
-                    : null;
-
+            await setPresentation(data.presentation);
             const items = latestComponents.map(renderComponent);
-            instanceStyle.textContent = typeof data.css === 'string' ? data.css : '';
-            setTransition(transition);
-            renderCanvas(items, layout);
+            instanceStyle.textContent = '';
+            renderCanvas(items, null);
             lastCanvasSnapshot = snapshot;
         };
 

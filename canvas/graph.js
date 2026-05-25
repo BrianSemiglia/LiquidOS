@@ -189,8 +189,7 @@ const createCanvasGraph = ({
         return [
             ...[
                 getInputPath(),
-                inputReferenceFile('layoutPath'),
-                inputReferenceFile('transitionPath')
+                inputReferenceFile('presentation')
             ].filter(Boolean).map(file => ({ path: file, recursive: false, kind: 'canvas' })),
             ...componentViewWatchPaths(componentPaths).map(file => ({ path: file, recursive: false, kind: 'view' })),
             ...componentServiceWatchPaths(componentPaths).map(file => ({ path: file, recursive: true, kind: 'service' }))

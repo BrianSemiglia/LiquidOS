@@ -1,0 +1,45 @@
+body {
+  background: #0b1120;
+}
+
+.canvas-shell {
+  background: transparent;
+}
+
+#app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 1rem;
+}
+
+#app > .item {
+  position: relative;
+  display: inline-block;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+}
+
+#app > .item[data-layout-enter="true"] {
+  animation: liquidos-item-enter 180ms ease-out both;
+}
+
+#app > .item .component-frame,
+#app > .item .surface {
+  width: auto;
+  max-width: none;
+  min-width: 0;
+  overflow: visible;
+}
+
+@keyframes liquidos-item-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

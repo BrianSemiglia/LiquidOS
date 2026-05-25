@@ -218,8 +218,7 @@ The canvas directory is version-tracked by git. Use the git history to get more 
   "components": [
     "components/hello-world"
   ],
-  "layoutPath": "layouts/stack.json",
-  "transitionPath": "transitions/soft.json"
+  "presentation": "presentations/stack.css"
 }
 ```
 

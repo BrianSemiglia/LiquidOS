@@ -10,13 +10,11 @@ Workspace.liquidos/
     output.json
     components/
     layouts/
-    transitions/
   <canvas-name>/
     input.json
     output.json
     components/
     layouts/
-    transitions/
 ```
 
 Pass the `.liquidos` folder itself to the server, testing launcher, and canvas creation script. Do not create or target a separate `canvases/` folder.

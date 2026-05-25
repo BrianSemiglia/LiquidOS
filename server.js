@@ -1479,10 +1479,10 @@ const server = http.createServer(async (req, res) => {
         }
 
 
-        const sharedAsset = url.pathname.match(/^\/(layouts|transitions)\/([A-Za-z0-9._-]+\.json)$/);
+        const canvasAsset = url.pathname.match(/^\/(presentations)\/([A-Za-z0-9._-]+\.css)$/);
 
-        if (req.method === 'GET' && sharedAsset) {
-            const resolvedPath = path.resolve(CANVAS_PATH, sharedAsset[1], sharedAsset[2]);
+        if (req.method === 'GET' && canvasAsset) {
+            const resolvedPath = path.resolve(CANVAS_PATH, canvasAsset[1], canvasAsset[2]);
             const canvasBoundary = CANVAS_PATH + path.sep;
 
             if (!resolvedPath.startsWith(canvasBoundary)) {
@@ -1495,7 +1495,7 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            streamFile(req, res, resolvedPath, 'application/json; charset=utf-8');
+            streamFile(req, res, resolvedPath, 'text/css; charset=utf-8');
             return;
         }
 
