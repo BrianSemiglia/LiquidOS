@@ -24,12 +24,12 @@ Workspace.liquidos/
     input.json
     output.json
     components/
-    layouts/
+    presentations/
   <canvas-name>/
     input.json
     output.json
     components/
-    layouts/
+    presentations/
 ```
 
 `input.json` is the component manifest. `components/` contains component folders. See `../component-creator/SKILL.md` for component structure.
@@ -48,7 +48,7 @@ This creates:
 Workspace.liquidos/<canvas-name>/input.json
 Workspace.liquidos/<canvas-name>/output.json
 Workspace.liquidos/<canvas-name>/components/
-Workspace.liquidos/<canvas-name>/layouts/
+Workspace.liquidos/<canvas-name>/presentations/
 ```
 
 ## Core Principle
@@ -85,4 +85,8 @@ Every canvas must include the presentation file referenced by `input.json`.
 ```
 
 The `presentations/` folder is required inside the canvas. Do not reference skill-folder presentation files from a canvas.
+
+Presentation CSS owns the canvas domain: canvas surface, component layout, spacing, alignment, overflow, item sizing, and canvas-local motion.
+
+The harness owns protected UI outside presentation control: prompt bar, debug view, loading/errors, and the component requirements editor. Do not put requirements editor styling in presentation CSS.
 

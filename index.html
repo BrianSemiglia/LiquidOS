@@ -24,250 +24,6 @@
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
-        .canvas-shell {
-            position: fixed;
-            top: 0;
-            right: 0;
-            bottom: 0;
-            left: var(--debug-rail-space);
-            overflow: auto;
-            padding: 2rem 2rem var(--prompt-chrome-space) 1rem;
-        }
-
-        #app {
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            align-items: flex-start;
-            width: 100%;
-            min-height: calc(100vh - var(--prompt-chrome-space) - 4rem);
-        }
-
-        .item {
-            position: relative;
-            display: inline-block;
-            width: auto;
-            max-width: 100%;
-            min-width: 0;
-            border-radius: 10px;
-            outline: 2px solid transparent;
-            outline-offset: 4px;
-        }
-
-        .surface {
-            display: inline-block;
-            width: auto;
-            max-width: 100%;
-            min-width: 0;
-            overflow: visible;
-            vertical-align: top;
-        }
-
-        .status {
-            min-height: 1.25rem;
-            color: #93c5fd;
-            font-size: 0.85rem;
-        }
-
-        .error {
-            color: #fecaca;
-        }
-
-
-
-        .item {
-            position: relative;
-        }
-
-        .component-frame {
-            position: relative;
-            display: inline-grid;
-            width: auto;
-            max-width: 100%;
-            min-width: 0;
-            overflow: visible;
-        }
-
-        .component-face {
-            grid-area: 1 / 1;
-            min-width: 0;
-        }
-
-        .component-back {
-            display: grid;
-            gap: 0.75rem;
-            min-height: 12rem;
-            padding: 1rem;
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            border-radius: 18px;
-            background: rgb(31, 41, 55);
-            color: rgba(255, 255, 255, 0.92);
-            box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
-            display: none;
-        }
-
-        .component-back-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 0.75rem;
-        }
-
-        .component-back h2 {
-            margin: 0;
-            font-size: 1rem;
-            letter-spacing: -0.02em;
-        }
-
-        .component-back p {
-            margin: 0;
-            color: rgba(255, 255, 255, 0.58);
-            font-size: 0.86rem;
-            line-height: 1.35;
-        }
-
-        .component-back textarea {
-            width: 100%;
-            min-height: 10rem;
-            resize: vertical;
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            border-radius: 14px;
-            padding: 0.75rem;
-            background: rgb(43, 52, 65);
-            color: rgba(255, 255, 255, 0.92);
-            font: inherit;
-            line-height: 1.35;
-        }
-
-        .component-back textarea:focus {
-            outline: none;
-            border-color: rgba(255, 255, 255, 0.34);
-            background: rgb(48, 57, 70);
-        }
-
-        .component-back-actions {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: end;
-            gap: 0.5rem;
-            margin-top: 0.75rem;
-        }
-
-        .component-back button,
-        .component-flip-button {
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            border-radius: 999px;
-            padding: 0.45rem 0.75rem;
-            background: rgba(255, 255, 255, 0.10);
-            color: rgba(255, 255, 255, 0.88);
-            font: inherit;
-            font-size: 0.86rem;
-            font-weight: 650;
-        }
-
-        .component-back button:hover:not(:disabled),
-        .component-flip-button:hover:not(:disabled) {
-            background: rgba(255, 255, 255, 0.16);
-        }
-
-        .component-back button:disabled {
-            opacity: 0.48;
-        }
-
-        .component-save-button {
-            background: rgba(255, 255, 255, 0.76) !important;
-            color: rgba(17, 24, 39, 0.94) !important;
-        }
-
-        .component-flip-button {
-            position: absolute;
-            right: 0.75rem;
-            top: -1.45rem;
-            z-index: 40;
-            opacity: 0;
-            transition: opacity 120ms ease, background 120ms ease;
-        }
-
-        .component-frame:hover .component-flip-button,
-        .component-flip-button:focus-visible {
-            opacity: 1;
-        }
-
-        .component-front {
-            pointer-events: auto;
-        }
-
-        .component-requirements-status {
-            color: rgba(255, 255, 255, 0.58);
-            font-size: 0.82rem;
-        }
-
-        .component-requirements-status:empty {
-            display: none;
-        }
-
-        .requirements-overlay .component-requirements-status {
-            justify-self: end;
-        }
-
-
-        .requirements-overlay {
-            position: fixed;
-            inset: 0;
-            z-index: 1000;
-            display: grid;
-            place-items: center;
-            padding: 2rem;
-            background: rgba(3, 7, 18, 0.82);
-            backdrop-filter: blur(14px);
-            -webkit-backdrop-filter: blur(14px);
-        }
-
-        .requirements-overlay .item {
-            width: min(760px, calc(100vw - 3rem));
-            min-width: 0;
-        }
-
-        .requirements-overlay .component-frame {
-            width: 100%;
-            height: min(620px, calc(100vh - 4rem));
-        }
-
-        .requirements-overlay .component-face {
-            min-height: 0;
-            height: 100%;
-            box-sizing: border-box;
-        }
-
-        .requirements-overlay .component-front {
-            opacity: 0;
-            visibility: hidden;
-            pointer-events: none;
-        }
-
-        .requirements-overlay .component-back {
-            display: grid;
-            grid-template-rows: auto minmax(0, 1fr) auto;
-            padding: 1.25rem;
-        }
-
-        .requirements-overlay .component-flip-button {
-            display: none;
-        }
-
-        .requirements-overlay .component-back textarea {
-            min-height: 0;
-            height: 100%;
-            resize: none;
-        }
-
-        .requirements-placeholder {
-            min-height: 3rem;
-            visibility: hidden;
-            pointer-events: none;
-        }
-
         .global-prompt {
             position: fixed;
             left: calc(var(--debug-rail-space) + (100vw - var(--debug-rail-space)) / 2);
@@ -385,6 +141,194 @@
         .global-prompt button:disabled {
             cursor: default;
             opacity: 0.45;
+        }
+
+
+        /* Harness-owned requirements editor. Not part of canvas presentation. */
+        .harness-component-frame-watcher {
+            position: relative;
+            display: inline-grid;
+            width: auto;
+            max-width: 100%;
+            min-width: 0;
+            overflow: visible;
+        }
+
+        .component-face {
+            grid-area: 1 / 1;
+            min-width: 0;
+        }
+
+        .component-front {
+            pointer-events: auto;
+        }
+
+        .component-back {
+            display: none;
+            gap: 0.75rem;
+            min-height: 12rem;
+            padding: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 18px;
+            background: rgb(31, 41, 55);
+            color: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
+        }
+
+        .component-back-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .component-back h2 {
+            margin: 0;
+            font-size: 1rem;
+            letter-spacing: -0.02em;
+        }
+
+        .component-back p {
+            margin: 0;
+            color: rgba(255, 255, 255, 0.58);
+            font-size: 0.86rem;
+            line-height: 1.35;
+        }
+
+        .component-back textarea {
+            width: 100%;
+            min-height: 10rem;
+            resize: vertical;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 14px;
+            padding: 0.75rem;
+            background: rgb(43, 52, 65);
+            color: rgba(255, 255, 255, 0.92);
+            font: inherit;
+            line-height: 1.35;
+        }
+
+        .component-back textarea:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.34);
+            background: rgb(48, 57, 70);
+        }
+
+        .component-back-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: end;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .component-back button,
+        .component-flip-button {
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            padding: 0.45rem 0.75rem;
+            background: rgba(255, 255, 255, 0.10);
+            color: rgba(255, 255, 255, 0.88);
+            font: inherit;
+            font-size: 0.86rem;
+            font-weight: 650;
+        }
+
+        .component-back button:hover:not(:disabled),
+        .component-flip-button:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.16);
+        }
+
+        .component-back button:disabled {
+            opacity: 0.48;
+        }
+
+        .component-save-button {
+            background: rgba(255, 255, 255, 0.76) !important;
+            color: rgba(17, 24, 39, 0.94) !important;
+        }
+
+        .component-flip-button {
+            position: absolute;
+            right: 0.75rem;
+            top: -1.1rem;
+            z-index: 40;
+            opacity: 0;
+            transition: opacity 120ms ease, background 120ms ease;
+        }
+
+        .harness-component-frame-watcher:hover .component-flip-button,
+        .component-flip-button:focus-visible {
+            opacity: 1;
+        }
+
+        .component-requirements-status {
+            color: rgba(255, 255, 255, 0.58);
+            font-size: 0.82rem;
+        }
+
+        .component-requirements-status:empty {
+            display: none;
+        }
+
+        .requirements-overlay .component-requirements-status {
+            justify-self: end;
+        }
+
+        .requirements-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: grid;
+            place-items: center;
+            padding: 2rem;
+            background: rgba(3, 7, 18, 0.82);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
+
+        .requirements-overlay .item {
+            width: min(760px, calc(100vw - 3rem));
+            min-width: 0;
+        }
+
+        .requirements-overlay .harness-component-frame-watcher {
+            width: 100%;
+            height: min(620px, calc(100vh - 4rem));
+        }
+
+        .requirements-overlay .component-face {
+            min-height: 0;
+            height: 100%;
+            box-sizing: border-box;
+        }
+
+        .requirements-overlay .component-front {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .requirements-overlay .component-back {
+            display: grid;
+            grid-template-rows: auto minmax(0, 1fr) auto;
+            padding: 1.25rem;
+        }
+
+        .requirements-overlay .component-flip-button {
+            display: none;
+        }
+
+        .requirements-overlay .component-back textarea {
+            min-height: 0;
+            height: 100%;
+            resize: none;
+        }
+
+        .requirements-placeholder {
+            min-height: 3rem;
+            visibility: hidden;
+            pointer-events: none;
         }
 
 
@@ -634,10 +578,6 @@
                 --debug-rail-space: 0px;
             }
 
-            .canvas-shell {
-                left: 0;
-                padding: 1rem 1rem var(--prompt-chrome-space);
-            }
 
             .debug-rail {
                 display: none;
@@ -1262,7 +1202,7 @@
             item.__component = component;
 
             const frame = document.createElement('div');
-            frame.className = 'component-frame';
+            frame.className = 'harness-component-frame-watcher';
 
             const front = document.createElement('div');
             front.className = 'component-face component-front';

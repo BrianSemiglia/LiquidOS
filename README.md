@@ -23,12 +23,12 @@ Workspace.liquidos/
     input.json
     output.json
     components/
-    layouts/
+    presentations/
   <other-canvas>/
     input.json
     output.json
     components/
-    layouts/
+    presentations/
 ```
 
 The prompt bar can switch canvases, create a new canvas, and send canvas-scoped prompts. The whole `.liquidos` workspace folder is tracked as one Git repo so activity across canvases has a single timeline.

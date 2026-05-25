@@ -92,6 +92,7 @@ Each requirement should be simple, specific, and non-redundant.
 Requirements must be faithful to the component: do not claim behavior, resources, permissions, or limits that the component does not actually provide or intend to provide.
 When requirements and implementation disagree, resolve the mismatch instead of preserving inaccurate text.
 Requirements are not for technical details.
+The requirements editor is harness UI, not component UI and not canvas presentation CSS.
 
 ## Local Examples
 

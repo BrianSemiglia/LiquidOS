@@ -1,45 +1,61 @@
-body {
-  background: #0b1120;
-}
+/* Canvas presentation.
+   Owns the canvas surface, layout, item sizing, and canvas-local motion.
+   Requirements editor and other harness chrome stay outside this file.
+   Copied per canvas; no shared imports. */
 
 .canvas-shell {
-  background: transparent;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: var(--debug-rail-space);
+    overflow: auto;
+    padding: 2rem 2rem var(--prompt-chrome-space) 1rem;
 }
 
 #app {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.75rem;
-  width: 100%;
-  min-height: 100%;
-  margin: 0;
-  padding: 1rem;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+    width: 100%;
+    min-height: calc(100vh - var(--prompt-chrome-space) - 4rem);
 }
 
-#app > .item {
-  position: relative;
-  display: inline-block;
-  width: auto;
-  max-width: 100%;
-  min-width: 0;
-  margin: 0;
+.item {
+    position: relative;
+    display: inline-block;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+    border-radius: 10px;
+    outline: 2px solid transparent;
+    outline-offset: 4px;
 }
 
-#app > .item[data-layout-enter="true"] {
-  animation: liquidos-item-enter 180ms ease-out both;
+.surface {
+    display: inline-block;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+    overflow: visible;
+    vertical-align: top;
 }
 
-#app > .item .component-frame,
-#app > .item .surface {
-  width: auto;
-  max-width: none;
-  min-width: 0;
-  overflow: visible;
+.status {
+    min-height: 1.25rem;
+    color: #93c5fd;
+    font-size: 0.85rem;
 }
 
-@keyframes liquidos-item-enter {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+.error {
+    color: #fecaca;
+}
+
+@media (max-width: 1100px) {
+  .canvas-shell {
+    left: 0;
+    padding: 1rem 1rem var(--prompt-chrome-space);
+  }
 }
