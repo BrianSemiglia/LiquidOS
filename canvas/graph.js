@@ -147,7 +147,8 @@ const createCanvasGraph = ({
         ) || null;
     };
 
-    const componentResources = () => ({});
+    const componentResources = (componentPath, component) =>
+        renderedResources(componentPath, component.resources || {});
 
     const renderedResources = (componentPath, resources) =>
         Object.fromEntries(
@@ -186,7 +187,8 @@ const createCanvasGraph = ({
                 components: leafComponents().map(({ componentPath, component }) => ({
                     scope: componentScope(componentPath),
                     repairLevel: component.repairLevel || '',
-                    html: renderedHtml(componentPath, component)
+                    html: renderedHtml(componentPath, component),
+                    resources: componentResources(componentPath, component)
                 }))
             };
         } catch (error) {
