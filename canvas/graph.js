@@ -183,6 +183,7 @@ const createCanvasGraph = ({
             return {
                 canvasPath: getCanvasPath(),
                 ...input,
+                presentationVersion: inputReferenceVersion('presentation'),
                 components: leafComponents().map(({ componentPath, component }) => ({
                     scope: componentScope(componentPath),
                     repairLevel: component.repairLevel || '',
@@ -193,6 +194,7 @@ const createCanvasGraph = ({
             return {
                 canvasPath: getCanvasPath(),
                 presentation: '',
+                presentationVersion: '',
                 canvasError: error.message,
                 components: [{
                     scope: getCanvasPath(),
@@ -213,6 +215,26 @@ const createCanvasGraph = ({
         return typeof input[name] === 'string' ? resolveCanvasReference(input[name]) : null;
     };
 
+    const fileDirectoryWatchPath = file =>
+        file
+            ? fs.existsSync(file) && fs.statSync(file).isDirectory()
+                ? file
+                : path.dirname(file)
+            : null;
+
+    const inputReferenceWatchPath = name =>
+        fileDirectoryWatchPath(inputReferenceFile(name));
+
+    const inputReferenceVersion = name => {
+        const file = inputReferenceFile(name);
+
+        if (!file || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+            return '';
+        }
+
+        return String(fs.statSync(file).mtimeMs);
+    };
+
     const componentViewWatchPaths = componentPaths =>
         Array.from(new Set(componentPaths
             .map(componentFolderPath)
@@ -229,10 +251,12 @@ const createCanvasGraph = ({
         const componentPaths = inputEntries().map(entry => entry.componentPath);
 
         return [
-            ...[
-                getInputPath(),
-                inputReferenceFile('presentation')
-            ].filter(Boolean).map(file => ({ path: file, recursive: false, kind: 'canvas' })),
+            ...[getInputPath()].filter(Boolean).map(file => ({ path: file, recursive: false, kind: 'canvas' })),
+            ...[inputReferenceWatchPath('presentation')]
+                .filter(Boolean)
+                .filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
+                .filter(isInsideCanvas)
+                .map(file => ({ path: file, recursive: false, kind: 'presentation' })),
             ...componentViewWatchPaths(componentPaths).map(file => ({ path: file, recursive: false, kind: 'view' })),
             ...componentServiceWatchPaths(componentPaths).map(file => ({ path: file, recursive: true, kind: 'service' }))
         ];
