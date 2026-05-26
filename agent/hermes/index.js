@@ -43,9 +43,10 @@ const commandInstalled = () => {
         .some(directory => directory && fs.existsSync(path.join(directory, command)));
 };
 
-const selectedLaunchEnvironment = () => ({
+const selectedLaunchEnvironment = workingDirectory => ({
     ...process.env,
-    ...hermesBootstrap.selectedHermesLaunchEnv()
+    ...hermesBootstrap.selectedHermesLaunchEnv(),
+    ...(workingDirectory ? { TERMINAL_CWD: workingDirectory } : {})
 });
 
 const filteredAgentArguments = () => {
@@ -55,13 +56,13 @@ const filteredAgentArguments = () => {
         const argument = rawAgentArguments()[index];
 
         if (argument === '--oneshot' || argument === '--query' || argument === '-q' || argument === '--resume' || argument === '-r' || argument === '--continue' || argument === '-c') {
-            if (argument !== '--oneshot' && rawAgentArguments()[index + 1] && !String(rawAgentArguments()[index + 1]).startsWith('-')) {
+            if (rawAgentArguments()[index + 1] && !String(rawAgentArguments()[index + 1]).startsWith('-')) {
                 index += 1;
             }
             continue;
         }
 
-        if (argument.startsWith('--query=') || argument.startsWith('--resume=') || argument.startsWith('--continue=')) {
+        if (argument.startsWith('--oneshot=') || argument.startsWith('--query=') || argument.startsWith('--resume=') || argument.startsWith('--continue=')) {
             continue;
         }
 
@@ -93,7 +94,7 @@ const buildOneShotArguments = prompt => {
 };
 
 const displayArguments = args =>
-    args.map((argument, index) => index > 0 && (args[index - 1] === '-z' || args[index - 1] === '--query' || args[index - 1] === '-q') ? '<prompt>' : argument);
+    args.map((argument, index) => index > 0 && (args[index - 1] === '-z' || args[index - 1] === '--oneshot' || args[index - 1] === '--query' || args[index - 1] === '-q') ? '<prompt>' : argument);
 
 const debugLine = (label, fields = {}) => [
     '[LiquidOS Hermes]',
@@ -153,7 +154,7 @@ const HermesAgent = () => {
         host.output('hermes', text);
     };
 
-    const runOneShot = (prompt, workingDirectory, resolve, reject) => {
+    const runOneShot = (prompt, { workingDirectory, systemPromptPath } = {}, resolve, reject) => {
         if (!workingDirectory) {
             reject(new Error('HermesAgent.run requires a workingDirectory'));
             return;
@@ -167,6 +168,8 @@ const HermesAgent = () => {
         emitDebug('spawn', {
             command,
             cwd: workingDirectory,
+            terminalCwd: workingDirectory,
+            systemPromptPath: systemPromptPath || null,
             args: displayArguments(args)
         });
 
@@ -174,6 +177,8 @@ const HermesAgent = () => {
             command,
             status: 'spawning',
             cwd: workingDirectory,
+            terminalCwd: workingDirectory,
+            systemPromptPath: systemPromptPath || null,
             args: displayArguments(args),
             provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
             model: hermesBootstrap.currentHermesBootstrapState().model || null
@@ -181,7 +186,7 @@ const HermesAgent = () => {
 
         processHandle = spawn(command, args, {
             cwd: workingDirectory,
-            env: selectedLaunchEnvironment(),
+            env: selectedLaunchEnvironment(workingDirectory),
             stdio: ['ignore', 'pipe', 'pipe']
         });
 
@@ -241,7 +246,7 @@ const HermesAgent = () => {
         });
     };
 
-    const run = (prompt, { workingDirectory } = {}) => {
+    const run = (prompt, { workingDirectory, systemPromptPath } = {}) => {
         jobQueue = jobQueue
             .catch(() => {})
             .then(() => new Promise((resolve, reject) => {
@@ -250,7 +255,7 @@ const HermesAgent = () => {
                     return;
                 }
 
-                runOneShot(prompt, workingDirectory, resolve, reject);
+                runOneShot(prompt, { workingDirectory, systemPromptPath }, resolve, reject);
             }));
 
         return jobQueue;
@@ -267,6 +272,7 @@ const HermesAgent = () => {
                 command,
                 status: 'waiting',
                 cwd: activeWorkingDirectory || null,
+                terminalCwd: activeWorkingDirectory || null,
                 args: displayArguments([...hermesBootstrap.selectedHermesLaunchArgs(), ...filteredAgentArguments(), 'chat', '--query', '<prompt>']),
                 provider: hermesBootstrap.currentHermesBootstrapState().provider || null,
                 model: hermesBootstrap.currentHermesBootstrapState().model || null

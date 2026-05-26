@@ -192,19 +192,10 @@ let CANVAS_PATH = path.join(CANVASES_ROOT, selectedCanvasNameFromFile());
 let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
 let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
 
-const applicationSupportRoot = () => {
-    if (process.platform === 'darwin') {
-        return path.join(os.homedir(), 'Library', 'Application Support', 'LiquidOS');
-    }
+const applicationSupportRoot = () =>
+    path.join(os.homedir(), 'Library', 'Application Support', 'LiquidOS');
 
-    if (process.platform === 'win32') {
-        return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'LiquidOS');
-    }
-
-    return path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'), 'liquidos');
-};
-
-const AGENT_RUNTIME_ROOT = applicationSupportRoot();
+const AGENT_RUNTIME_ROOT = path.join(applicationSupportRoot(), 'AgentRuntime');
 const AGENT_RUNTIME_LOGS_DIR = path.join(AGENT_RUNTIME_ROOT, 'logs');
 const HERMES_AGENT_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'agent.log');
 const HERMES_ERRORS_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'errors.log');
