@@ -814,8 +814,10 @@ const processOutputJob = async job => {
         job: outputQueue.outputJobSummary({ ...job, id: jobId, componentPath, status: 'running' })
     });
 
+    let agentResponse = '';
+
     try {
-        const response = await runQueuedAgentJob(buildAgentPrompt({ ...job, id: jobId, componentPath }), {
+        agentResponse = await runQueuedAgentJob(buildAgentPrompt({ ...job, id: jobId, componentPath }), {
             job: outputQueue.outputJobSummary({ ...job, id: jobId, componentPath, status: 'running' }),
             canvasPath: CANVAS_PATH,
             inputPath: INPUT_PATH,
@@ -825,13 +827,15 @@ const processOutputJob = async job => {
             canvasPath: CANVAS_PATH
         });
 
-        if (/Blocked:|error=patch rejected|not writable in this environment|writing outside of the project/i.test(response)) {
+        activeOutputJob = { ...activeOutputJob, agentResponse };
+
+        if (/Blocked:|error=patch rejected|not writable in this environment|writing outside of the project/i.test(agentResponse)) {
             throw new Error('Agent failed the live canvas write check and the test was stopped early.');
         }
 
         logServer('agent', 'agent job returned', {
             jobId,
-            response: shortText(response)
+            response: shortText(agentResponse)
         });
 
         canvasGraph.validateCanvasConfig();
@@ -845,7 +849,7 @@ const processOutputJob = async job => {
         });
         broadcastQueueState();
 
-        commitCanvases({ ...job, id: jobId });
+        commitCanvases({ ...job, id: jobId }, agentResponse);
 
         logServer('queue', 'job marked done', {
             jobId,
@@ -858,7 +862,7 @@ const processOutputJob = async job => {
             body: canvasName(CANVAS_PATH)
         });
     } catch (error) {
-        commitFailedCanvases({ ...job, id: jobId }, error);
+        commitFailedCanvases({ ...job, id: jobId }, agentResponse, error.message);
         canvasGraph.validateCanvasConfig();
         await outputQueue.updateOutputJob(jobId, {
             status: 'failed',
@@ -1480,7 +1484,7 @@ const server = http.createServer(async (req, res) => {
             const name = canvasFiles.createCanvas(body.name);
 
             canvasFiles.switchCanvas(name);
-            commitCanvases({ scope: CANVAS_PATH, prompt: 'create canvas: ' + name });
+            commitCanvases({ scope: CANVAS_PATH, event: `User did create canvas with name '${String(name).replace(/[\n\r]+/g, ' ').replace(/'/g, "\\'")}'` }, 'none');
             broadcast();
             send(res, 201, JSON.stringify({
                 current: canvasName(CANVAS_PATH),

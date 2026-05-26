@@ -27,16 +27,40 @@ const scopeText = (scope, currentCanvasPath) => {
     return path.isAbsolute(value) ? path.normalize(value) : path.resolve(currentCanvasPath(), value.replace(/^\.\//, ''));
 };
 
-const commitMessage = ({ prompt, scope, shutdownReason }) => [
-    'Prompt:',
-    prompt || '(no active prompt)',
+const isCrashReason = reason => /uncaught exception|unhandled rejection|crash/i.test(String(reason || ''));
+
+const quoteEventValue = value => String(value || '').replace(/[\n\r]+/g, ' ').replace(/'/g, "\\'");
+
+const commitMessage = ({ event, scope, agentResponse }) => [
+    'Event:',
+    event || 'User did prompt',
     '',
     'Scope:',
     scope || '(unknown)',
     '',
-    'Shutdown-Reason:',
-    shutdownReason || '(unknown)'
+    'Agent Response:',
+    agentResponse || 'none'
 ].join('\n');
+
+const eventWithParameter = (event, parameter, value) => value
+    ? `${event} with ${parameter} '${quoteEventValue(value)}'`
+    : event;
+
+const promptEvent = job => {
+    if (job && job.event) {
+        return job.event;
+    }
+
+    return eventWithParameter('User did prompt', 'prompt', callbackPromptText(job));
+};
+
+const crashEvent = error => eventWithParameter('LiquidOS did crash', 'error', error);
+
+const shutdownEvent = reason => isCrashReason(reason)
+    ? crashEvent(reason)
+    : 'User did quit';
+
+const workspaceName = workspacePath => path.basename(String(workspacePath || '').replace(/\/+$/, ''), '.liquidos');
 
 const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
     const ensureCanvasesGitRepo = () => {
@@ -53,7 +77,11 @@ const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
                 throw new Error('Failed to stage initial canvases snapshot');
             }
 
-            if (git(canvasesRoot, ['commit', '-m', 'canvases: initial snapshot\n\nApp-Action: baseline'], { stdio: 'inherit' }).status !== 0) {
+            if (git(canvasesRoot, ['commit', '-m', commitMessage({
+                event: eventWithParameter('User did create workspace', 'name', workspaceName(canvasesRoot)),
+                scope: canvasesRoot,
+                agentResponse: 'none'
+            })], { stdio: 'inherit' }).status !== 0) {
                 throw new Error('Failed to commit initial canvases snapshot');
             }
         }
@@ -61,7 +89,7 @@ const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
         return canvasesRoot;
     };
 
-    const commitFailedCanvases = (job, error) => {
+    const commitFailedCanvases = (job, agentResponse = '', error = '') => {
         ensureCanvasesGitRepo();
 
         if (git(canvasesRoot, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
@@ -75,9 +103,9 @@ const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
         }
 
         if (git(canvasesRoot, ['commit', '-m', commitMessage({
-            prompt: callbackPromptText(job),
+            event: crashEvent(error || agentResponse),
             scope: scopeText(job.scope, currentCanvasPath),
-            shutdownReason: 'Hermes failed: ' + (error && error.message ? error.message : String(error || 'unknown'))
+            agentResponse: agentResponse || 'none'
         })], { stdio: 'inherit' }).status !== 0) {
             logServer('git', 'failed to commit failed job canvases changes', {
                 jobId: job.id || null,
@@ -91,7 +119,7 @@ const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
     };
 
 
-    const commitShutdownCanvases = (job, reason = 'application was shut down') => {
+    const commitShutdownCanvases = (job, reason = '') => {
         ensureCanvasesGitRepo();
 
         if (git(canvasesRoot, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
@@ -105,9 +133,9 @@ const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
         }
 
         if (git(canvasesRoot, ['commit', '-m', commitMessage({
-            prompt: callbackPromptText(job || {}),
+            event: shutdownEvent(reason),
             scope: scopeText(job && job.scope ? job.scope : '', currentCanvasPath),
-            shutdownReason: String(reason || 'application was shut down')
+            agentResponse: job && job.agentResponse ? job.agentResponse : 'none'
         })], { stdio: 'inherit' }).status !== 0) {
             logServer('git', 'failed to commit shutdown canvases changes', {
                 jobId: job && job.id ? job.id : null,
@@ -120,7 +148,7 @@ const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
         return true;
     };
 
-    const commitCanvases = job => {
+    const commitCanvases = (job, context = '') => {
         ensureCanvasesGitRepo();
 
         if (git(canvasesRoot, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
@@ -133,13 +161,11 @@ const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
             return false;
         }
 
-        if (git(canvasesRoot, ['commit', '-m', [
-            'Prompt:',
-            callbackPromptText(job) || '(no prompt)',
-            '',
-            'Scope:',
-            scopeText(job.scope, currentCanvasPath)
-        ].join('\n')], { stdio: 'inherit' }).status !== 0) {
+        if (git(canvasesRoot, ['commit', '-m', commitMessage({
+            event: promptEvent(job),
+            scope: scopeText(job.scope, currentCanvasPath),
+            agentResponse: context || 'none'
+        })], { stdio: 'inherit' }).status !== 0) {
             logServer('git', 'failed to commit canvases changes', {
                 jobId: job.id || null,
                 prompt: callbackPromptText(job) || null
