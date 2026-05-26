@@ -1164,13 +1164,13 @@
 
 
         const componentFeatureUrl = component =>
-            '/component/' + encodeURIComponent(String(component.scope || '')) + '/features';
+            '/component/' + encodeURIComponent(String(component.componentPath || '')) + '/features';
 
         const loadComponentFeatures = async item => {
             const textarea = item.querySelector('[data-feature-requirements]');
             const status = item.querySelector('[data-feature-status]');
 
-            if (!textarea || !item.__component?.scope) {
+            if (!textarea || !item.__component?.componentPath) {
                 return;
             }
 

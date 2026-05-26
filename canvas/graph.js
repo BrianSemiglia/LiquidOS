@@ -139,11 +139,17 @@ const createCanvasGraph = ({
         }
 
         const absolute = resolveCanvasReference(componentPath);
+        const folder = componentFolderPath(absolute);
 
         return leafComponents().find(entry =>
             entry.componentPath === componentPath
             || entry.componentPath === absolute
             || componentScopePath(entry.componentPath) === componentPath
+            || componentFolderPath(entry.componentPath) === componentPath
+            || componentFolderPath(entry.componentPath) === absolute
+            || componentScopePath(componentFolderPath(entry.componentPath)) === componentPath
+            || componentScopePath(componentFolderPath(entry.componentPath)) === absolute
+            || componentFolderPath(entry.componentPath) === folder
         ) || null;
     };
 
@@ -185,6 +191,7 @@ const createCanvasGraph = ({
                 ...input,
                 presentationVersion: inputReferenceVersion('presentation'),
                 components: leafComponents().map(({ componentPath, component }) => ({
+                    componentPath,
                     scope: componentScope(componentPath),
                     repairLevel: component.repairLevel || '',
                     html: renderedHtml(componentPath, component)
@@ -197,6 +204,7 @@ const createCanvasGraph = ({
                 presentationVersion: '',
                 canvasError: error.message,
                 components: [{
+                    componentPath: getCanvasPath(),
                     scope: getCanvasPath(),
                     repairLevel: 'canvas',
                     html: renderedHtml(getCanvasPath(), invalidCanvasCard(error))
