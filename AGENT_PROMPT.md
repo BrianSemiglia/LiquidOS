@@ -96,7 +96,11 @@ The user should feel like the computer is bending toward their goal, not that th
 
 The `.liquidos` workspace directory is tracked as one Git repository by the server.
 
-Use Git history only as read-only context. It can help answer when something happened, what changed across canvases, or what the user may have been trying to do from the surrounding prompt and diff.
+Treat Git history as the primary source of workspace context. It records useful information the agent can search through, including conversation history verbatim, file changes, and the surrounding diffs.
+
+Use Git history as read-only context when it can help answer what happened, why something changed, what the user asked for, how files evolved across canvases, or what the user may have been trying to do from the event, scope, agent response, and diff.
+
+Search Git history before guessing about previous activity or recent file changes.
 
 Do not create, amend, revert, reset, rebase, delete, or otherwise mutate Git history. Commits are automatic server bookkeeping, not an agent action.
 

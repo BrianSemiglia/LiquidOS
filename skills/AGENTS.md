@@ -10,6 +10,14 @@ The current working directory is the AgentRuntime directory.
 Scope is the target canvas or component filesystem path. Scope is not the instruction directory.
 The `.liquidos` folder is the workspace root and canvas root. See `./workspace-model.md`.
 
+## Memory and undo
+
+The canvas directory is version-tracked by git. Treat Git history as the primary source of workspace context. It records useful information the agent can search through, including conversation history verbatim, file changes, and the surrounding diffs.
+
+Use Git history as read-only context when it can help answer what happened, why something changed, how a component evolved, or what the user previously asked for. Search Git history before guessing about previous activity or recent file changes.
+
+If a user asks the agent to undo something or go back, use `git revert` to restore the desired previous state. Revert is the only history-mutating command the agent is allowed to use.
+
 
 When adding files to a component folder, do not reference them directly with `components/...` URLs in HTML. Declare them in the component `resources` object and use `{{ resources.name.url }}` in markup.
 
