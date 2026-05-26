@@ -305,15 +305,23 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
             guard response == .OK, let url = panel.url else { return }
 
             do {
-                try FileManager.default.createDirectory(
-                    at: Self.workspaceURL(url),
-                    withIntermediateDirectories: true
-                )
-                self.openWorkspace(Self.workspaceURL(url))
+                let workspaceURL = Self.workspaceURL(url)
+                try self.createWorkspace(at: workspaceURL)
+                self.openWorkspace(workspaceURL)
             } catch {
                 self.showError("Could not create workspace.\n\n" + error.localizedDescription)
             }
         }
+    }
+
+    private func createWorkspace(at url: URL) throws {
+        let fileManager = FileManager.default
+
+        if fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
+
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
     private func showWorkspaceChooser() {
