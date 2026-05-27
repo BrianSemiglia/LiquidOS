@@ -11,7 +11,7 @@ triggers:
 
 Use this skill when the user asks to create a new canvas inside an existing `.liquidos` workspace.
 
-Read `../workspace-model.md` before creating canvases.
+Read `../workspace-model/SKILL.md` before creating canvases.
 
 ## Current Shape
 
@@ -89,4 +89,3 @@ The `presentations/` folder is required inside the canvas. Do not reference skil
 Presentation CSS owns the canvas domain: canvas surface, component layout, spacing, alignment, overflow, item sizing, and canvas-local motion.
 
 The harness owns protected UI outside presentation control: prompt bar, debug view, loading/errors, and the component requirements editor. Do not put requirements editor styling in presentation CSS.
-

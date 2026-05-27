@@ -76,6 +76,7 @@ Component views should be built to listen-to/render a source of truth (function,
 This allows for the agent to simply make changes to the truth in order to update the view.
 Maintaining user data is important. Use git revert to undo mistakes.
 
+Do not put `<script>` tags or JavaScript fields inside `view.json`. For client-side behavior, create `functions.js` with `export const mount = root => ...`.
 Scripts inside `view.json` HTML are inert after harness injection. Use inline element handlers or the supported `functions.js` mount path.
 
 ## Truth

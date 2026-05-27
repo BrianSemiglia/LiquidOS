@@ -1,3 +1,12 @@
+---
+name: workspace-model
+description: Explain the LiquidOS workspace and canvas folder layout
+triggers:
+  - User asks about the LiquidOS workspace structure
+  - User asks where canvases live
+  - User asks how .liquidos folders are organized
+---
+
 # Workspace Model
 
 The `*.liquidos` folder is the workspace root and the canvas root.
