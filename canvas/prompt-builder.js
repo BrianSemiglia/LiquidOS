@@ -17,6 +17,8 @@ const createPromptBuilder = ({
     callbackPromptText
 }) => {
     const buildJobPrompt = job => [
+        'Immediately restore context using the conversation-history-and-undo skill.',
+        '',
         'Scope:',
         scopeText(job.scope, getCanvasPath),
         '',
