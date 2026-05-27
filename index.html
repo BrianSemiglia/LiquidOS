@@ -804,8 +804,6 @@
         const componentMountsByItem = new WeakMap();
         let latestComponentByIndex = new Map();
         let lastCanvasSnapshot = '';
-        const agentKindKey = 'live-edit-agent-kind';
-
         instanceStyle.id = 'instance-style';
         document.head.append(instanceStyle);
         presentationStyle.id = 'presentation-style';
@@ -1625,6 +1623,7 @@
                 ? data.agentChoices
                 : [
                     { id: 'hermes', label: 'Hermes', installed: true },
+                    { id: 'pi', label: 'Pi', installed: false },
                     { id: 'codex', label: 'Codex', installed: false },
                     { id: 'claude-code', label: 'Claude Code', installed: false }
                 ];
@@ -1645,18 +1644,6 @@
                 agentSelect.value = selected;
             }
 
-            const storedAgentKind = (() => {
-                try {
-                    return localStorage.getItem(agentKindKey) || '';
-                } catch (error) {
-                    return '';
-                }
-            })().trim();
-
-            if (storedAgentKind && storedAgentKind !== selected && choices.some(choice => choice.id === storedAgentKind && choice.installed !== false)) {
-                await switchAgentKind(storedAgentKind);
-            }
-
             return data;
         };
 
@@ -1674,12 +1661,6 @@
             }
 
             const result = await response.json();
-
-            try {
-                localStorage.setItem(agentKindKey, String(kind || '').trim());
-            } catch (error) {
-                // Ignore persistence failures.
-            }
 
             await loadAgentChoices();
             await loadDebugPanel().catch(() => {});

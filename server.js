@@ -17,7 +17,7 @@ const { createPromptBuilder } = require('./canvas/prompt-builder');
 const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
 
-const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes']);
+const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi']);
 
 const failStartup = message => {
     console.error(message);
@@ -119,10 +119,10 @@ const absoluteScope = scope => {
 };
 
 const CANVASES_ROOT = resolveConfigPath(requiredArg('--workspace'));
-const SELECTED_AGENT_KIND = String(requiredArg('--agent')).trim().toLowerCase();
+const DEFAULT_AGENT_KIND = String(requiredArg('--agent')).trim().toLowerCase();
 
-if (!VALID_AGENT_KINDS.has(SELECTED_AGENT_KIND)) {
-    failStartup('Invalid --agent. Expected one of: codex, claude-code, hermes');
+if (!VALID_AGENT_KINDS.has(DEFAULT_AGENT_KIND)) {
+    failStartup('Invalid --agent. Expected one of: codex, claude-code, hermes, pi');
 }
 
 const optionalArg = (name, fallback) =>
@@ -154,6 +154,7 @@ if (!fs.existsSync(CANVASES_ROOT) || !fs.statSync(CANVASES_ROOT).isDirectory()) 
 
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'skills', 'canvas-creator', 'templates');
 const SELECTED_CANVAS_FILE = path.join(CANVASES_ROOT, 'selected-canvas.json');
+const SELECTED_AGENT_FILE = path.join(CANVASES_ROOT, 'selected-agent.json');
 const DEFAULT_CANVAS_NAME = 'home';
 const DEFAULT_CANVAS_PATH = path.join(CANVASES_ROOT, DEFAULT_CANVAS_NAME);
 
@@ -185,12 +186,41 @@ const writeSelectedCanvasName = name => {
     );
 };
 
+const validAgentKind = value =>
+    typeof value === 'string'
+        && VALID_AGENT_KINDS.has(value.trim().toLowerCase());
+
+const selectedAgentKindFromFile = () => {
+    try {
+        if (!fs.existsSync(SELECTED_AGENT_FILE)) {
+            return DEFAULT_AGENT_KIND;
+        }
+
+        const value = JSON.parse(fs.readFileSync(SELECTED_AGENT_FILE, 'utf8'));
+        const candidate = typeof value === 'string'
+            ? value
+            : value?.agent ?? value?.kind ?? value?.selectedAgentKind;
+
+        return validAgentKind(candidate) ? candidate.trim().toLowerCase() : DEFAULT_AGENT_KIND;
+    } catch (error) {
+        return DEFAULT_AGENT_KIND;
+    }
+};
+
+const writeSelectedAgentKind = kind => {
+    fs.writeFileSync(
+        SELECTED_AGENT_FILE,
+        JSON.stringify({ agent: validAgentKind(kind) ? String(kind).trim().toLowerCase() : DEFAULT_AGENT_KIND }, null, 2) + '\n'
+    );
+};
+
 const canvasNameFromPath = canvasPath =>
     path.relative(CANVASES_ROOT, canvasPath) || path.basename(canvasPath);
 
 let CANVAS_PATH = path.join(CANVASES_ROOT, selectedCanvasNameFromFile());
 let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
 let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
+const SELECTED_AGENT_KIND = selectedAgentKindFromFile();
 
 const applicationSupportRoot = () =>
     path.join(os.homedir(), 'Library', 'Application Support', 'LiquidOS');
@@ -270,6 +300,10 @@ if (!fs.existsSync(path.join(CANVAS_PATH, 'input.json'))) {
     INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
     OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
     writeSelectedCanvasName(DEFAULT_CANVAS_NAME);
+}
+
+if (!fs.existsSync(SELECTED_AGENT_FILE)) {
+    writeSelectedAgentKind(SELECTED_AGENT_KIND);
 }
 const PORT = Number.parseInt(requiredArg('--port'), 10);
 
@@ -1404,6 +1438,8 @@ const server = http.createServer(async (req, res) => {
                 send(res, result.statusCode, JSON.stringify({ error: result.error }), 'application/json; charset=utf-8');
                 return;
             }
+
+            writeSelectedAgentKind(agentProviders.activeKind());
 
             if (outputQueue) {
                 outputQueue.feedHermesOutput();
