@@ -22,7 +22,7 @@ const createPromptBuilder = ({
         'Scope:',
         scopeText(job.scope, getCanvasPath),
         '',
-        'Request:',
+        'Prompt:',
         callbackPromptText(job)
     ].join('\n');
 
