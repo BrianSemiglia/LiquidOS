@@ -199,16 +199,9 @@ const AGENT_RUNTIME_ROOT = path.join(applicationSupportRoot(), 'AgentRuntime');
 const AGENT_RUNTIME_LOGS_DIR = path.join(AGENT_RUNTIME_ROOT, 'logs');
 const HERMES_AGENT_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'agent.log');
 const HERMES_ERRORS_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'errors.log');
-const AGENTS_SOURCE_PATH = path.join(ROOT, 'skills', 'AGENTS.md');
+const SKILLS_SOURCE_ROOT = path.join(ROOT, 'skills');
 const AGENTS_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'AGENTS.md');
 const AGENT_RUNTIME_CONFIG_PATH = path.join(AGENT_RUNTIME_ROOT, 'runtime.json');
-const COMPONENT_CREATOR_SOURCE_PATH = path.join(ROOT, 'skills', 'component-creator');
-const COMPONENT_CREATOR_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'component-creator');
-const COMPONENT_GUIDE_PATH = path.join(COMPONENT_CREATOR_SOURCE_PATH, 'SKILL.md');
-const CANVAS_CREATOR_SOURCE_PATH = path.join(ROOT, 'skills', 'canvas-creator');
-const CANVAS_CREATOR_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'canvas-creator');
-const TESTING_SKILL_SOURCE_PATH = path.join(ROOT, 'skills', 'testing');
-const TESTING_SKILL_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'testing');
 const LIVE_CANVAS_ROOT = CANVASES_ROOT;
 
 
@@ -235,24 +228,20 @@ const streamCanvasFile = (req, res, file, type) => {
 fs.mkdirSync(AGENT_RUNTIME_ROOT, { recursive: true });
 fs.mkdirSync(AGENT_RUNTIME_LOGS_DIR, { recursive: true });
 
-const materializeRuntimeFile = (sourcePath, destinationPath) => {
-    if (!fs.existsSync(sourcePath)) {
+const materializeRuntimeSkills = () => {
+    if (!fs.existsSync(SKILLS_SOURCE_ROOT)) {
         return false;
     }
 
-    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
-    fs.copyFileSync(sourcePath, destinationPath);
-    return true;
-};
+    fs.mkdirSync(AGENT_RUNTIME_ROOT, { recursive: true });
 
-const materializeRuntimeDirectory = (sourcePath, destinationPath) => {
-    if (!fs.existsSync(sourcePath)) {
-        return false;
-    }
+    fs.readdirSync(AGENT_RUNTIME_ROOT)
+        .filter(name => !['logs', 'runtime.json'].includes(name))
+        .forEach(name => fs.rmSync(path.join(AGENT_RUNTIME_ROOT, name), { recursive: true, force: true }));
 
-    fs.rmSync(destinationPath, { recursive: true, force: true });
-    fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
-    fs.cpSync(sourcePath, destinationPath, { recursive: true });
+    fs.readdirSync(SKILLS_SOURCE_ROOT)
+        .forEach(name => fs.cpSync(path.join(SKILLS_SOURCE_ROOT, name), path.join(AGENT_RUNTIME_ROOT, name), { recursive: true }));
+
     return true;
 };
 
@@ -265,10 +254,7 @@ const writeAgentRuntimeConfig = () => {
 };
 
 const materializeAgentRuntimeFiles = () => {
-    materializeRuntimeFile(AGENTS_SOURCE_PATH, AGENTS_RUNTIME_PATH);
-    materializeRuntimeDirectory(COMPONENT_CREATOR_SOURCE_PATH, COMPONENT_CREATOR_RUNTIME_PATH);
-    materializeRuntimeDirectory(CANVAS_CREATOR_SOURCE_PATH, CANVAS_CREATOR_RUNTIME_PATH);
-    materializeRuntimeDirectory(TESTING_SKILL_SOURCE_PATH, TESTING_SKILL_RUNTIME_PATH);
+    materializeRuntimeSkills();
     writeAgentRuntimeConfig();
 };
 
