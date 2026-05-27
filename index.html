@@ -798,7 +798,7 @@
         let debugResizePointerId = null;
         let debugResizeFrame = null;
         let debugLines = [];
-        const livePromptInFlight = new Set();
+        let debugState = null;
         const liveCallbackElements = new Set();
         const renderedItemsByIndex = new Map();
         const componentMountsByItem = new WeakMap();
@@ -835,10 +835,18 @@
 
         const currentScrollKey = () => scrollKey(canvasSelect.value);
 
+        const startLiveCallbackLoading = element => {
+            if (!element?.setLoading) {
+                return;
+            }
+
+            liveCallbackElements.add(element);
+            element.setLoading(true);
+        };
+
         const stopLiveCallbackLoading = () => {
             liveCallbackElements.forEach(element => element?.setLoading?.(false));
             liveCallbackElements.clear();
-            livePromptInFlight.clear();
         };
 
         const setBusy = state => {
@@ -856,9 +864,15 @@
                 return;
             }
 
-            const current = state && typeof state.current === 'object' ? state.current : {};
-            const active = state && typeof state.active === 'object' ? state.active : {};
-            debugLines = Array.isArray(state?.lines) ? state.lines.slice(-200) : [];
+            debugState = state || debugState || {};
+
+            const current = debugState && typeof debugState.current === 'object' ? debugState.current : {};
+            const active = debugState && typeof debugState.active === 'object'
+                ? debugState.active
+                : debugState && typeof debugState.selected === 'object'
+                    ? debugState.selected
+                    : {};
+            debugLines = Array.isArray(debugState?.lines) ? debugState.lines.slice(-200) : [];
 
             const sourceLabel = current.source === 'bundled'
                 ? 'Bundled agent'
@@ -886,7 +900,7 @@
                 }
             }
             debugCurrentBackend.textContent = backendParts.length ? backendParts.join(' · ') : 'Unavailable';
-            debugCurrentCanvas.textContent = state && state.canvas ? state.canvas : 'Unknown';
+            debugCurrentCanvas.textContent = debugState && debugState.canvas ? debugState.canvas : 'Unknown';
             renderDebugLines();
         };
 
@@ -939,9 +953,45 @@
         const startDebugStream = () => {
             const stream = new EventSource('/debug/agent/stream');
 
+            stream.addEventListener('debug-status', event => {
+                try {
+                    const payload = JSON.parse(event.data);
+
+                    if (!debugState) {
+                        debugState = { lines: [] };
+                    }
+
+                    if (payload && typeof payload.current === 'object') {
+                        debugState = {
+                            ...debugState,
+                            current: payload.current
+                        };
+                        renderDebugPanel(debugState);
+                    }
+                } catch (error) {
+                    appendDebugLine({
+                        at: new Date().toISOString(),
+                        label: '[debug-stream]',
+                        text: 'Malformed debug status: ' + error.message
+                    });
+                }
+            });
+
             stream.addEventListener('debug-line', event => {
                 try {
-                    appendDebugLine(JSON.parse(event.data).line);
+                    const payload = JSON.parse(event.data);
+                    appendDebugLine(payload.line);
+
+                    if (!debugState) {
+                        debugState = { lines: [] };
+                    }
+
+                    if (payload && payload.line) {
+                        debugState = {
+                            ...debugState,
+                            lines: [...(Array.isArray(debugState.lines) ? debugState.lines : []), payload.line].slice(-200)
+                        };
+                    }
                 } catch (error) {
                     appendDebugLine({
                         at: new Date().toISOString(),
@@ -967,7 +1017,8 @@
                 throw new Error('/debug/agent returned ' + response.status);
             }
 
-            renderDebugPanel(await response.json());
+            debugState = await response.json();
+            renderDebugPanel(debugState);
         };
 
         const saveScrollPosition = () => {
@@ -1144,8 +1195,6 @@
             if (!response.ok) {
                 throw new Error('/output returned ' + response.status);
             }
-
-            setBusy({ busy: true });
         };
 
         const submitCanvasPrompt = async prompt => {
@@ -1163,8 +1212,6 @@
             if (!response.ok) {
                 throw new Error('/output returned ' + response.status);
             }
-
-            setBusy({ busy: true });
         };
 
 
@@ -1395,10 +1442,6 @@
             });
 
             surface.addEventListener('liquidos:callback', event => {
-                if (globalForm.dataset.busy === 'true') {
-                    return;
-                }
-
                 const detail = event.detail && typeof event.detail === 'object'
                     ? event.detail
                     : {};
@@ -1408,20 +1451,11 @@
                     return;
                 }
 
-                const promptKey = scope + '::' + prompt;
-
-                if (livePromptInFlight.has(promptKey)) {
-                    return;
-                }
-
                 event.preventDefault();
                 status.hidden = true;
                 status.className = 'status';
                 status.textContent = '';
-                setBusy({ busy: true });
-                event.target?.setLoading?.(true);
-                liveCallbackElements.add(event.target);
-                livePromptInFlight.add(promptKey);
+                startLiveCallbackLoading(event.target);
 
                 submitPrompt(scope, prompt)
                     .then(() => {
@@ -1627,7 +1661,7 @@
                     { id: 'codex', label: 'Codex', installed: false },
                     { id: 'claude-code', label: 'Claude Code', installed: false }
                 ];
-            const selected = typeof data.agentKind === 'string' && data.agentKind.trim()
+            const active = typeof data.agentKind === 'string' && data.agentKind.trim()
                 ? data.agentKind.trim()
                 : 'hermes';
 
@@ -1635,13 +1669,13 @@
                 const option = document.createElement('option');
                 option.value = choice.id || '';
                 option.textContent = choice.label || choice.id || '';
-                option.selected = option.value === selected;
+                option.selected = option.value === active;
                 option.disabled = choice.installed === false;
                 return option;
             }));
 
-            if (selected && agentSelect.value !== selected) {
-                agentSelect.value = selected;
+            if (active && agentSelect.value !== active) {
+                agentSelect.value = active;
             }
 
             return data;
@@ -1784,10 +1818,6 @@
         globalSubmitCallback.addEventListener('liquidos:callback', event => {
             event.preventDefault();
 
-            if (globalForm.dataset.busy === 'true') {
-                return;
-            }
-
             const prompt = String(event.detail?.prompt || '').trim();
             const scope = String(event.detail?.scope || '').trim();
 
@@ -1800,10 +1830,7 @@
                 return;
             }
 
-            setBusy({ busy: true });
-            event.currentTarget.setLoading(true);
-            liveCallbackElements.add(event.currentTarget);
-
+            startLiveCallbackLoading(event.currentTarget);
             submitPrompt(scope, prompt)
                 .then(() => {
                     globalText.value = '';

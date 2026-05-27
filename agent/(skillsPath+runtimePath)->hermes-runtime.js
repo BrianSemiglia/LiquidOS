@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { promptWithAgentSystemPrompt } = require('./system-prompt');
+const { copySkillsTreeToRoot } = require('./skills');
 
 let host = {
     output: () => {},
@@ -115,6 +117,20 @@ const configureHermesAgent = nextHost => {
     };
 };
 
+const hermesRuntimePaths = ({ runtimePath } = {}) => [
+    runtimePath ? path.join(runtimePath, '.hermes') : null
+].filter(Boolean);
+
+const materializeHermesRuntime = ({ runtimePath, skillsPath } = {}) => {
+    const runtimePaths = hermesRuntimePaths({ runtimePath });
+
+    runtimePaths.forEach(runtimePath => {
+        copySkillsTreeToRoot(skillsPath, runtimePath);
+    });
+
+    return runtimePaths;
+};
+
 const argumentValueFrom = (args, name) => {
     const prefix = name + '=';
     const inline = args.find(argument => argument.startsWith(prefix));
@@ -148,6 +164,7 @@ const HermesAgent = () => {
         kind: 'hermes',
         label: 'Hermes',
         command,
+        configureHost: configureHermesAgent,
         isInstalled: () => commandInstalled(),
         initialize: ({ workingDirectory } = {}) => setStatus({
             status: 'waiting',
@@ -156,16 +173,29 @@ const HermesAgent = () => {
         }),
         dispose: () => {},
         currentDebug: () => ({ ...currentDebug }),
+        runtimePaths: hermesRuntimePaths,
+        materializeRuntime: materializeHermesRuntime,
         run: (prompt, { workingDirectory, systemPromptPath } = {}) => new Promise((resolve, reject) => {
             if (!workingDirectory) {
                 reject(new Error('HermesAgent.run requires a workingDirectory'));
                 return;
             }
 
-            const args = buildOneShotArguments(prompt);
+            const args = buildOneShotArguments(promptWithAgentSystemPrompt({ prompt, systemPromptPath }));
             let output = '';
             let errorOutput = '';
             let timedOut = false;
+            let queryPrefixChecked = false;
+            const visibleHermesOutput = chunk => {
+                const text = String(chunk || '');
+
+                if (queryPrefixChecked) {
+                    return text;
+                }
+
+                queryPrefixChecked = true;
+                return text.startsWith('Query: ') ? text.slice('Query: '.length) : text;
+            };
             const processHandle = spawn(command, args, {
                 cwd: workingDirectory,
                 env: {
@@ -199,8 +229,8 @@ const HermesAgent = () => {
             }, timeoutMilliseconds());
 
             processHandle.stdout.on('data', chunk => {
-                output += chunk;
-                host.output('hermes', chunk);
+                output += visibleHermesOutput(chunk);
+                host.output('hermes', visibleHermesOutput(chunk));
             });
 
             processHandle.stderr.on('data', chunk => {

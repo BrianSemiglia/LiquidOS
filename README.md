@@ -10,7 +10,7 @@ Required arguments:
 
 ```text
 --workspace <*.liquidos folder>
---agent codex | claude-code | hermes
+--agent codex | claude-code | hermes | pi
 --port <number>
 ```
 

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { copySkillsTreeToRoot } = require('./skills');
 
 let host = {
     output: () => {},
@@ -41,6 +42,20 @@ const configureClaudeCodeAgent = nextHost => {
     };
 };
 
+const claudeRuntimePaths = ({ runtimePath } = {}) => [
+    runtimePath ? path.join(runtimePath, '.claude') : null
+].filter(Boolean);
+
+const materializeClaudeRuntime = ({ runtimePath, skillsPath } = {}) => {
+    const runtimePaths = claudeRuntimePaths({ runtimePath });
+
+    runtimePaths.forEach(runtimePath => {
+        copySkillsTreeToRoot(skillsPath, runtimePath);
+    });
+
+    return runtimePaths;
+};
+
 const ClaudeCodeAgent = () => {
     const currentDebug = {
         kind: 'claude-code',
@@ -61,10 +76,13 @@ const ClaudeCodeAgent = () => {
         kind: 'claude-code',
         label: 'Claude Code',
         command,
+        configureHost: configureClaudeCodeAgent,
         isInstalled: () => commandInstalled(),
         initialize: () => setStatus({ status: 'waiting' }),
         dispose: () => {},
         currentDebug: () => ({ ...currentDebug }),
+        runtimePaths: claudeRuntimePaths,
+        materializeRuntime: materializeClaudeRuntime,
         run: (prompt, { workingDirectory, systemPromptPath, canvasPath } = {}) => new Promise((resolve, reject) => {
             if (!workingDirectory) {
                 reject(new Error('ClaudeCodeAgent.run requires a workingDirectory'));

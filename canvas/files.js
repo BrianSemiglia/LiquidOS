@@ -2,9 +2,9 @@ const path = require('path');
 
 const createCanvasFiles = ({
     fs,
-    canvasesRoot,
+    workspacePath,
     canvasTemplateRoot,
-    localAssetRoot = path.dirname(canvasesRoot),
+    localAssetRoot = path.dirname(workspacePath),
     getCanvasPath,
     setCanvasPath,
     readJson
@@ -67,7 +67,7 @@ const createCanvasFiles = ({
     };
 
     const ensureCanvasDefaults = name => {
-        const canvasPath = path.join(canvasesRoot, name);
+        const canvasPath = path.join(workspacePath, name);
 
         fs.mkdirSync(canvasPath, { recursive: true });
 
@@ -93,15 +93,15 @@ const createCanvasFiles = ({
     };
 
     const availableCanvases = () =>
-        fs.existsSync(canvasesRoot)
-            ? fs.readdirSync(canvasesRoot, { withFileTypes: true })
+        fs.existsSync(workspacePath)
+            ? fs.readdirSync(workspacePath, { withFileTypes: true })
                 .filter(entry =>
                     entry.isDirectory() &&
                     !entry.name.startsWith('.') &&
-                    fs.existsSync(path.join(canvasesRoot, entry.name, 'input.json'))
+                    fs.existsSync(path.join(workspacePath, entry.name, 'input.json'))
                 )
                 .map(entry => {
-                    const canvasPath = path.join(canvasesRoot, entry.name);
+                    const canvasPath = path.join(workspacePath, entry.name);
 
                     return {
                         name: entry.name,
@@ -122,7 +122,7 @@ const createCanvasFiles = ({
             throw error;
         }
 
-        const canvasPath = path.join(canvasesRoot, name);
+        const canvasPath = path.join(workspacePath, name);
 
         if (!fs.existsSync(path.join(canvasPath, 'input.json'))) {
             const error = new Error('Canvas does not exist: ' + name);
@@ -145,7 +145,7 @@ const createCanvasFiles = ({
             throw error;
         }
 
-        if (fs.existsSync(path.join(canvasesRoot, safeName))) {
+        if (fs.existsSync(path.join(workspacePath, safeName))) {
             const error = new Error('Canvas already exists: ' + safeName);
             error.statusCode = 409;
             throw error;

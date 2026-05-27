@@ -1,7 +1,7 @@
-const createAgentProviders = ({ agents, workingDirectory, activeKind: initialKind = null, onStatus = () => {} }) => {
+const createAgentProviders = ({ agents, workingDirectory, selectedKind: initialKind = null, onStatus = () => {} }) => {
     const providers = Object.fromEntries(agents.map(agent => [agent.kind, agent]));
     const installationCache = new Map();
-    let activeKind = null;
+    let selectedKind = null;
     let initializationToken = 0;
     const initializedKinds = new Set();
 
@@ -25,9 +25,9 @@ const createAgentProviders = ({ agents, workingDirectory, activeKind: initialKin
         return installationCache.has(provider.kind) ? installationCache.get(provider.kind) : null;
     };
 
-    activeKind = providers[initialKind] ? initialKind : (agents[0] || {}).kind;
+    selectedKind = providers[initialKind] ? initialKind : (agents[0] || {}).kind;
 
-    const activeProvider = () => providers[activeKind] || agents[0];
+    const selectedProvider = () => providers[selectedKind] || agents[0];
 
     const providerSnapshot = (provider, { checkInstalled = false } = {}) => ({
         id: provider.kind,
@@ -61,7 +61,7 @@ const createAgentProviders = ({ agents, workingDirectory, activeKind: initialKin
         });
 
         setImmediate(() => {
-            if (token !== initializationToken || provider !== activeProvider()) {
+            if (token !== initializationToken || provider !== selectedProvider()) {
                 return;
             }
 
@@ -88,12 +88,12 @@ const createAgentProviders = ({ agents, workingDirectory, activeKind: initialKin
 
     const probe = (options = {}) => ({
         agents: availableKinds(options),
-        agentKind: activeKind,
+        agentKind: selectedKind,
         agentChoices: availableKinds(options),
-        active: providerSnapshot(activeProvider(), options)
+        selected: providerSnapshot(selectedProvider(), options)
     });
 
-    const setActiveKind = kind => {
+    const setSelectedKind = kind => {
         const normalized = String(kind || '').trim().toLowerCase();
 
         if (!providers[normalized]) {
@@ -114,27 +114,27 @@ const createAgentProviders = ({ agents, workingDirectory, activeKind: initialKin
 
         initializationToken += 1;
 
-        if (activeKind !== normalized && providers[activeKind] && typeof providers[activeKind].dispose === 'function') {
+        if (selectedKind !== normalized && providers[selectedKind] && typeof providers[selectedKind].dispose === 'function') {
             try {
-                providers[activeKind].dispose();
+                providers[selectedKind].dispose();
             } catch (error) {
                 onStatus({
-                    ...(providers[activeKind].currentDebug ? providers[activeKind].currentDebug() : {}),
-                    kind: providers[activeKind].kind,
-                    label: providers[activeKind].label,
+                    ...(providers[selectedKind].currentDebug ? providers[selectedKind].currentDebug() : {}),
+                    kind: providers[selectedKind].kind,
+                    label: providers[selectedKind].label,
                     status: 'error',
                     error: error.message
                 });
             }
         }
 
-        activeKind = normalized;
+        selectedKind = normalized;
 
         return {
             ok: true,
             agent: {
-                kind: activeKind,
-                label: providers[activeKind].label
+                kind: selectedKind,
+                label: providers[selectedKind].label
             }
         };
     };
@@ -142,15 +142,15 @@ const createAgentProviders = ({ agents, workingDirectory, activeKind: initialKin
     return {
         availableKinds,
         probe,
-        setActiveKind,
-        activeKind: () => activeKind,
-        activeProvider,
-        preparePrompt: (prompt, options = {}) => activeProvider() && typeof activeProvider().preparePrompt === 'function'
-            ? activeProvider().preparePrompt(prompt, options)
+        setSelectedKind,
+        selectedKind: () => selectedKind,
+        selectedProvider,
+        preparePrompt: (prompt, options = {}) => selectedProvider() && typeof selectedProvider().preparePrompt === 'function'
+            ? selectedProvider().preparePrompt(prompt, options)
             : prompt,
-        runActive: (prompt, options = {}) => {
-            initializeProvider(activeProvider());
-            return activeProvider().run(prompt, options);
+        runSelected: (prompt, options = {}) => {
+            initializeProvider(selectedProvider());
+            return selectedProvider().run(prompt, options);
         }
     };
 };

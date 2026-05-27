@@ -1,7 +1,7 @@
 const path = require('path');
 
 const createOutputQueue = ({
-    root,
+    workspacePath,
     fs,
     getCanvasPath,
     getOutputPath,
@@ -15,8 +15,8 @@ const createOutputQueue = ({
     isCanvasScope
 }) => {
     const isObject = value => value !== null && typeof value === 'object';
-    const resolveFromRoot = value =>
-        path.isAbsolute(value) ? value : path.resolve(root, value);
+    const resolveFromWorkspacePath = value =>
+        path.isAbsolute(value) ? value : path.resolve(workspacePath, value);
 
     let outputDispatchTimer = null;
     let outputDispatching = false;
@@ -93,7 +93,7 @@ const createOutputQueue = ({
         }
 
         if (typeof job.file === 'string' && job.file.trim()) {
-            return resolveFromRoot(job.file);
+            return resolveFromWorkspacePath(job.file);
         }
 
         return 'canvas';
@@ -118,22 +118,6 @@ const createOutputQueue = ({
         withOutputLock(async () => {
             const jobs = readOutputJobs();
             const jobKey = outputJobKey(job);
-            const jobPrompt = callbackPromptText(job);
-            const existing = jobs.find(item =>
-                item
-                && ['pending', 'running'].includes(item.status)
-                && outputJobKey(item) === jobKey
-                && callbackPromptText(item) === jobPrompt
-            );
-
-            if (existing) {
-                logServer('queue', 'duplicate job ignored', {
-                    canvas: getCanvasPath(),
-                    existing: outputJobSummary(existing),
-                    duplicate: outputJobSummary(job)
-                });
-                return existing;
-            }
 
             jobs.push(job);
             writeJson(getOutputPath(), jobs);

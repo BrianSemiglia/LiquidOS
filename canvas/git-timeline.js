@@ -62,47 +62,47 @@ const shutdownEvent = reason => isCrashReason(reason)
 
 const workspaceName = workspacePath => path.basename(String(workspacePath || '').replace(/\/+$/, ''), '.liquidos');
 
-const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
+const createGitTimeline = ({ workspacePath, currentCanvasPath, logServer }) => {
     const ensureCanvasesGitRepo = () => {
-        fs.mkdirSync(canvasesRoot, { recursive: true });
+        fs.mkdirSync(workspacePath, { recursive: true });
 
-        if (path.resolve((git(canvasesRoot, ['rev-parse', '--show-toplevel']).stdout || '').trim()) !== path.resolve(canvasesRoot)) {
-            if (git(canvasesRoot, ['init'], { stdio: 'inherit' }).status !== 0) {
+        if (path.resolve((git(workspacePath, ['rev-parse', '--show-toplevel']).stdout || '').trim()) !== path.resolve(workspacePath)) {
+            if (git(workspacePath, ['init'], { stdio: 'inherit' }).status !== 0) {
                 throw new Error('Failed to initialize git repo for canvases');
             }
         }
 
-        if (git(canvasesRoot, ['rev-parse', '--verify', 'HEAD']).status !== 0) {
-            if (git(canvasesRoot, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
+        if (git(workspacePath, ['rev-parse', '--verify', 'HEAD']).status !== 0) {
+            if (git(workspacePath, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
                 throw new Error('Failed to stage initial canvases snapshot');
             }
 
-            if (git(canvasesRoot, ['commit', '-m', commitMessage({
-                event: eventWithParameter('User did create workspace', 'name', workspaceName(canvasesRoot)),
-                scope: canvasesRoot,
+            if (git(workspacePath, ['commit', '-m', commitMessage({
+                event: eventWithParameter('User did create workspace', 'name', workspaceName(workspacePath)),
+                scope: workspacePath,
                 agentResponse: 'none'
             })], { stdio: 'inherit' }).status !== 0) {
                 throw new Error('Failed to commit initial canvases snapshot');
             }
         }
 
-        return canvasesRoot;
+        return workspacePath;
     };
 
     const commitFailedCanvases = (job, agentResponse = '', error = '') => {
         ensureCanvasesGitRepo();
 
-        if (git(canvasesRoot, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
+        if (git(workspacePath, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
             logServer('git', 'failed to stage failed job canvases changes', { jobId: job.id || null });
             return false;
         }
 
-        if (git(canvasesRoot, ['diff', '--cached', '--quiet']).status === 0) {
+        if (git(workspacePath, ['diff', '--cached', '--quiet']).status === 0) {
             logServer('git', 'no failed job canvases changes to commit', { jobId: job.id || null });
             return false;
         }
 
-        if (git(canvasesRoot, ['commit', '-m', commitMessage({
+        if (git(workspacePath, ['commit', '-m', commitMessage({
             event: crashEvent(error || agentResponse),
             scope: scopeText(job.scope, currentCanvasPath),
             agentResponse: agentResponse || 'none'
@@ -122,17 +122,17 @@ const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
     const commitShutdownCanvases = (job, reason = '') => {
         ensureCanvasesGitRepo();
 
-        if (git(canvasesRoot, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
+        if (git(workspacePath, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
             logServer('git', 'failed to stage shutdown canvases changes', { jobId: job && job.id ? job.id : null });
             return false;
         }
 
-        if (git(canvasesRoot, ['diff', '--cached', '--quiet']).status === 0) {
+        if (git(workspacePath, ['diff', '--cached', '--quiet']).status === 0) {
             logServer('git', 'no shutdown canvases changes to commit', { jobId: job && job.id ? job.id : null });
             return false;
         }
 
-        if (git(canvasesRoot, ['commit', '-m', commitMessage({
+        if (git(workspacePath, ['commit', '-m', commitMessage({
             event: shutdownEvent(reason),
             scope: scopeText(job && job.scope ? job.scope : '', currentCanvasPath),
             agentResponse: job && job.agentResponse ? job.agentResponse : 'none'
@@ -151,17 +151,17 @@ const createGitTimeline = ({ canvasesRoot, currentCanvasPath, logServer }) => {
     const commitCanvases = (job, context = '') => {
         ensureCanvasesGitRepo();
 
-        if (git(canvasesRoot, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
+        if (git(workspacePath, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
             logServer('git', 'failed to stage canvases changes', { jobId: job.id || null });
             return false;
         }
 
-        if (git(canvasesRoot, ['diff', '--cached', '--quiet']).status === 0) {
+        if (git(workspacePath, ['diff', '--cached', '--quiet']).status === 0) {
             logServer('git', 'no canvases changes to commit', { jobId: job.id || null });
             return false;
         }
 
-        if (git(canvasesRoot, ['commit', '-m', commitMessage({
+        if (git(workspacePath, ['commit', '-m', commitMessage({
             event: promptEvent(job),
             scope: scopeText(job.scope, currentCanvasPath),
             agentResponse: context || 'none'

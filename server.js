@@ -5,10 +5,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { createGitTimeline } = require('./canvas/git-timeline');
-const { createAgentProviders } = require('./agent/providers');
-const { CodexAgent, configureCodexAgent } = require('./agent/codex');
-const { HermesAgent, configureHermesAgent } = require('./agent/hermes');
-const { ClaudeCodeAgent, configureClaudeCodeAgent } = require('./agent/claude-code');
+const { createRuntimes } = require('./agent/(workspacePath+runtimePath+skillsPath)->runtimes');
+const { createActiveRuntime } = require('./agent/(runtimes+selection)->active-runtime');
 const { createCanvasFiles } = require('./canvas/files');
 const { createCanvasGraph } = require('./canvas/graph');
 const { createOutputQueue } = require('./canvas/output-queue');
@@ -112,13 +110,13 @@ const absoluteScope = scope => {
     const canvasName = path.basename(CANVAS_PATH);
 
     if (relative === canvasName || relative.startsWith(canvasName + '/')) {
-        return path.resolve(CANVASES_ROOT, relative);
+        return path.resolve(WORKSPACE_PATH, relative);
     }
 
     return path.resolve(CANVAS_PATH, relative);
 };
 
-const CANVASES_ROOT = resolveConfigPath(requiredArg('--workspace'));
+const WORKSPACE_PATH = resolveConfigPath(requiredArg('--workspace'));
 const DEFAULT_AGENT_KIND = String(requiredArg('--agent')).trim().toLowerCase();
 
 if (!VALID_AGENT_KINDS.has(DEFAULT_AGENT_KIND)) {
@@ -144,19 +142,21 @@ const parseBooleanArg = (name, fallback) => {
 
 const TESTING_ENABLED = parseBooleanArg('--testing', true);
 
-if (path.extname(CANVASES_ROOT) !== '.liquidos') {
+if (path.extname(WORKSPACE_PATH) !== '.liquidos') {
     failStartup('--workspace must be a .liquidos folder');
 }
 
-if (!fs.existsSync(CANVASES_ROOT) || !fs.statSync(CANVASES_ROOT).isDirectory()) {
-    failStartup('--workspace does not exist or is not a folder: ' + CANVASES_ROOT);
+if (!fs.existsSync(WORKSPACE_PATH) || !fs.statSync(WORKSPACE_PATH).isDirectory()) {
+    failStartup('--workspace does not exist or is not a folder: ' + WORKSPACE_PATH);
 }
 
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'skills', 'canvas-creator', 'templates');
-const SELECTED_CANVAS_FILE = path.join(CANVASES_ROOT, 'selected-canvas.json');
-const SELECTED_AGENT_FILE = path.join(CANVASES_ROOT, 'selected-agent.json');
+const ACTIVE_CANVAS_FILE = path.join(WORKSPACE_PATH, 'active-canvas.json');
+const ACTIVE_AGENT_FILE = path.join(WORKSPACE_PATH, 'active-agent.json');
+const LEGACY_SELECTED_CANVAS_FILE = path.join(WORKSPACE_PATH, 'selected-canvas.json');
+const LEGACY_SELECTED_AGENT_FILE = path.join(WORKSPACE_PATH, 'selected-agent.json');
 const DEFAULT_CANVAS_NAME = 'home';
-const DEFAULT_CANVAS_PATH = path.join(CANVASES_ROOT, DEFAULT_CANVAS_NAME);
+const DEFAULT_CANVAS_PATH = path.join(WORKSPACE_PATH, DEFAULT_CANVAS_NAME);
 
 const validCanvasName = value =>
     typeof value === 'string'
@@ -165,13 +165,15 @@ const validCanvasName = value =>
         && !value.startsWith('.')
         && !value.includes('..');
 
-const selectedCanvasNameFromFile = () => {
+const activeCanvasNameFromFile = () => {
     try {
-        if (!fs.existsSync(SELECTED_CANVAS_FILE)) {
+        const file = fs.existsSync(ACTIVE_CANVAS_FILE) ? ACTIVE_CANVAS_FILE : LEGACY_SELECTED_CANVAS_FILE;
+
+        if (!fs.existsSync(file)) {
             return DEFAULT_CANVAS_NAME;
         }
 
-        const value = JSON.parse(fs.readFileSync(SELECTED_CANVAS_FILE, 'utf8'));
+        const value = JSON.parse(fs.readFileSync(file, 'utf8'));
         const name = typeof value === 'string' ? value : value.canvas;
         return validCanvasName(name) ? name : DEFAULT_CANVAS_NAME;
     } catch (error) {
@@ -179,9 +181,9 @@ const selectedCanvasNameFromFile = () => {
     }
 };
 
-const writeSelectedCanvasName = name => {
+const writeActiveCanvasName = name => {
     fs.writeFileSync(
-        SELECTED_CANVAS_FILE,
+        ACTIVE_CANVAS_FILE,
         JSON.stringify({ canvas: validCanvasName(name) ? name : DEFAULT_CANVAS_NAME }, null, 2) + '\n'
     );
 };
@@ -190,13 +192,15 @@ const validAgentKind = value =>
     typeof value === 'string'
         && VALID_AGENT_KINDS.has(value.trim().toLowerCase());
 
-const selectedAgentKindFromFile = () => {
+const activeAgentKindFromFile = () => {
     try {
-        if (!fs.existsSync(SELECTED_AGENT_FILE)) {
+        const file = fs.existsSync(ACTIVE_AGENT_FILE) ? ACTIVE_AGENT_FILE : LEGACY_SELECTED_AGENT_FILE;
+
+        if (!fs.existsSync(file)) {
             return DEFAULT_AGENT_KIND;
         }
 
-        const value = JSON.parse(fs.readFileSync(SELECTED_AGENT_FILE, 'utf8'));
+        const value = JSON.parse(fs.readFileSync(file, 'utf8'));
         const candidate = typeof value === 'string'
             ? value
             : value?.agent ?? value?.kind ?? value?.selectedAgentKind;
@@ -207,36 +211,40 @@ const selectedAgentKindFromFile = () => {
     }
 };
 
-const writeSelectedAgentKind = kind => {
+const writeActiveAgentKind = kind => {
     fs.writeFileSync(
-        SELECTED_AGENT_FILE,
+        ACTIVE_AGENT_FILE,
         JSON.stringify({ agent: validAgentKind(kind) ? String(kind).trim().toLowerCase() : DEFAULT_AGENT_KIND }, null, 2) + '\n'
     );
 };
 
 const canvasNameFromPath = canvasPath =>
-    path.relative(CANVASES_ROOT, canvasPath) || path.basename(canvasPath);
+    path.relative(WORKSPACE_PATH, canvasPath) || path.basename(canvasPath);
 
-let CANVAS_PATH = path.join(CANVASES_ROOT, selectedCanvasNameFromFile());
+let CANVAS_PATH = path.join(WORKSPACE_PATH, activeCanvasNameFromFile());
 let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
 let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
-const SELECTED_AGENT_KIND = selectedAgentKindFromFile();
+let ACTIVE_AGENT_KIND = activeAgentKindFromFile();
+const AGENT_RUNTIME_PATH = path.join(os.homedir(), 'Library', 'Application Support', 'LiquidOS', 'AgentRuntime');
+const SKILLS_SOURCE_PATH = path.join(ROOT, 'skills');
+const runtimeSet = createRuntimes({
+    workspacePath: WORKSPACE_PATH,
+    runtimePath: AGENT_RUNTIME_PATH,
+    skillsPath: SKILLS_SOURCE_PATH
+});
+const activeRuntime = createActiveRuntime({
+    runtimes: runtimeSet.runtimes,
+    selection: ACTIVE_AGENT_KIND
+});
+ACTIVE_AGENT_KIND = activeRuntime.activeKind() || ACTIVE_AGENT_KIND;
+const AGENT_RUNTIME_LOGS_PATH = runtimeSet.runtimeLogsPath;
+const AGENTS_RUNTIME_PATH = runtimeSet.runtimePromptPath;
+const HERMES_AGENT_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_PATH, 'agent.log');
+const HERMES_ERRORS_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_PATH, 'errors.log');
 
-const applicationSupportRoot = () =>
-    path.join(os.homedir(), 'Library', 'Application Support', 'LiquidOS');
 
-const AGENT_RUNTIME_ROOT = path.join(applicationSupportRoot(), 'AgentRuntime');
-const AGENT_RUNTIME_LOGS_DIR = path.join(AGENT_RUNTIME_ROOT, 'logs');
-const HERMES_AGENT_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'agent.log');
-const HERMES_ERRORS_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_DIR, 'errors.log');
-const SKILLS_SOURCE_ROOT = path.join(ROOT, 'skills');
-const AGENTS_RUNTIME_PATH = path.join(AGENT_RUNTIME_ROOT, 'AGENTS.md');
-const AGENT_RUNTIME_CONFIG_PATH = path.join(AGENT_RUNTIME_ROOT, 'runtime.json');
-const LIVE_CANVAS_ROOT = CANVASES_ROOT;
-
-
-const pathIsInside = (file, root) => {
-    const relative = path.relative(root, file);
+const pathIsInside = (file, basePath) => {
+    const relative = path.relative(basePath, file);
     return relative === '' || Boolean(relative && !relative.startsWith('..') && !path.isAbsolute(relative));
 };
 
@@ -255,56 +263,19 @@ const streamCanvasFile = (req, res, file, type) => {
     streamFile(req, res, resolveCanvasLocalFile(file), type);
 };
 
-fs.mkdirSync(AGENT_RUNTIME_ROOT, { recursive: true });
-fs.mkdirSync(AGENT_RUNTIME_LOGS_DIR, { recursive: true });
-
-const materializeRuntimeSkills = () => {
-    if (!fs.existsSync(SKILLS_SOURCE_ROOT)) {
-        return false;
-    }
-
-    fs.mkdirSync(AGENT_RUNTIME_ROOT, { recursive: true });
-
-    fs.readdirSync(AGENT_RUNTIME_ROOT)
-        .filter(name => !['logs', 'runtime.json'].includes(name))
-        .forEach(name => fs.rmSync(path.join(AGENT_RUNTIME_ROOT, name), { recursive: true, force: true }));
-
-    fs.readdirSync(SKILLS_SOURCE_ROOT)
-        .forEach(name => fs.cpSync(path.join(SKILLS_SOURCE_ROOT, name), path.join(AGENT_RUNTIME_ROOT, name), { recursive: true }));
-
-    return true;
-};
-
-const writeAgentRuntimeConfig = () => {
-    fs.mkdirSync(path.dirname(AGENT_RUNTIME_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(
-        AGENT_RUNTIME_CONFIG_PATH,
-        JSON.stringify({ app: ROOT }, null, 2) + '\n'
-    );
-};
-
-const materializeAgentRuntimeFiles = () => {
-    materializeRuntimeSkills();
-    writeAgentRuntimeConfig();
-};
-
-process.env.LIQUIDOS_AGENT_RUNTIME_ROOT = AGENT_RUNTIME_ROOT;
-
-
-materializeAgentRuntimeFiles();
-
-fs.mkdirSync(CANVASES_ROOT, { recursive: true });
+fs.mkdirSync(WORKSPACE_PATH, { recursive: true });
 
 if (!fs.existsSync(path.join(CANVAS_PATH, 'input.json'))) {
     CANVAS_PATH = DEFAULT_CANVAS_PATH;
     INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
     OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
-    writeSelectedCanvasName(DEFAULT_CANVAS_NAME);
+    writeActiveCanvasName(DEFAULT_CANVAS_NAME);
 }
 
-if (!fs.existsSync(SELECTED_AGENT_FILE)) {
-    writeSelectedAgentKind(SELECTED_AGENT_KIND);
+if (!fs.existsSync(ACTIVE_AGENT_FILE)) {
+    writeActiveAgentKind(ACTIVE_AGENT_KIND);
 }
+runtimeSet.refreshRuntime();
 const PORT = Number.parseInt(requiredArg('--port'), 10);
 
 if (!Number.isInteger(PORT) || PORT < 0 || PORT > 65535) {
@@ -322,14 +293,13 @@ const emitDebugEvent = payload => {
     });
 };
 let watchers = [];
-let canvasesRootWatcher = null;
+let workspaceWatcher = null;
 let watchTimer;
 let graphWatchStarted = false;
 let graphWatchKey = '';
 let activeCanvasRuntime = null;
 const componentServices = new Map();
 let outputQueue = null;
-let agentProviders = null;
 const agentDebugState = {
     current: {
         kind: 'idle',
@@ -376,20 +346,18 @@ const setCurrentAgentDebug = next => {
 };
 
 const currentAgentDebugSnapshot = () => {
-    const activeProvider = agentProviders ? agentProviders.activeProvider() : null;
-    const activeDebug = activeProvider && typeof activeProvider.currentDebug === 'function'
-        ? activeProvider.currentDebug()
-        : null;
+    const activeDebug = activeRuntime.currentDebug();
+    const activeRuntimeInstance = activeRuntime.activeRuntime();
 
     return {
         current: agentDebugState.current,
         lines: agentDebugState.lines.slice(-200),
-        agentKind: agentProviders ? agentProviders.activeKind() : 'codex',
-        active: activeProvider
+        agentKind: activeRuntime.activeKind(),
+        active: activeRuntime
             ? {
                 ...(activeDebug || {}),
-                kind: agentProviders.activeKind(),
-                label: activeProvider.label || null
+                kind: activeRuntime.activeKind(),
+                label: activeRuntimeInstance ? activeRuntimeInstance.label || null : null
             }
             : null
     };
@@ -581,33 +549,10 @@ const stopAllComponentServices = (forceImmediately = false) => {
     Array.from(componentServices.keys()).forEach(folder => stopComponentService(folder, forceImmediately));
 };
 
-configureHermesAgent({
+runtimeSet.configureHosts({
     output: writeProcessOutput,
     status: setCurrentAgentDebug
 });
-
-configureCodexAgent({
-    output: writeProcessOutput,
-    status: setCurrentAgentDebug
-});
-
-configureClaudeCodeAgent({
-    output: writeProcessOutput,
-    status: setCurrentAgentDebug
-});
-
-agentProviders = TESTING_ENABLED
-    ? createAgentProviders({
-        agents: [
-            HermesAgent(),
-            CodexAgent(),
-            ClaudeCodeAgent()
-        ],
-        workingDirectory: AGENT_RUNTIME_ROOT,
-        activeKind: SELECTED_AGENT_KIND,
-        onStatus: setCurrentAgentDebug
-    })
-    : null;
 
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
@@ -629,7 +574,7 @@ const clearOutputJson = () => {
 
 const canvasFiles = createCanvasFiles({
     fs,
-    canvasesRoot: CANVASES_ROOT,
+    workspacePath: WORKSPACE_PATH,
     canvasTemplateRoot: CANVAS_TEMPLATE_ROOT,
     localAssetRoot: path.join(ROOT, 'skills', 'canvas-creator'),
     getCanvasPath: () => CANVAS_PATH,
@@ -675,7 +620,7 @@ const createCanvasRuntime = canvasPath => {
 
         start() {
             applyCanvasRuntime(this);
-            materializeAgentRuntimeFiles();
+            runtimeSet.refreshRuntime();
             this.started = true;
             ensureActiveCanvasFiles();
             ensureCanvasesGitRepo();
@@ -694,10 +639,10 @@ const createCanvasRuntime = canvasPath => {
 
             clearTimeout(watchTimer);
             watchTimer = null;
-            if (canvasesRootWatcher) {
-                canvasesRootWatcher.close();
-                canvasesRootWatcher = null;
-            }
+if (workspaceWatcher) {
+    workspaceWatcher.close();
+    workspaceWatcher = null;
+}
             watchers.forEach(watcher => watcher.close());
             watchers = [];
             stopAllComponentServices();
@@ -715,7 +660,7 @@ const setCanvasPath = canvasPath => {
 
     if (activeCanvasRuntime && activeCanvasRuntime.canvasPath === nextCanvasPath) {
         activeCanvasRuntime.start();
-        writeSelectedCanvasName(canvasNameFromPath(nextCanvasPath));
+        writeActiveCanvasName(canvasNameFromPath(nextCanvasPath));
         return activeCanvasRuntime;
     }
 
@@ -725,7 +670,7 @@ const setCanvasPath = canvasPath => {
 
     activeCanvasRuntime = createCanvasRuntime(nextCanvasPath);
     activeCanvasRuntime.start();
-    writeSelectedCanvasName(canvasNameFromPath(nextCanvasPath));
+    writeActiveCanvasName(canvasNameFromPath(nextCanvasPath));
     return activeCanvasRuntime;
 };
 
@@ -744,7 +689,7 @@ const isCanvasScope = scope => {
 };
 
 outputQueue = createOutputQueue({
-    root: ROOT,
+    workspacePath: ROOT,
     fs,
     getCanvasPath: () => CANVAS_PATH,
     getOutputPath: () => OUTPUT_PATH,
@@ -760,7 +705,7 @@ outputQueue = createOutputQueue({
 
 
 const { ensureCanvasesGitRepo, commitCanvases, commitFailedCanvases, commitShutdownCanvases } = createGitTimeline({
-    canvasesRoot: CANVASES_ROOT,
+    workspacePath: WORKSPACE_PATH,
     currentCanvasPath: () => CANVAS_PATH,
     logServer
 });
@@ -783,16 +728,14 @@ const emitNativeNotification = ({ title, body }) => {
     }) + '\n');
 };
 
-const buildAgentPrompt = job => agentProviders
-    ? agentProviders.preparePrompt(promptBuilder.buildJobPrompt(job))
-    : promptBuilder.buildJobPrompt(job);
+const buildAgentPrompt = job => {
+    const prompt = promptBuilder.buildJobPrompt(job);
+
+    return activeRuntime.preparePrompt(prompt);
+};
 
 const runQueuedAgentJob = (prompt, context = {}) => {
-    if (!agentProviders) {
-        throw new Error('Agent unavailable because testing is disabled for this server instance.');
-    }
-
-    return agentProviders.runActive(prompt, context);
+    return activeRuntime.run(prompt, context);
 };
 
 let activeOutputJob = null;
@@ -833,7 +776,7 @@ const processOutputJob = async job => {
             canvasPath: CANVAS_PATH,
             inputPath: INPUT_PATH,
             outputPath: OUTPUT_PATH,
-            workingDirectory: AGENT_RUNTIME_ROOT,
+            workingDirectory: WORKSPACE_PATH,
             systemPromptPath: AGENTS_RUNTIME_PATH,
             canvasPath: CANVAS_PATH
         });
@@ -1187,13 +1130,13 @@ const scheduleWatchRefresh = () => {
     }, 50);
 };
 
-const scheduleCanvasesRootRefresh = () => {
+const scheduleWorkspaceRefresh = () => {
     clearTimeout(watchTimer);
     watchTimer = setTimeout(() => {
         try {
-            watchCanvasesRoot();
+            watchWorkspace();
         } catch (error) {
-            logHermesError('watch', error, { message: 'canvases root watch error' });
+            logHermesError('watch', error, { message: 'workspace path watch error' });
             broadcast({ type: 'canvases-changed' });
             return;
         }
@@ -1202,13 +1145,13 @@ const scheduleCanvasesRootRefresh = () => {
     }, 50);
 };
 
-const watchCanvasesRoot = () => {
-    if (canvasesRootWatcher) {
-        canvasesRootWatcher.close();
-        canvasesRootWatcher = null;
+const watchWorkspace = () => {
+    if (workspaceWatcher) {
+        workspaceWatcher.close();
+        workspaceWatcher = null;
     }
 
-    canvasesRootWatcher = fs.watch(CANVASES_ROOT, { persistent: false }, scheduleCanvasesRootRefresh);
+    workspaceWatcher = fs.watch(WORKSPACE_PATH, { persistent: false }, scheduleWorkspaceRefresh);
 };
 
 const safeWatchEntries = () => {
@@ -1421,25 +1364,23 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'GET' && url.pathname === '/agents/probe') {
-            send(res, 200, JSON.stringify(agentProviders ? agentProviders.probe({ checkInstalled: false }) : { activeKind: SELECTED_AGENT_KIND, testingEnabled: TESTING_ENABLED, providers: [] }), 'application/json; charset=utf-8');
+            send(res, 200, JSON.stringify(activeRuntime.probe()), 'application/json; charset=utf-8');
             return;
         }
 
         if (req.method === 'POST' && url.pathname === '/agent/select') {
             const body = JSON.parse(await readBody(req));
-            if (!agentProviders) {
-                send(res, 409, JSON.stringify({ error: 'Agent unavailable because testing is disabled for this server instance.' }), 'application/json; charset=utf-8');
-                return;
-            }
 
-            const result = agentProviders.setActiveKind(body.kind);
+            const normalized = String(body.kind || '').trim().toLowerCase();
+            const result = activeRuntime.select(normalized);
 
             if (!result.ok) {
                 send(res, result.statusCode, JSON.stringify({ error: result.error }), 'application/json; charset=utf-8');
                 return;
             }
 
-            writeSelectedAgentKind(agentProviders.activeKind());
+            ACTIVE_AGENT_KIND = activeRuntime.activeKind() || normalized;
+            writeActiveAgentKind(ACTIVE_AGENT_KIND);
 
             if (outputQueue) {
                 outputQueue.feedHermesOutput();
@@ -1447,10 +1388,13 @@ const server = http.createServer(async (req, res) => {
 
             broadcast({
                 type: 'agent-mode',
-                agentKind: agentProviders.activeKind()
+                agentKind: ACTIVE_AGENT_KIND
             });
 
-            send(res, 200, JSON.stringify(result), 'application/json; charset=utf-8');
+            send(res, 200, JSON.stringify({
+                ok: true,
+                agent: result.agent
+            }), 'application/json; charset=utf-8');
             return;
         }
 
@@ -1474,8 +1418,8 @@ const server = http.createServer(async (req, res) => {
                 currentPath: CANVAS_PATH,
                 canvases: canvasFiles.availableCanvases()
             }), 'application/json; charset=utf-8');
-            if (!canvasesRootWatcher) {
-                setImmediate(watchCanvasesRoot);
+            if (!workspaceWatcher) {
+                setImmediate(watchWorkspace);
             }
             return;
         }

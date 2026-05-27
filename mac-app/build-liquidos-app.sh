@@ -151,10 +151,6 @@ rsync -a \
   --exclude 'canvases/*' \
   "$PROJECT_ROOT/" "$RESOURCES/"
 
-if [ ! -f "$PROJECT_ROOT/skills/AGENTS.md" ]; then
-  echo "Error: skills/AGENTS.md is required." >&2
-  exit 1
-fi
 
 if [ ! -f "$PROJECT_ROOT/skills/component-creator/SKILL.md" ]; then
   echo "Error: skills/component-creator/SKILL.md is required." >&2

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { copySkillsTreeToRoot } = require('./skills');
 
 let host = {
     output: () => {},
@@ -39,6 +40,20 @@ const configureCodexAgent = nextHost => {
     };
 };
 
+const codexRuntimePaths = ({ runtimePath } = {}) => [
+    runtimePath ? path.join(runtimePath, '.codex') : null
+].filter(Boolean);
+
+const materializeCodexRuntime = ({ runtimePath, skillsPath } = {}) => {
+    const runtimePaths = codexRuntimePaths({ runtimePath });
+
+    runtimePaths.forEach(runtimePath => {
+        copySkillsTreeToRoot(skillsPath, runtimePath);
+    });
+
+    return runtimePaths;
+};
+
 const CodexAgent = () => {
     const currentDebug = {
         kind: 'codex',
@@ -59,11 +74,14 @@ const CodexAgent = () => {
         kind: 'codex',
         label: 'Codex',
         command,
+        configureHost: configureCodexAgent,
         isInstalled: () => commandInstalled(),
         initialize: () => setStatus({ status: 'waiting' }),
         dispose: () => {},
         currentDebug: () => ({ ...currentDebug }),
         preparePrompt: prompt => prompt,
+        runtimePaths: codexRuntimePaths,
+        materializeRuntime: materializeCodexRuntime,
         run: (prompt, { workingDirectory, canvasPath } = {}) => new Promise((resolve, reject) => {
             if (!workingDirectory) {
                 reject(new Error('CodexAgent.run requires a workingDirectory'));
