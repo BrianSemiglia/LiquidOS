@@ -636,6 +636,44 @@
             word-break: break-word;
         }
 
+        .debug-output-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            min-height: 1.8rem;
+        }
+
+        .debug-output-header h2 {
+            color: rgba(255, 255, 255, 0.78);
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+
+        .debug-copy-button {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.86);
+            cursor: pointer;
+            font: inherit;
+            font-size: 0.72rem;
+            font-weight: 700;
+            line-height: 1;
+            padding: 0.42rem 0.66rem;
+        }
+
+        .debug-copy-button:hover {
+            background: rgba(255, 255, 255, 0.13);
+        }
+
+        .debug-copy-button:disabled {
+            cursor: default;
+            opacity: 0.5;
+        }
+
         .debug-output {
             margin: 0;
             min-height: 0;
@@ -700,6 +738,10 @@
                 </div>
             </dl>
         </section>
+        <div class="debug-output-header">
+            <h2>Debug Console</h2>
+            <button class="debug-copy-button" id="debug-copy" type="button">Copy</button>
+        </div>
         <pre class="debug-output" id="debug-output"></pre>
     </aside>
     <div class="debug-resizer" id="debug-resizer" role="separator" aria-orientation="vertical" aria-label="Resize debug panel"></div>
@@ -743,6 +785,7 @@
         const debugCurrentBackend = document.getElementById('debug-current-backend');
         const debugCurrentCanvas = document.getElementById('debug-current-canvas');
         const debugOutput = document.getElementById('debug-output');
+        const debugCopy = document.getElementById('debug-copy');
         const debugResizer = document.getElementById('debug-resizer');
         const instanceStyle = document.createElement('style');
         const presentationStyle = document.createElement('style');
@@ -851,6 +894,14 @@
 
 
         const plainDebugText = line => String(line?.text || '');
+
+        const copyDebugOutput = () => {
+            if (debugOutput?.textContent.trim()) {
+                navigator.clipboard.writeText(debugOutput.textContent);
+            }
+        };
+
+        debugCopy?.addEventListener('click', copyDebugOutput);
 
         const renderDebugLines = () => {
             if (!debugOutput) {
