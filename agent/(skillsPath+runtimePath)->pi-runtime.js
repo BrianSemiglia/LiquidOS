@@ -11,6 +11,15 @@ let host = {
 const timeoutMilliseconds = () => Number.parseInt('300000', 10);
 const command = 'pi';
 
+const systemPromptArgument = systemPromptPath => {
+    if (!systemPromptPath || !fs.existsSync(systemPromptPath)) {
+        return [];
+    }
+
+    const text = fs.readFileSync(systemPromptPath, 'utf8').trim();
+    return text ? ['--append-system-prompt', text] : [];
+};
+
 const commandInstalled = () => {
     if (path.isAbsolute(command)) {
         return fs.existsSync(command);
@@ -124,7 +133,7 @@ const PiAgent = () => {
         preparePrompt: prompt => prompt,
         runtimePaths: piRuntimePaths,
         materializeRuntime: materializePiRuntime,
-        run: (prompt, { workingDirectory } = {}) => new Promise((resolve, reject) => {
+        run: (prompt, { workingDirectory, systemPromptPath } = {}) => new Promise((resolve, reject) => {
             if (!workingDirectory) {
                 reject(new Error('PiAgent.run requires a workingDirectory'));
                 return;
@@ -138,6 +147,7 @@ const PiAgent = () => {
             let promptAccepted = false;
             const skillPath = conversationHistorySkillPath();
             const args = [
+                ...systemPromptArgument(systemPromptPath),
                 '--skill',
                 skillPath,
                 '--mode',
