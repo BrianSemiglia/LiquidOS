@@ -1610,6 +1610,34 @@
             });
         };
 
+        const applyComponentUpdates = components => {
+            if (!Array.isArray(components) || components.length === 0) {
+                return false;
+            }
+
+            return components.every(updated => {
+                const scope = updated.scope || '';
+                const item = Array.from(renderedItemsByIndex.values())
+                    .find(entry => entry.dataset.componentPath === scope);
+
+                if (!item) {
+                    return false;
+                }
+
+                const index = Number(item.dataset.componentIndex);
+                const merged = { ...updated, index };
+                const position = latestComponents.findIndex(component => component.index === index);
+
+                latestComponentByIndex.set(index, merged);
+                if (position !== -1) {
+                    latestComponents[position] = merged;
+                }
+
+                updateComponentItem(item, merged);
+                return true;
+            });
+        };
+
         const load = async () => {
             const data = await fetch('/input', { cache: 'no-store' }).then(response => {
                 if (!response.ok) {
@@ -1926,6 +1954,13 @@
 
             if (payload && payload.type === 'canvases-changed') {
                 loadCanvases().catch(() => {});
+                return;
+            }
+
+            if (payload && payload.type === 'components-changed') {
+                if (!applyComponentUpdates(payload.components)) {
+                    load().catch(showCanvasDamaged);
+                }
                 return;
             }
 

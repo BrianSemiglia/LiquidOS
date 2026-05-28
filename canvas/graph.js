@@ -95,21 +95,44 @@ const createCanvasGraph = ({
     const componentStartPath = componentPath =>
         path.join(componentServicesPath(componentPath), 'start.sh');
 
-    const loadLeafComponent = entry => {
-        try {
-            validateComponentFile(entry.componentPath);
+    const componentViewCache = new Map();
 
-            return {
-                ...entry,
-                component: readJson(componentViewPath(entry.componentPath))
-            };
+    const loadComponentView = componentPath => {
+        const viewPath = componentViewPath(componentPath);
+        let mtimeMs = null;
+
+        try {
+            mtimeMs = fs.statSync(viewPath).mtimeMs;
         } catch (error) {
-            return {
-                ...entry,
-                component: invalidComponentCard(componentViewPath(entry.componentPath), error)
-            };
+            mtimeMs = null;
         }
+
+        const cached = componentViewCache.get(viewPath);
+
+        if (cached && mtimeMs !== null && cached.mtimeMs === mtimeMs) {
+            return cached.component;
+        }
+
+        let component;
+
+        try {
+            validateComponentFile(componentPath);
+            component = readJson(viewPath);
+        } catch (error) {
+            component = invalidComponentCard(viewPath, error);
+        }
+
+        if (mtimeMs !== null) {
+            componentViewCache.set(viewPath, { mtimeMs, component });
+        }
+
+        return component;
     };
+
+    const loadLeafComponent = entry => ({
+        ...entry,
+        component: loadComponentView(entry.componentPath)
+    });
 
     const inputEntries = () => {
         const input = readJson(getInputPath());

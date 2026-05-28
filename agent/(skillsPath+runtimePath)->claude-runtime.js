@@ -83,6 +83,160 @@ const runtimeAccessArguments = ({ systemPromptPath, canvasPath } = {}) => {
     return accessDirectories.length ? ['--add-dir', ...accessDirectories] : [];
 };
 
+const truncate = (value, max = 200) => {
+    const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+    return text.length > max ? text.slice(0, max - 3) + '...' : text;
+};
+
+const toolInputSummary = input => {
+    if (!input || typeof input !== 'object') {
+        return '';
+    }
+
+    const preferred = input.command || input.file_path || input.path || input.pattern || input.url || input.query || input.prompt;
+    return truncate(preferred != null ? preferred : JSON.stringify(input));
+};
+
+const textFromToolResult = content => {
+    if (typeof content === 'string') {
+        return content;
+    }
+
+    if (Array.isArray(content)) {
+        return content
+            .map(part => (part && typeof part === 'object' && typeof part.text === 'string') ? part.text : '')
+            .filter(Boolean)
+            .join(' ');
+    }
+
+    return '';
+};
+
+// Turns the `claude -p --output-format stream-json` JSONL firehose into clean,
+// human-readable lines: assistant text, tool calls, tool results, and a final
+// done/error line. Everything else (session bookkeeping) is dropped.
+const createClaudeStreamParser = emit => {
+    const toolNames = new Map();
+    let buffer = '';
+    let assistantText = '';
+    let finalResult = '';
+
+    const handleEvent = event => {
+        if (!event || typeof event !== 'object') {
+            return;
+        }
+
+        if (event.type === 'system') {
+            if (event.subtype === 'init' && event.model) {
+                emit('[session] ' + event.model);
+            }
+            return;
+        }
+
+        if (event.type === 'assistant' && event.message && Array.isArray(event.message.content)) {
+            event.message.content.forEach(block => {
+                if (!block || typeof block !== 'object') {
+                    return;
+                }
+
+                if (block.type === 'text' && block.text) {
+                    assistantText += (assistantText ? '\n' : '') + block.text;
+                    emit(block.text);
+                    return;
+                }
+
+                if (block.type === 'tool_use') {
+                    if (block.id && block.name) {
+                        toolNames.set(block.id, block.name);
+                    }
+
+                    const summary = toolInputSummary(block.input);
+                    emit('> ' + (block.name || 'tool') + (summary ? ' ' + summary : ''));
+                }
+            });
+            return;
+        }
+
+        if (event.type === 'user' && event.message && Array.isArray(event.message.content)) {
+            event.message.content.forEach(block => {
+                if (!block || typeof block !== 'object' || block.type !== 'tool_result') {
+                    return;
+                }
+
+                const name = toolNames.get(block.tool_use_id) || 'tool';
+                const preview = truncate(textFromToolResult(block.content));
+                emit('< ' + name + (block.is_error ? ' [error]' : '') + (preview ? ' ' + preview : ''));
+            });
+            return;
+        }
+
+        if (event.type === 'result') {
+            if (typeof event.result === 'string' && event.result.trim()) {
+                finalResult = event.result;
+            }
+
+            if (event.is_error || (event.subtype && event.subtype !== 'success')) {
+                emit('[error] ' + (event.subtype || 'failed') + (event.result ? ': ' + truncate(event.result) : ''));
+                return;
+            }
+
+            const parts = [];
+
+            if (Number.isFinite(event.num_turns)) {
+                parts.push(event.num_turns + ' turn' + (event.num_turns === 1 ? '' : 's'));
+            }
+
+            if (Number.isFinite(event.duration_ms)) {
+                parts.push(event.duration_ms + 'ms');
+            }
+
+            emit('[done]' + (parts.length ? ' ' + parts.join(', ') : ''));
+        }
+    };
+
+    const handleLine = line => {
+        const trimmed = String(line).trim();
+
+        if (!trimmed) {
+            return;
+        }
+
+        let event;
+
+        try {
+            event = JSON.parse(trimmed);
+        } catch (error) {
+            emit(trimmed);
+            return;
+        }
+
+        handleEvent(event);
+    };
+
+    return {
+        push(chunk) {
+            buffer += chunk;
+
+            let index;
+
+            while ((index = buffer.indexOf('\n')) !== -1) {
+                handleLine(buffer.slice(0, index));
+                buffer = buffer.slice(index + 1);
+            }
+        },
+        flush() {
+            if (buffer.trim()) {
+                handleLine(buffer);
+            }
+
+            buffer = '';
+        },
+        result() {
+            return finalResult || assistantText;
+        }
+    };
+};
+
 const ClaudeCodeAgent = () => {
     const currentDebug = {
         kind: 'claude-code',
@@ -119,13 +273,19 @@ const ClaudeCodeAgent = () => {
             let output = '';
             let errorOutput = '';
             let timedOut = false;
+            const parser = createClaudeStreamParser(text => {
+                const value = String(text == null ? '' : text);
+
+                if (value.trim()) {
+                    host.output('claude-code-process', value.endsWith('\n') ? value : value + '\n');
+                }
+            });
             const processHandle = spawn(command, [
                 '-p',
                 prompt,
                 '--verbose',
                 '--output-format',
                 'stream-json',
-                '--include-partial-messages',
                 ...(systemPromptPath ? ['--system-prompt-file', systemPromptPath] : []),
                 ...runtimeAccessArguments({ systemPromptPath, canvasPath }),
                 '--allowedTools',
@@ -163,15 +323,18 @@ const ClaudeCodeAgent = () => {
                 host.output('claude-code-process', chunk);
             });
 
+            processHandle.stdout.setEncoding('utf8');
             processHandle.stdout.on('data', chunk => {
                 output += chunk;
-                host.output('claude-code-process', chunk);
+                parser.push(chunk);
             });
 
             processHandle.on('close', (exitCode, signal) => {
                 if (timeoutHandle) {
                     clearTimeout(timeoutHandle);
                 }
+
+                parser.flush();
 
                 if (timedOut) {
                     setStatus({ status: 'timed out', signal });
@@ -181,12 +344,12 @@ const ClaudeCodeAgent = () => {
 
                 if (exitCode !== 0) {
                     setStatus({ status: 'failed', exitCode, signal });
-                    reject(new Error(String(errorOutput || output || '').trim() || ('Claude Code exited with code ' + exitCode)));
+                    reject(new Error(String(errorOutput || parser.result() || output || '').trim() || ('Claude Code exited with code ' + exitCode)));
                     return;
                 }
 
                 setStatus({ status: 'waiting', exitCode, signal });
-                resolve(output.trim());
+                resolve(parser.result().trim() || output.trim());
             });
 
             processHandle.on('error', error => {

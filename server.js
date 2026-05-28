@@ -295,6 +295,8 @@ const emitDebugEvent = payload => {
 let watchers = [];
 let workspaceWatcher = null;
 let watchTimer;
+let graphWatchTimer;
+let dirtyWatchEntries = [];
 let graphWatchStarted = false;
 let graphWatchKey = '';
 let activeCanvasRuntime = null;
@@ -639,6 +641,9 @@ const createCanvasRuntime = canvasPath => {
 
             clearTimeout(watchTimer);
             watchTimer = null;
+            clearTimeout(graphWatchTimer);
+            graphWatchTimer = null;
+            dirtyWatchEntries = [];
 if (workspaceWatcher) {
     workspaceWatcher.close();
     workspaceWatcher = null;
@@ -1135,11 +1140,40 @@ const broadcastQueueState = (componentPath = '') => {
     broadcast(queueStatePayload(componentPath));
 };
 
-const scheduleWatchRefresh = () => {
-    clearTimeout(watchTimer);
-    watchTimer = setTimeout(() => {
+const componentChangePayload = (entries, rendered) => {
+    if (entries.length === 0 || !entries.every(entry => entry.kind === 'view')) {
+        return null;
+    }
+
+    if (!rendered || rendered.canvasError || !Array.isArray(rendered.components)) {
+        return null;
+    }
+
+    const dirtyFolders = new Set(entries.map(entry => entry.path));
+    const components = rendered.components.filter(component =>
+        dirtyFolders.has(canvasGraph.componentFolderPath(component.componentPath)));
+
+    if (components.length === 0) {
+        return null;
+    }
+
+    return { type: 'components-changed', components };
+};
+
+const scheduleWatchRefresh = entry => {
+    if (entry) {
+        dirtyWatchEntries.push(entry);
+    }
+
+    clearTimeout(graphWatchTimer);
+    graphWatchTimer = setTimeout(() => {
+        const entries = dirtyWatchEntries;
+        dirtyWatchEntries = [];
+
+        let rendered;
+
         try {
-            canvasGraph.renderedInput();
+            rendered = canvasGraph.renderedInput();
             refreshGraphWatchers();
             reconcileComponentServices();
         } catch (error) {
@@ -1148,7 +1182,7 @@ const scheduleWatchRefresh = () => {
             return;
         }
 
-        broadcast();
+        broadcast(componentChangePayload(entries, rendered));
     }, 50);
 };
 
@@ -1212,7 +1246,7 @@ const refreshGraphWatchers = () => {
 
     entries.forEach(entry => {
         try {
-            watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, scheduleWatchRefresh));
+            watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, () => scheduleWatchRefresh(entry)));
         } catch (error) {
             logHermesError('watch', error, { file: entry.path, message: 'file watch skipped' });
         }
