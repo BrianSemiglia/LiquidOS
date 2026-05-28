@@ -1,10 +1,6 @@
 ---
 name: resources
-description: Explain how LiquidOS components declare and load resources
-triggers:
-  - User asks about component assets or resources
-  - User asks how to reference files in a component
-  - User asks about resource URLs in LiquidOS
+description: How LiquidOS components declare and load resources
 ---
 
 # Component Resources

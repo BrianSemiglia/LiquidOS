@@ -803,6 +803,8 @@
         const renderedItemsByIndex = new Map();
         const componentMountsByItem = new WeakMap();
         let latestComponentByIndex = new Map();
+        // Keep the open requirements editor tied to the component path so rerenders can restore it.
+        let openRequirementsComponentPath = '';
         let lastCanvasSnapshot = '';
         instanceStyle.id = 'instance-style';
         document.head.append(instanceStyle);
@@ -1216,6 +1218,10 @@
 
 
         const destroyComponentFunctions = item => {
+            if (item.__requirementsOverlay || item.__requirementsPlaceholder) {
+                closeRequirementsOverlay(item);
+            }
+
             const mounted = componentMountsByItem.get(item);
 
             if (mounted && typeof mounted.destroy === 'function') {
@@ -1284,23 +1290,45 @@
             item.querySelector('[data-feature-save]').disabled = true;
         };
 
+        const clearRequirementsOverlayState = item => {
+            if (!item) {
+                return;
+            }
+
+            if (item.__requirementsOverlay) {
+                item.__requirementsOverlay.remove();
+            }
+
+            item.__requirementsPlaceholder = null;
+            item.__requirementsOverlay = null;
+        };
+
         const closeRequirementsOverlay = item => {
             if (!item.__requirementsPlaceholder || !item.__requirementsOverlay) {
+                if (openRequirementsComponentPath === item?.dataset?.componentPath) {
+                    openRequirementsComponentPath = '';
+                }
                 return;
             }
 
             item.dataset.side = 'front';
             item.querySelector('[data-component-flip]').textContent = 'Requirements';
-            item.__requirementsPlaceholder.replaceWith(item);
-            item.__requirementsOverlay.remove();
-            item.__requirementsPlaceholder = null;
-            item.__requirementsOverlay = null;
+            if (item.__requirementsPlaceholder.isConnected) {
+                item.__requirementsPlaceholder.replaceWith(item);
+            }
+            clearRequirementsOverlayState(item);
+
+            if (openRequirementsComponentPath === item.dataset.componentPath) {
+                openRequirementsComponentPath = '';
+            }
         };
 
         const openRequirementsOverlay = item => {
-            if (item.__requirementsOverlay) {
+            if (!item) {
                 return;
             }
+
+            clearRequirementsOverlayState(item);
 
             const placeholder = document.createElement('div');
             placeholder.className = 'requirements-placeholder';
@@ -1315,6 +1343,24 @@
 
             item.dataset.side = 'back';
             item.querySelector('[data-component-flip]').textContent = 'Requirements';
+            openRequirementsComponentPath = item.dataset.componentPath || '';
+        };
+
+        const restoreOpenRequirementsOverlay = () => {
+            if (!openRequirementsComponentPath) {
+                return;
+            }
+
+            const item = Array.from(renderedItemsByIndex.values()).find(entry =>
+                String(entry.dataset.componentPath || '') === openRequirementsComponentPath
+            );
+
+            if (!item) {
+                openRequirementsComponentPath = '';
+                return;
+            }
+
+            openRequirementsOverlay(item);
         };
 
         const showComponentSide = (item, side) => {
@@ -1530,6 +1576,7 @@
 
                 app.replaceChildren(...nextItems);
                 applyLayout(nextItems, layout);
+                restoreOpenRequirementsOverlay();
                 requestAnimationFrame(() => {
                     nextItems.forEach(item => delete item.dataset.layoutEnter);
                 });

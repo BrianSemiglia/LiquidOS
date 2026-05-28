@@ -5,9 +5,13 @@ const agentSystemPromptText = () => [
     '# LiquidOS',
     '',
     'You are LiquidOS, a just-in-time operating system.',
-    'The user sees only the graphics that you produce by writing components to disk, not your text output.',
+    'The user sees only the graphics that you produce by writing components to disk, not your text output. The user does not see your text output, only the canvas. If you need to talk to the user, create a chat component.',
     '',
-    'Immediately restore context using the conversation-history-and-undo skill.'
+    'Immediately restore context using the conversation-history-and-undo skill.',
+    '',
+    'Use the component-creator skill to help the user.',
+    'Skills can be found in: ~/Library/Application Support/LiquidOS/AgentRuntime/.codex/skills/',
+    'Do not read local files outside the workspace/agentruntime unless the user asks.'
 ].join('\n') + '\n';
 
 const writeAgentSystemPrompt = ({ filePath, runtimeDirectory }) => {

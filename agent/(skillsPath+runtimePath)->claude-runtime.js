@@ -24,18 +24,33 @@ const timeoutMilliseconds = () => {
     const value = Number.parseInt(argValue('--agent-timeout-ms', ''), 10);
     return Number.isFinite(value) && value > 0 ? value : null;
 };
-const permissionMode = () => argValue('--claude-permission-mode', 'acceptEdits').trim() || 'acceptEdits';
+const permissionMode = () => argValue('--claude-permission-mode', 'bypassPermissions').trim() || 'bypassPermissions';
 const extraArguments = () => argValue('--claude-args', '').split(' ').filter(Boolean);
-const command = 'claude';
+const commandCandidates = () => [
+    process.env.LIQUIDOS_CLAUDE_COMMAND,
+    '/opt/homebrew/bin/claude',
+    '/usr/local/bin/claude',
+    'claude'
+].filter(candidate => typeof candidate === 'string' && candidate.trim());
 
-const commandInstalled = () => {
-    if (path.isAbsolute(command)) {
-        return fs.existsSync(command);
+const commandExists = candidate => {
+    if (!candidate) {
+        return false;
+    }
+
+    if (path.isAbsolute(candidate)) {
+        return fs.existsSync(candidate);
     }
 
     return String(process.env.PATH || '')
         .split(path.delimiter)
-        .some(directory => directory && fs.existsSync(path.join(directory, command)));
+        .some(directory => directory && fs.existsSync(path.join(directory, candidate)));
+};
+
+const command = commandCandidates().find(commandExists) || 'claude';
+
+const commandInstalled = () => {
+    return commandExists(command);
 };
 
 const configureClaudeCodeAgent = nextHost => {
@@ -57,6 +72,15 @@ const materializeClaudeRuntime = ({ runtimePath, skillsPath } = {}) => {
     });
 
     return runtimePaths;
+};
+
+const runtimeAccessArguments = ({ systemPromptPath, canvasPath } = {}) => {
+    const accessDirectories = [
+        systemPromptPath ? path.dirname(systemPromptPath) : null,
+        canvasPath || null
+    ].filter(Boolean);
+
+    return accessDirectories.length ? ['--add-dir', ...accessDirectories] : [];
 };
 
 const ClaudeCodeAgent = () => {
@@ -93,12 +117,20 @@ const ClaudeCodeAgent = () => {
             }
 
             let output = '';
+            let errorOutput = '';
             let timedOut = false;
             const processHandle = spawn(command, [
                 '-p',
                 prompt,
+                '--verbose',
+                '--output-format',
+                'stream-json',
+                '--include-partial-messages',
                 ...(systemPromptPath ? ['--system-prompt-file', systemPromptPath] : []),
-                ...(canvasPath ? ['--add-dir', canvasPath] : []),
+                ...runtimeAccessArguments({ systemPromptPath, canvasPath }),
+                '--allowedTools',
+                'WebSearch',
+                'WebFetch',
                 '--permission-mode',
                 permissionMode(),
                 ...extraArguments()
@@ -126,12 +158,12 @@ const ClaudeCodeAgent = () => {
                 }, timeout)
                 : null;
 
-            processHandle.stdout.on('data', chunk => {
-                output += chunk;
+            processHandle.stderr.on('data', chunk => {
+                errorOutput += chunk;
                 host.output('claude-code-process', chunk);
             });
 
-            processHandle.stderr.on('data', chunk => {
+            processHandle.stdout.on('data', chunk => {
                 output += chunk;
                 host.output('claude-code-process', chunk);
             });
@@ -149,7 +181,7 @@ const ClaudeCodeAgent = () => {
 
                 if (exitCode !== 0) {
                     setStatus({ status: 'failed', exitCode, signal });
-                    reject(new Error('Claude Code exited with code ' + exitCode));
+                    reject(new Error(String(errorOutput || output || '').trim() || ('Claude Code exited with code ' + exitCode)));
                     return;
                 }
 

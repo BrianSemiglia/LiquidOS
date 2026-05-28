@@ -11,6 +11,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
     private var port: Int = 0
     private var canvasesRootURL: URL?
     private var pendingWorkspaceURL: URL?
+    private var workspaceChooserMessage: String?
     private var serverOutputBuffer = ""
     private var serverErrorBuffer = ""
     private var intentionallyStoppingServer = false
@@ -141,36 +142,22 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
         serverErrorBuffer = ""
         intentionallyStoppingServer = false
         server = Process()
-        server?.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        server?.executableURL = URL(fileURLWithPath: "/bin/zsh")
         server?.currentDirectoryURL = appRoot
-        let environment = Self.serverEnvironment()
         server?.arguments = [
-            "node",
-            "server.js",
-            "--workspace",
-            canvasesRootURL.path,
-            "--agent",
-            "hermes",
-            "--port",
-            String(port)
+            "-lc",
+            Self.shellCommand(
+                "node",
+                "server.js",
+                "--workspace",
+                canvasesRootURL.path,
+                "--agent",
+                "hermes",
+                "--port",
+                String(port)
+            )
         ]
-        server?.environment = [
-            "PATH": [
-                NSHomeDirectory() + "/.local/bin",
-                NSHomeDirectory() + "/.cargo/bin",
-                NSHomeDirectory() + "/.bun/bin",
-                "/opt/homebrew/bin",
-                "/opt/homebrew/sbin",
-                "/usr/local/bin",
-                "/usr/bin",
-                "/bin",
-                "/usr/sbin",
-                "/sbin"
-            ].joined(separator: ":"),
-            "HOME": NSHomeDirectory(),
-            "LIQUIDOS_NATIVE": "1",
-            "LIQUIDOS_RUNTIME_KIND": "mac-app"
-        ].merging(environment) { _, new in new }
+        server?.environment = ProcessInfo.processInfo.environment.merging(Self.serverEnvironment()) { _, new in new }
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -309,7 +296,8 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
                 try self.createWorkspace(at: workspaceURL)
                 self.openWorkspace(workspaceURL)
             } catch {
-                self.showError("Could not create workspace.\n\n" + error.localizedDescription)
+                self.workspaceChooserMessage = "Could not create workspace.\n\n" + error.localizedDescription
+                self.showWorkspaceChooser()
             }
         }
     }
@@ -325,6 +313,16 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
     }
 
     private func showWorkspaceChooser() {
+        let messageHTML: String
+        if let workspaceChooserMessage {
+            messageHTML = """
+            <p class="error">\(Self.escapeHTML(workspaceChooserMessage))</p>
+            """
+            self.workspaceChooserMessage = nil
+        } else {
+            messageHTML = ""
+        }
+
         webView?.loadHTMLString("""
         <!doctype html>
         <html>
@@ -372,6 +370,15 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
               line-height: 1.45;
             }
 
+            .error {
+              margin: 0 0 18px;
+              padding: 12px 14px;
+              border-radius: 14px;
+              background: rgba(239, 68, 68, 0.18);
+              color: rgba(255, 255, 255, 0.92);
+              line-height: 1.4;
+            }
+
             .actions {
               display: grid;
               gap: 12px;
@@ -399,6 +406,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
           <main>
             <h1>LiquidOS</h1>
             <p>Open an existing workspace or create a new one.</p>
+            \(messageHTML)
             <div class="actions">
               <button onclick="window.webkit.messageHandlers.liquidosMac.postMessage('open')">Open workspace</button>
               <button class="secondary" onclick="window.webkit.messageHandlers.liquidosMac.postMessage('create')">Create workspace</button>
@@ -520,7 +528,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
 
     private func openWorkspace(_ url: URL) {
         guard Self.isWorkspaceURL(url) else {
-            showError("Workspaces must be .liquidos folders.")
+            workspaceChooserMessage = "Workspaces must be .liquidos folders."
             showWorkspaceChooser()
             return
         }
@@ -573,6 +581,14 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
         [
             "LIQUIDOS_RUNTIME_KIND": "mac-app"
         ]
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func shellCommand(_ arguments: String...) -> String {
+        arguments.map(shellQuote).joined(separator: " ")
     }
 
     private static func commandExists(_ command: String, environment: [String: String]) -> Bool {

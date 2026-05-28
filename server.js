@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { createGitTimeline } = require('./canvas/git-timeline');
+const { createActivityPersistence } = require('./canvas/activity-persistence');
 const { createRuntimes } = require('./agent/(workspacePath+runtimePath+skillsPath)->runtimes');
 const { createActiveRuntime } = require('./agent/(runtimes+selection)->active-runtime');
 const { createCanvasFiles } = require('./canvas/files');
@@ -623,7 +623,7 @@ const createCanvasRuntime = canvasPath => {
             runtimeSet.refreshRuntime();
             this.started = true;
             ensureActiveCanvasFiles();
-            ensureCanvasesGitRepo();
+            activityPersistence.ensureActivityPersistenceRepo();
             outputQueue.normalizeOutputJobs();
             outputQueue.clearActiveLanes();
             outputQueue.feedHermesOutput();
@@ -704,7 +704,7 @@ outputQueue = createOutputQueue({
 });
 
 
-const { ensureCanvasesGitRepo, commitCanvases, commitFailedCanvases, commitShutdownCanvases } = createGitTimeline({
+const activityPersistence = createActivityPersistence({
     workspacePath: WORKSPACE_PATH,
     currentCanvasPath: () => CANVAS_PATH,
     logServer
@@ -781,7 +781,18 @@ const processOutputJob = async job => {
             canvasPath: CANVAS_PATH
         });
 
-        activeOutputJob = { ...activeOutputJob, agentResponse };
+        const activityRecord = activityPersistence.persistActivity({
+            event: job.event || null,
+            scope: job.scope || null,
+            prompt: job.prompt || '',
+            agentResponse,
+            mode: 'done'
+        });
+
+        activeOutputJob = {
+            ...activeOutputJob,
+            activityRecord
+        };
 
         if (/Blocked:|error=patch rejected|not writable in this environment|writing outside of the project/i.test(agentResponse)) {
             throw new Error('Agent failed the live canvas write check and the test was stopped early.');
@@ -803,8 +814,6 @@ const processOutputJob = async job => {
         });
         broadcastQueueState();
 
-        commitCanvases({ ...job, id: jobId }, agentResponse);
-
         logServer('queue', 'job marked done', {
             jobId,
             lane: laneKey,
@@ -816,7 +825,20 @@ const processOutputJob = async job => {
             body: canvasName(CANVAS_PATH)
         });
     } catch (error) {
-        commitFailedCanvases({ ...job, id: jobId }, agentResponse, error.message);
+        const activityRecord = activityPersistence.persistActivity({
+            event: job.event || null,
+            scope: job.scope || null,
+            prompt: job.prompt || '',
+            agentResponse,
+            mode: 'failed',
+            error: error.message
+        });
+
+        activeOutputJob = {
+            ...activeOutputJob,
+            activityRecord
+        };
+
         canvasGraph.validateCanvasConfig();
         await outputQueue.updateOutputJob(jobId, {
             status: 'failed',
@@ -1441,7 +1463,13 @@ const server = http.createServer(async (req, res) => {
             const name = canvasFiles.createCanvas(body.name);
 
             canvasFiles.switchCanvas(name);
-            commitCanvases({ scope: CANVAS_PATH, event: `User did create canvas with name '${String(name).replace(/[\n\r]+/g, ' ').replace(/'/g, "\\'")}'` }, 'none');
+            activityPersistence.persistActivity({
+                event: `User did create canvas with name '${String(name).replace(/[\n\r]+/g, ' ').replace(/'/g, "\\'")}'`,
+                scope: CANVAS_PATH,
+                prompt: '',
+                agentResponse: 'none',
+                mode: 'done'
+            });
             broadcast();
             send(res, 201, JSON.stringify({
                 current: canvasName(CANVAS_PATH),
@@ -1611,7 +1639,16 @@ const commitShutdownState = reason => {
     }
 
     shutdownCommitAttempted = true;
-    return commitShutdownCanvases(activeOutputJob || { scope: CANVAS_PATH, prompt: '(no active prompt)' }, reason);
+    return activityPersistence.persistActivity({
+        event: activeOutputJob && activeOutputJob.event ? activeOutputJob.event : (activeOutputJob && activeOutputJob.activityRecord ? activeOutputJob.activityRecord.event : null),
+        scope: activeOutputJob && activeOutputJob.scope ? activeOutputJob.scope : (activeOutputJob && activeOutputJob.activityRecord ? activeOutputJob.activityRecord.scope : CANVAS_PATH),
+        prompt: activeOutputJob && activeOutputJob.prompt ? activeOutputJob.prompt : (activeOutputJob && activeOutputJob.activityRecord ? activeOutputJob.activityRecord.prompt : '(no active prompt)'),
+        agentResponse: activeOutputJob && activeOutputJob.activityRecord
+            ? (activeOutputJob.activityRecord.rawAgentResponse || activeOutputJob.activityRecord.persistedAgentResponse || '')
+            : '',
+        mode: 'shutdown',
+        reason
+    });
 };
 
 const shutdownCanvasRuntime = reason => {
