@@ -351,7 +351,7 @@ const currentAgentDebugSnapshot = () => {
 
     return {
         current: agentDebugState.current,
-        lines: agentDebugState.lines.slice(-200),
+        lines: agentDebugState.lines,
         agentKind: activeRuntime.activeKind(),
         active: activeRuntime
             ? {

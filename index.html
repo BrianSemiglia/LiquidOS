@@ -872,7 +872,7 @@
                 : debugState && typeof debugState.selected === 'object'
                     ? debugState.selected
                     : {};
-            debugLines = Array.isArray(debugState?.lines) ? debugState.lines.slice(-200) : [];
+            debugLines = Array.isArray(debugState?.lines) ? debugState.lines : [];
 
             const sourceLabel = current.source === 'bundled'
                 ? 'Bundled agent'
@@ -989,7 +989,7 @@
                     if (payload && payload.line) {
                         debugState = {
                             ...debugState,
-                            lines: [...(Array.isArray(debugState.lines) ? debugState.lines : []), payload.line].slice(-200)
+                            lines: [...(Array.isArray(debugState.lines) ? debugState.lines : []), payload.line]
                         };
                     }
                 } catch (error) {
