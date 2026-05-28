@@ -20,7 +20,10 @@ const argValue = (name, fallback) => {
     return index === -1 ? fallback : process.argv[index + 1] || fallback;
 };
 
-const timeoutMilliseconds = () => Number.parseInt(argValue('--agent-timeout-ms', '300000'), 10);
+const timeoutMilliseconds = () => {
+    const value = Number.parseInt(argValue('--agent-timeout-ms', ''), 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
+};
 const command = 'codex';
 
 const commandInstalled = () => {
@@ -112,10 +115,13 @@ const CodexAgent = () => {
                 canvasPath: canvasPath || null
             });
 
-            const timeout = setTimeout(() => {
-                timedOut = true;
-                processHandle.kill('SIGTERM');
-            }, timeoutMilliseconds());
+            const timeout = timeoutMilliseconds();
+            const timeoutHandle = timeout !== null
+                ? setTimeout(() => {
+                    timedOut = true;
+                    processHandle.kill('SIGTERM');
+                }, timeout)
+                : null;
 
             processHandle.stdout.on('data', chunk => {
                 output += chunk;
@@ -128,7 +134,9 @@ const CodexAgent = () => {
             });
 
             processHandle.on('close', (exitCode, signal) => {
-                clearTimeout(timeout);
+                if (timeoutHandle) {
+                    clearTimeout(timeoutHandle);
+                }
 
                 if (timedOut) {
                     setStatus({ status: 'timed out', signal });
@@ -147,7 +155,9 @@ const CodexAgent = () => {
             });
 
             processHandle.on('error', error => {
-                clearTimeout(timeout);
+                if (timeoutHandle) {
+                    clearTimeout(timeoutHandle);
+                }
                 setStatus({ status: 'error', error: error.message });
                 reject(error);
             });

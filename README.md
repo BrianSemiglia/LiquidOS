@@ -14,6 +14,14 @@ Required arguments:
 --port <number>
 ```
 
+Optional arguments:
+
+```text
+--agent-timeout-ms <number>
+```
+
+If omitted, the selected agent waits indefinitely instead of timing out.
+
 The server expects the `.liquidos` workspace itself to be the canvas root. Each top-level canvas directory contains:
 
 ```text

@@ -37,7 +37,7 @@ const argumentPairs = () => {
         const name = equalsIndex === -1 ? arg : arg.slice(0, equalsIndex);
         const value = equalsIndex === -1 ? args[index + 1] : arg.slice(equalsIndex + 1);
 
-        if (!['--workspace', '--agent', '--port', '--testing'].includes(name)) {
+        if (!['--workspace', '--agent', '--port', '--testing', '--agent-timeout-ms'].includes(name)) {
             failStartup('Unknown argument: ' + name);
         }
 

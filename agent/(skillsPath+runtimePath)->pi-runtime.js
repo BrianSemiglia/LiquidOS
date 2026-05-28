@@ -8,7 +8,22 @@ let host = {
     status: () => {}
 };
 
-const timeoutMilliseconds = () => Number.parseInt('300000', 10);
+const argValue = (name, fallback) => {
+    const prefix = name + '=';
+    const inline = process.argv.find(argument => argument.startsWith(prefix));
+
+    if (inline) {
+        return inline.slice(prefix.length);
+    }
+
+    const index = process.argv.indexOf(name);
+    return index === -1 ? fallback : process.argv[index + 1] || fallback;
+};
+
+const timeoutMilliseconds = () => {
+    const value = Number.parseInt(argValue('--agent-timeout-ms', ''), 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
+};
 const command = 'pi';
 
 const systemPromptArgument = systemPromptPath => {
@@ -174,7 +189,9 @@ const PiAgent = () => {
                 }
 
                 settled = true;
-                clearTimeout(timeout);
+                if (timeoutHandle) {
+                    clearTimeout(timeoutHandle);
+                }
 
                 try {
                     processHandle.kill('SIGTERM');
@@ -190,10 +207,13 @@ const PiAgent = () => {
                 resolve(result);
             };
 
-            const timeout = setTimeout(() => {
-                timedOut = true;
-                processHandle.kill('SIGTERM');
-            }, timeoutMilliseconds());
+            const timeout = timeoutMilliseconds();
+            const timeoutHandle = timeout !== null
+                ? setTimeout(() => {
+                    timedOut = true;
+                    processHandle.kill('SIGTERM');
+                }, timeout)
+                : null;
 
             processHandle.stdout.on('data', chunk => {
                 carry = parseJsonLines(chunk, carry, event => {
@@ -227,7 +247,9 @@ const PiAgent = () => {
             });
 
             processHandle.on('close', (exitCode, signal) => {
-                clearTimeout(timeout);
+                if (timeoutHandle) {
+                    clearTimeout(timeoutHandle);
+                }
 
                 if (settled) {
                     return;
@@ -256,7 +278,9 @@ const PiAgent = () => {
             });
 
             processHandle.on('error', error => {
-                clearTimeout(timeout);
+                if (timeoutHandle) {
+                    clearTimeout(timeoutHandle);
+                }
                 setStatus({ status: 'error', error: error.message });
                 reject(error);
             });

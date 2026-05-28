@@ -20,7 +20,10 @@ const argValue = (name, fallback) => {
     return process.argv.indexOf(name) === -1 ? fallback : process.argv[process.argv.indexOf(name) + 1] || fallback;
 };
 
-const timeoutMilliseconds = () => Number.parseInt(argValue('--agent-timeout-ms', '300000'), 10);
+const timeoutMilliseconds = () => {
+    const value = Number.parseInt(argValue('--agent-timeout-ms', ''), 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
+};
 const command = argValue('--agent', argValue('--agent-command', argValue('--hermes-command', 'hermes')));
 const rawAgentArguments = () => argValue('--agent-args', argValue('--hermes-args', '')).split(' ').filter(Boolean);
 
@@ -223,10 +226,13 @@ const HermesAgent = () => {
                 args: displayArguments(args)
             });
 
-            const timeout = setTimeout(() => {
-                timedOut = true;
-                processHandle.kill('SIGTERM');
-            }, timeoutMilliseconds());
+            const timeout = timeoutMilliseconds();
+            const timeoutHandle = timeout !== null
+                ? setTimeout(() => {
+                    timedOut = true;
+                    processHandle.kill('SIGTERM');
+                }, timeout)
+                : null;
 
             processHandle.stdout.on('data', chunk => {
                 output += visibleHermesOutput(chunk);
@@ -239,7 +245,9 @@ const HermesAgent = () => {
             });
 
             processHandle.on('close', (exitCode, signal) => {
-                clearTimeout(timeout);
+                if (timeoutHandle) {
+                    clearTimeout(timeoutHandle);
+                }
                 emitDebug('close', { exitCode, signal });
 
                 if (timedOut) {
@@ -259,7 +267,9 @@ const HermesAgent = () => {
             });
 
             processHandle.on('error', error => {
-                clearTimeout(timeout);
+                if (timeoutHandle) {
+                    clearTimeout(timeoutHandle);
+                }
                 setStatus({ status: 'error', error: error.message });
                 reject(error);
             });
