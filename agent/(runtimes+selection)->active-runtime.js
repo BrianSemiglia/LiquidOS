@@ -89,7 +89,7 @@ const createActiveRuntime = ({
         const agents = runtimes.map(runtime => ({
             id: runtime.kind,
             label: runtime.label,
-            installed: null,
+            installed: typeof runtime.isInstalled === 'function' ? runtime.isInstalled() : null,
             usable: true,
             command: runtime.command || null,
             provider: runtime.currentDebug ? runtime.currentDebug().provider || runtime.kind : runtime.kind,

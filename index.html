@@ -69,8 +69,8 @@
             bottom: 1rem;
             z-index: 20;
             display: grid;
-            grid-template-columns: max-content minmax(14rem, 1fr) max-content;
-            gap: 0.45rem;
+            grid-template-columns: max-content minmax(0, 1fr);
+            gap: 1rem;
             align-items: center;
             width: min(calc(100vw - var(--debug-rail-space) - 2rem), 58rem);
             padding: 0.55rem;
@@ -86,7 +86,15 @@
             -webkit-font-smoothing: antialiased;
         }
 
-        .global-prompt > form {
+        .prompt-send {
+            display: grid;
+            grid-template-columns: max-content minmax(14rem, 1fr) max-content;
+            gap: 0.45rem;
+            align-items: center;
+            min-width: 0;
+        }
+
+        .prompt-send > form {
             display: contents;
         }
 
@@ -97,7 +105,7 @@
             min-width: 0;
         }
 
-        .canvas-nav select,
+        .global-prompt select,
         .global-prompt textarea {
             min-width: 0;
             height: 2.45rem;
@@ -111,7 +119,7 @@
                 inset 0 -1px 0 rgba(0, 0, 0, 0.18);
         }
 
-        .canvas-nav select {
+        .global-prompt select {
             width: fit-content;
             min-width: 0;
             max-width: 12rem;
@@ -119,7 +127,7 @@
             field-sizing: content;
         }
 
-        .canvas-nav .agent-select {
+        .global-prompt .agent-select {
             max-width: 9rem;
         }
 
@@ -131,7 +139,7 @@
             line-height: 1.2;
         }
 
-        .canvas-nav select:focus,
+        .global-prompt select:focus,
         .global-prompt textarea:focus {
             outline: none;
             border-color: rgba(255, 255, 255, 0.28);
@@ -168,7 +176,7 @@
         }
 
         .global-prompt button:hover:not(:disabled),
-        .canvas-nav select:hover,
+        .global-prompt select:hover,
         .global-prompt textarea:hover {
             background-color: rgba(255, 255, 255, 0.14);
         }
@@ -588,67 +596,12 @@
             opacity: 1;
         }
 
-        .debug-rail h2,
-        .debug-rail h3,
-        .debug-rail p,
-        .debug-rail dl {
-            margin: 0;
-        }
-
-        .debug-rail h2 {
-            font-size: 0.95rem;
-            font-weight: 700;
-            letter-spacing: 0;
-        }
-
-        .debug-summary {
-            display: grid;
-            gap: 0.5rem;
-            padding: 0.8rem;
-            border: 1px solid rgba(255, 255, 255, 0.10);
-            border-radius: 12px;
-            background: rgba(255, 255, 255, 0.04);
-        }
-
-        .debug-summary dl {
-            display: grid;
-            gap: 0.35rem;
-            margin: 0;
-            padding: 0;
-        }
-
-        .debug-summary div {
-            display: grid;
-            gap: 0.15rem;
-        }
-
-        .debug-summary dt {
-            color: rgba(255, 255, 255, 0.52);
-            font-size: 0.72rem;
-            text-transform: uppercase;
-            letter-spacing: 0;
-        }
-
-        .debug-summary dd {
-            color: rgba(255, 255, 255, 0.92);
-            font-size: 0.85rem;
-            margin: 0;
-            word-break: break-word;
-        }
-
         .debug-output-header {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-end;
             gap: 0.75rem;
             min-height: 1.8rem;
-        }
-
-        .debug-output-header h2 {
-            color: rgba(255, 255, 255, 0.78);
-            font-size: 0.8rem;
-            font-weight: 700;
-            letter-spacing: 0;
         }
 
         .debug-copy-button {
@@ -722,24 +675,7 @@
         <main id="app"></main>
     </div>
     <aside class="debug-rail" id="debug-rail">
-        <section class="debug-summary">
-            <dl>
-                <div>
-                    <dt>Agent</dt>
-                    <dd id="debug-current-agent">Loading</dd>
-                </div>
-                <div>
-                    <dt>Provider</dt>
-                    <dd id="debug-current-backend">Loading</dd>
-                </div>
-                <div>
-                    <dt>Canvas</dt>
-                    <dd id="debug-current-canvas">Loading</dd>
-                </div>
-            </dl>
-        </section>
         <div class="debug-output-header">
-            <h2>Debug Console</h2>
             <button class="debug-copy-button" id="debug-copy" type="button">Copy</button>
         </div>
         <pre class="debug-output" id="debug-output"></pre>
@@ -755,17 +691,19 @@
             </div>
         </form>
     </div>
-    <liquidos-callback class="global-prompt" id="global-submit-callback" on="submit" scope="" prompt-from="prompt">
-        <form id="global-prompt">
-            <div class="canvas-nav" aria-label="Canvas selection">
+    <div class="global-prompt" id="global-prompt-bar">
+        <div class="canvas-nav" aria-label="Canvas selection">
+            <select id="canvas-select" aria-label="Canvas"></select>
+            <button type="button" id="new-canvas">New</button>
+        </div>
+        <liquidos-callback class="prompt-send" id="global-submit-callback" on="submit" scope="" prompt-from="prompt">
+            <form id="global-prompt">
                 <select id="agent-select" class="agent-select" aria-label="Agent"></select>
-                <select id="canvas-select" aria-label="Canvas"></select>
-                <button type="button" id="new-canvas">New</button>
-            </div>
-            <textarea id="global-text" name="prompt"></textarea>
-            <button type="submit">Send</button>
-        </form>
-    </liquidos-callback>
+                <textarea id="global-text" name="prompt"></textarea>
+                <button type="submit">Send</button>
+            </form>
+        </liquidos-callback>
+    </div>
 
     <script>
         const app = document.getElementById('app');
@@ -773,6 +711,7 @@
         const globalForm = document.getElementById('global-prompt');
         const globalText = document.getElementById('global-text');
         const globalSubmitCallback = document.getElementById('global-submit-callback');
+        const globalPromptBar = document.getElementById('global-prompt-bar');
         const agentSelect = document.getElementById('agent-select');
         const canvasSelect = document.getElementById('canvas-select');
         const newCanvas = document.getElementById('new-canvas');
@@ -781,9 +720,6 @@
         const newCanvasName = document.getElementById('new-canvas-name');
         const newCanvasCancel = document.getElementById('new-canvas-cancel');
         const newCanvasCreate = document.getElementById('new-canvas-create');
-        const debugCurrentAgent = document.getElementById('debug-current-agent');
-        const debugCurrentBackend = document.getElementById('debug-current-backend');
-        const debugCurrentCanvas = document.getElementById('debug-current-canvas');
         const debugOutput = document.getElementById('debug-output');
         const debugCopy = document.getElementById('debug-copy');
         const debugResizer = document.getElementById('debug-resizer');
@@ -883,47 +819,12 @@
         };
 
         const renderDebugPanel = state => {
-            if (!debugCurrentAgent || !debugCurrentBackend || !debugCurrentCanvas || !debugOutput) {
+            if (!debugOutput) {
                 return;
             }
 
             debugState = state || debugState || {};
-
-            const current = debugState && typeof debugState.current === 'object' ? debugState.current : {};
-            const active = debugState && typeof debugState.active === 'object'
-                ? debugState.active
-                : debugState && typeof debugState.selected === 'object'
-                    ? debugState.selected
-                    : {};
             debugLines = Array.isArray(debugState?.lines) ? debugState.lines : [];
-
-            const sourceLabel = current.source === 'bundled'
-                ? 'Bundled agent'
-                : current.source === 'global'
-                    ? 'Global agent'
-                    : '';
-            const backendParts = [];
-            const backend = active.provider || active.model ? active : current;
-
-            if (backend.provider) {
-                backendParts.push(backend.provider);
-            }
-            if (backend.model) {
-                backendParts.push(backend.model);
-            }
-
-            debugCurrentAgent.textContent = current.status
-                ? current.status.charAt(0).toUpperCase() + current.status.slice(1)
-                : 'Idle';
-            if (current.status === 'running' || current.status === 'waiting') {
-                if (current.label) {
-                    debugCurrentAgent.textContent += ' · ' + current.label;
-                } else if (sourceLabel) {
-                    debugCurrentAgent.textContent += ' · ' + sourceLabel;
-                }
-            }
-            debugCurrentBackend.textContent = backendParts.length ? backendParts.join(' · ') : 'Unavailable';
-            debugCurrentCanvas.textContent = debugState && debugState.canvas ? debugState.canvas : 'Unknown';
             renderDebugLines();
         };
 
@@ -975,30 +876,6 @@
 
         const startDebugStream = () => {
             const stream = new EventSource('/debug/agent/stream');
-
-            stream.addEventListener('debug-status', event => {
-                try {
-                    const payload = JSON.parse(event.data);
-
-                    if (!debugState) {
-                        debugState = { lines: [] };
-                    }
-
-                    if (payload && typeof payload.current === 'object') {
-                        debugState = {
-                            ...debugState,
-                            current: payload.current
-                        };
-                        renderDebugPanel(debugState);
-                    }
-                } catch (error) {
-                    appendDebugLine({
-                        at: new Date().toISOString(),
-                        label: '[debug-stream]',
-                        text: 'Malformed debug status: ' + error.message
-                    });
-                }
-            });
 
             stream.addEventListener('debug-line', event => {
                 try {
@@ -1131,7 +1008,7 @@
         const updatePromptChromeSpace = () => {
             document.documentElement.style.setProperty(
                 '--prompt-chrome-space',
-                Math.ceil(window.innerHeight - globalSubmitCallback.getBoundingClientRect().top + 16) + 'px'
+                Math.ceil(window.innerHeight - globalPromptBar.getBoundingClientRect().top + 16) + 'px'
             );
             canvasShell.style.paddingBottom = 'var(--prompt-chrome-space)';
         };
@@ -1944,7 +1821,7 @@
         if (window.ResizeObserver) {
             const chromeResizeObserver = new ResizeObserver(updatePromptChromeSpace);
 
-            chromeResizeObserver.observe(globalSubmitCallback);
+            chromeResizeObserver.observe(globalPromptBar);
         }
 
 
