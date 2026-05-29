@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 import Darwin
 import UserNotifications
 
-final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScriptMessageHandler {
+final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDelegate, WKDownloadDelegate, WKScriptMessageHandler {
     private var window: NSWindow?
     private var webView: WKWebView?
     private var server: Process?
@@ -65,11 +65,12 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
     
     private func showWindow() {
         let configuration = WKWebViewConfiguration()
-        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         configuration.userContentController.add(self, name: "liquidosMac")
-        
+
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView?.uiDelegate = self
+        webView?.navigationDelegate = self
         webView?.allowsBackForwardNavigationGestures = true
         
         // Create a visual effect view for vibrancy
@@ -114,6 +115,103 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
         panel.begin { response in
             completionHandler(response == .OK ? panel.urls : nil)
         }
+    }
+
+    private var downloadDestinations: [ObjectIdentifier: URL] = [:]
+
+    private func openExternally(_ url: URL) {
+        NSWorkspace.shared.open(url)
+    }
+
+    // External = a real web URL that isn't our local app server.
+    private func isExternalLink(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return false
+        }
+        let host = url.host?.lowercased()
+        return host != "127.0.0.1" && host != "localhost"
+    }
+
+    // target="_blank" / window.open: open in the default browser instead of silently dropping it.
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        if let url = navigationAction.request.url {
+            openExternally(url)
+        }
+        return nil
+    }
+
+    // Keep the app on its local server; send external links to the browser, and let
+    // download links (the `download` attribute) become real downloads.
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        if let url = navigationAction.request.url, isExternalLink(url) {
+            openExternally(url)
+            decisionHandler(.cancel)
+            return
+        }
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
+    // Responses the web view can't render itself (e.g. a generated file) become downloads.
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String,
+        completionHandler: @escaping (URL?) -> Void
+    ) {
+        let directory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let fileManager = FileManager.default
+        let name = suggestedFilename.isEmpty ? "download" : suggestedFilename
+        var destination = directory.appendingPathComponent(name)
+        let base = destination.deletingPathExtension().lastPathComponent
+        let ext = destination.pathExtension
+        var index = 1
+        while fileManager.fileExists(atPath: destination.path) {
+            let candidate = ext.isEmpty ? "\(base) \(index)" : "\(base) \(index).\(ext)"
+            destination = directory.appendingPathComponent(candidate)
+            index += 1
+        }
+        downloadDestinations[ObjectIdentifier(download)] = destination
+        completionHandler(destination)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        if let destination = downloadDestinations.removeValue(forKey: ObjectIdentifier(download)) {
+            NSWorkspace.shared.open(destination)
+        }
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        downloadDestinations.removeValue(forKey: ObjectIdentifier(download))
     }
 
     private func startServer() {
