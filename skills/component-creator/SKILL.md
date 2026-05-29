@@ -82,14 +82,21 @@ Do not erase or mutate unrelated components!
 For functionality that would benefit from the dynamism or intelligence of an agent, or if the building of something can be deferred until interacted with use Prompt Callbacks.
 
 `<liquidos-callback>`
-Custom HTML element used to declare an agent callback action
+Custom HTML element used to declare an agent callback action. Wrap any control(s) with it.
+
+`on`
+The DOM event that triggers the callback, e.g. `submit`, `click`, or `change`.
 
 `prompt`
-The action performed and/or the user's intent
+The action performed and/or the user's intent. May contain `{{field}}` placeholders.
+
+`prompt-from`
+Alternative to `prompt`: use the entire current value of the named field as the prompt.
 
 `values` 
 Required when `prompt` uses placeholders. 
 It should be a comma-separated allowlist of field names the callback can read.
+Field values are read the way the wrapped form would submit them, so a checked radio, a selected option, or typed text all report their current value.
 
 `scope` 
 The path of the thing calling back. 
@@ -111,6 +118,8 @@ Example:
   </form>
 </liquidos-callback>
 ```
+
+While a callback's request is in flight, LiquidOS automatically disables and pulses it until the agent responds — you do not need to build your own loading or disabled state.
 
 
 ## Canvas-Local Files

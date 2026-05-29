@@ -817,7 +817,7 @@ const processOutputJob = async job => {
             status: 'done',
             completedAt: new Date().toISOString()
         });
-        broadcastQueueState();
+        broadcastQueueState('', { lane: laneKey, status: 'done' });
 
         logServer('queue', 'job marked done', {
             jobId,
@@ -850,7 +850,7 @@ const processOutputJob = async job => {
             failedAt: new Date().toISOString(),
             error: error.message
         });
-        broadcastQueueState();
+        broadcastQueueState('', { lane: laneKey, status: 'failed' });
         logServer('queue', 'job marked failed', {
             jobId,
             lane: laneKey,
@@ -1131,13 +1131,14 @@ const broadcast = payload => {
     clients.forEach(res => res.write('data: ' + message + '\n\n'));
 };
 
-const queueStatePayload = componentPath => ({
+const queueStatePayload = (componentPath, completed) => ({
     type: 'queue-status',
-    state: outputQueue.currentBusyState(componentPath)
+    state: outputQueue.currentBusyState(componentPath),
+    completed: completed || null
 });
 
-const broadcastQueueState = (componentPath = '') => {
-    broadcast(queueStatePayload(componentPath));
+const broadcastQueueState = (componentPath = '', completed = null) => {
+    broadcast(queueStatePayload(componentPath, completed));
 };
 
 const componentChangePayload = (entries, rendered) => {

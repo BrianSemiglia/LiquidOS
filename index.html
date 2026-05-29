@@ -799,7 +799,7 @@
         let debugResizeFrame = null;
         let debugLines = [];
         let debugState = null;
-        const liveCallbackElements = new Set();
+        let activeLanes = new Set();
         const renderedItemsByIndex = new Map();
         const componentMountsByItem = new WeakMap();
         let latestComponentByIndex = new Map();
@@ -837,28 +837,49 @@
 
         const currentScrollKey = () => scrollKey(canvasSelect.value);
 
-        const startLiveCallbackLoading = element => {
-            if (!element?.setLoading) {
-                return;
-            }
-
-            liveCallbackElements.add(element);
-            element.setLoading(true);
+        // A scope's "lane" mirrors the server's outputJobKey: canvas scope -> 'canvas',
+        // otherwise the absolute component path. Busy state is then a pure function of
+        // which lanes the server reports as active (activeLanes).
+        const laneKeyForScope = scope => {
+            const resolved = absoluteScope(scope);
+            return resolved === currentCanvasPath ? 'canvas' : resolved;
         };
 
-        const stopLiveCallbackLoading = () => {
-            liveCallbackElements.forEach(element => element?.setLoading?.(false));
-            liveCallbackElements.clear();
+        // Tell each liquidos-callback whether its lane is in flight; the element owns how it
+        // shows that (pulse + inert), uniformly, for whatever control it wraps. Re-applied
+        // after every render so a callback recreated by a redraw picks the state back up.
+        const syncCallbackState = () => {
+            document.querySelectorAll('liquidos-callback').forEach(element => {
+                if (typeof element.setLoading === 'function') {
+                    element.setLoading(activeLanes.has(laneKeyForScope(element.getAttribute('scope') || '')));
+                }
+            });
         };
 
-        const setBusy = state => {
-            globalForm.dataset.busy = state?.busy ? 'true' : 'false';
-
-            if (!state?.busy) {
-                stopLiveCallbackLoading();
-            }
-
+        // Re-derive callback control state from the set of active lanes. Called after every
+        // render (so redraws can't lose it) and whenever the server's busy signal changes.
+        const syncBusyUI = () => {
+            syncCallbackState();
             updatePromptChromeSpace();
+        };
+
+        const markScopeBusy = scope => {
+            activeLanes.add(laneKeyForScope(scope));
+            syncBusyUI();
+        };
+
+        const clearScopeBusy = scope => {
+            activeLanes.delete(laneKeyForScope(scope));
+            syncBusyUI();
+        };
+
+        // Clear the prompt bar only when its (canvas) job finishes successfully; keep the
+        // text on failure so it can be retried. Component callbacks manage their own inputs.
+        const handleCompleted = completed => {
+            if (completed && completed.status === 'done' && completed.lane === 'canvas') {
+                globalText.value = '';
+                globalText.focus();
+            }
         };
 
         const renderDebugPanel = state => {
@@ -1501,7 +1522,7 @@
                 status.hidden = true;
                 status.className = 'status';
                 status.textContent = '';
-                startLiveCallbackLoading(event.target);
+                markScopeBusy(scope);
 
                 submitPrompt(scope, prompt)
                     .then(() => {
@@ -1509,7 +1530,7 @@
                         status.textContent = '';
                     })
                     .catch(error => {
-                        setBusy({ busy: false, job: null });
+                        clearScopeBusy(scope);
                         status.className = 'status error';
                         status.textContent = 'Error: ' + error.message;
                     });
@@ -1581,6 +1602,7 @@
                     nextItems.forEach(item => delete item.dataset.layoutEnter);
                 });
                 restoreScrollPosition();
+                syncCallbackState();
             };
 
             if (typeof document.startViewTransition === 'function') {
@@ -1905,13 +1927,10 @@
                 return;
             }
 
-            startLiveCallbackLoading(event.currentTarget);
+            markScopeBusy(scope);
             submitPrompt(scope, prompt)
-                .then(() => {
-                    globalText.value = '';
-                })
-                .catch(error => {
-                    setBusy({ busy: false, job: null });
+                .catch(() => {
+                    clearScopeBusy(scope);
                 });
         });
 
@@ -1941,7 +1960,10 @@
             }
 
             if (payload && payload.type === 'queue-status') {
-                setBusy(payload.state || { busy: false, job: null });
+                const state = payload.state || { busy: false, job: null, jobs: [] };
+                activeLanes = new Set((state.jobs || []).map(job => job.lane).filter(Boolean));
+                syncBusyUI();
+                handleCompleted(payload.completed);
                 load().catch(showCanvasDamaged);
                 return;
             }
@@ -1958,7 +1980,9 @@
             }
 
             if (payload && payload.type === 'components-changed') {
-                if (!applyComponentUpdates(payload.components)) {
+                if (applyComponentUpdates(payload.components)) {
+                    syncCallbackState();
+                } else {
                     load().catch(showCanvasDamaged);
                 }
                 return;
@@ -1983,6 +2007,9 @@
                 debugOutput.textContent = 'Error: ' + error.message;
             }
         });
+
+        // Focus the prompt bar on launch so the user can type immediately.
+        globalText.focus();
 
     </script>
 </body>
