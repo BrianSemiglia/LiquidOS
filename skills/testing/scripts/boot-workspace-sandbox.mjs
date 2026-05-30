@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -12,13 +13,15 @@ const fail = message => {
 const parseArguments = argv => argv.reduce((result, value, index) => {
   if (value === '--workspace') return { ...result, workspace: argv[index + 1] };
   if (value === '--app') return { ...result, app: argv[index + 1] };
+  if (value === '--timeout-ms') return { ...result, timeoutMs: Number.parseInt(argv[index + 1], 10) };
   return result;
 }, {});
 
-const { workspace, app } = parseArguments(process.argv.slice(2));
+const { workspace, app, timeoutMs } = parseArguments(process.argv.slice(2));
+const bootTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 30000;
 
 if (!workspace || !app) {
-  fail('usage: node scripts/boot-workspace-sandbox.mjs --workspace /path/to/Workspace.liquidos --app /path/to/app');
+  fail('usage: node scripts/boot-workspace-sandbox.mjs --workspace /path/to/Workspace.liquidos --app /path/to/app [--timeout-ms 30000]');
 }
 
 const sourceWorkspace = path.resolve(workspace);
@@ -55,37 +58,66 @@ if (!useServerJs && !useNpmStart) {
   fail(`app directory has no server.js or package.json start script: ${appDirectory}`);
 }
 
+// Pick a free port ourselves: bind ephemeral, read assigned port, release. The
+// kernel won't immediately re-use it, so the spawned server reliably gets it.
+const pickFreePort = () => new Promise((resolve, reject) => {
+  const probe = net.createServer();
+  probe.unref();
+  probe.on('error', reject);
+  probe.listen(0, '127.0.0.1', () => {
+    const { port } = probe.address();
+    probe.close(() => resolve(port));
+  });
+});
+
+const port = await pickFreePort();
+const url = `http://127.0.0.1:${port}`;
+
 const sandboxRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'liquidos-sandbox-'));
 const sandboxWorkspace = path.join(sandboxRoot, path.basename(sourceWorkspace));
-const logsPath = path.join(sandboxRoot, 'logs');
-const stdoutLog = fs.createWriteStream(path.join(logsPath, 'app.stdout.log'));
-const stderrLog = fs.createWriteStream(path.join(logsPath, 'app.stderr.log'));
 
-fs.mkdirSync(logsPath, { recursive: true });
 fs.cpSync(sourceWorkspace, sandboxWorkspace, { recursive: true });
+
+// --agent none: sandbox runs the harness but not an agent runtime, so callbacks
+// fail loudly and the testing skill can't trigger itself recursively.
+// Per-component diagnostics/service.log captures service output; we only inherit
+// stderr so server-level boot errors land on the launcher's own stderr.
+const serverArgs = [
+  '--workspace', sandboxWorkspace,
+  '--agent', 'none',
+  '--port', String(port)
+];
 
 const appProcess = spawn(
   useServerJs ? 'node' : 'npm',
-  useServerJs
-    ? ['server.js', '--workspace', sandboxWorkspace, '--agent', 'hermes', '--testing', 'false', '--port', '0']
-    : ['start', '--', '--workspace', sandboxWorkspace, '--agent', 'hermes', '--testing', 'false', '--port', '0'],
+  useServerJs ? ['server.js', ...serverArgs] : ['start', '--', ...serverArgs],
   {
     cwd: appDirectory,
     env: process.env,
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'ignore', 'inherit']
   }
 );
 
-const extractUrl = text =>
-  text.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0] ?? text.match(/http:\/\/localhost:\d+/)?.[0];
+const probeUrl = async () => {
+  try {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 500);
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(t);
+    return response.ok || response.status < 500;
+  } catch {
+    return false;
+  }
+};
 
-const waitForUrl = child =>
+const waitForReady = child =>
   new Promise((resolve, reject) => {
     let settled = false;
 
     const finish = value => {
       if (settled) return;
       settled = true;
+      clearInterval(poll);
       clearTimeout(timeout);
       resolve(value);
     };
@@ -94,50 +126,43 @@ const waitForUrl = child =>
       () => {
         if (!settled) {
           settled = true;
-          reject(new Error(`app did not print a local URL; sandbox: ${sandboxWorkspace}; logs: ${logsPath}`));
+          clearInterval(poll);
+          reject(new Error(`app did not become ready within ${bootTimeoutMs}ms; sandbox: ${sandboxWorkspace}`));
         }
       },
-      15000
+      bootTimeoutMs
     );
 
-    const read = data => {
-      const text = String(data);
-      const url = extractUrl(text);
-
-      if (url) {
-        finish(url.replace('localhost', '127.0.0.1'));
-      }
-    };
-
-    child.stdout.on('data', data => {
-      stdoutLog.write(data);
-      read(data);
-    });
-
-    child.stderr.on('data', data => {
-      stderrLog.write(data);
-      read(data);
-    });
+    const poll = setInterval(async () => {
+      if (await probeUrl()) finish(url);
+    }, 100);
 
     child.on('error', error => {
       if (!settled) {
         settled = true;
+        clearInterval(poll);
         clearTimeout(timeout);
         reject(error);
       }
     });
 
     child.on('exit', code => {
-      stdoutLog.end();
-      stderrLog.end();
-
       if (!settled) {
         settled = true;
+        clearInterval(poll);
         clearTimeout(timeout);
-        reject(new Error(`app exited before URL was available: ${code}; sandbox: ${sandboxWorkspace}; logs: ${logsPath}`));
+        reject(new Error(`app exited before becoming ready: ${code}; sandbox: ${sandboxWorkspace}`));
       }
     });
   });
+
+const cleanupSandbox = () => {
+  try {
+    fs.rmSync(sandboxRoot, { recursive: true, force: true });
+  } catch {
+    // best-effort
+  }
+};
 
 const shutdown = () => {
   if (!appProcess.killed) {
@@ -148,22 +173,22 @@ const shutdown = () => {
     if (!appProcess.killed) {
       appProcess.kill('SIGKILL');
     }
+    cleanupSandbox();
   }, 1000).unref();
 };
 
-process.on('SIGINT', () => {
-  shutdown();
-  process.exit(130);
-});
+process.on('exit', cleanupSandbox);
 
-process.on('SIGTERM', () => {
-  shutdown();
-  process.exit(143);
-});
+// Don't process.exit() from the signal handlers — that runs synchronously and
+// skips both the shutdown timer's SIGKILL fallback and the 'exit' cleanup. Let
+// shutdown() kick off the child's termination and let the awaited
+// appProcess.exit promise (below) drain naturally.
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 try {
   process.stdout.write(`${JSON.stringify({
-    url: await waitForUrl(appProcess),
+    url: await waitForReady(appProcess),
     workspace: sandboxWorkspace
   })}\n`);
 } catch (error) {

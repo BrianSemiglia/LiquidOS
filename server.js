@@ -15,7 +15,7 @@ const { createPromptBuilder } = require('./canvas/prompt-builder');
 const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
 
-const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi']);
+const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none']);
 
 const failStartup = message => {
     console.error(message);
@@ -37,7 +37,7 @@ const argumentPairs = () => {
         const name = equalsIndex === -1 ? arg : arg.slice(0, equalsIndex);
         const value = equalsIndex === -1 ? args[index + 1] : arg.slice(equalsIndex + 1);
 
-        if (!['--workspace', '--agent', '--port', '--testing', '--agent-timeout-ms'].includes(name)) {
+        if (!['--workspace', '--agent', '--port', '--agent-timeout-ms'].includes(name)) {
             failStartup('Unknown argument: ' + name);
         }
 
@@ -125,22 +125,6 @@ if (!VALID_AGENT_KINDS.has(DEFAULT_AGENT_KIND)) {
 
 const optionalArg = (name, fallback) =>
     REQUIRED_ARGUMENTS.has(name) ? REQUIRED_ARGUMENTS.get(name) : fallback;
-
-const parseBooleanArg = (name, fallback) => {
-    const value = String(optionalArg(name, fallback ? 'true' : 'false')).trim().toLowerCase();
-
-    if (value === 'true') {
-        return true;
-    }
-
-    if (value === 'false') {
-        return false;
-    }
-
-    failStartup(name + ' must be true or false');
-};
-
-const TESTING_ENABLED = parseBooleanArg('--testing', true);
 
 if (path.extname(WORKSPACE_PATH) !== '.liquidos') {
     failStartup('--workspace must be a .liquidos folder');

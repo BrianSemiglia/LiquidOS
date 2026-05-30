@@ -6,6 +6,25 @@ const { PiAgent } = require('./(skillsPath+runtimePath)->pi-runtime');
 const { CodexAgent } = require('./(skillsPath+runtimePath)->codex-runtime');
 const { ClaudeCodeAgent } = require('./(skillsPath+runtimePath)->claude-runtime');
 
+// NoneAgent is for runs that should not have a working agent — sandbox boots
+// for smoke tests, recursion guards, anything where callbacks should fail
+// loudly rather than dispatching a real prompt. Callbacks will reject; static
+// rendering, services, and view.json watching still work.
+const NoneAgent = () => ({
+    kind: 'none',
+    label: 'No agent',
+    command: null,
+    configureHost: () => {},
+    isInstalled: () => true,
+    initialize: () => {},
+    dispose: () => {},
+    currentDebug: () => ({ status: 'no agent configured' }),
+    runtimePaths: () => [],
+    materializeRuntime: () => {},
+    preparePrompt: prompt => prompt,
+    run: () => Promise.reject(new Error('No agent is configured (--agent none).'))
+});
+
 const createRuntimes = ({
     workspacePath,
     runtimePath,
@@ -23,7 +42,8 @@ const createRuntimes = ({
         HermesAgent(),
         PiAgent(),
         CodexAgent(),
-        ClaudeCodeAgent()
+        ClaudeCodeAgent(),
+        NoneAgent()
     ];
 
     const materializeRuntime = () => {
