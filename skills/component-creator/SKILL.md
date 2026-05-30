@@ -152,6 +152,35 @@ Do not touch any component other than the one being created.
 
 Do not touch any component other than the one being updated.
 
+## Offer actions, don't just display state
+
+LiquidOS components are rendered by an agent that can act for the user — fetch data, repair errors, regenerate content, change scope, follow up. Whenever a view shows something the user might want to act on, the agent should include a `<liquidos-callback>` that does the action. This is what makes LiquidOS an AI OS rather than a static document viewer; the affordances are why the user is here.
+
+The default is "offer the action." Avoid:
+
+- An error message with no fix button. If the agent can re-attempt, retry differently, or repair, include a callback that does that.
+- An empty state ("No items yet") with no way to add one.
+- A data display the user could plausibly want refreshed, filtered, or sorted, with no controls for any of those.
+- A configuration the user might want to change, shown read-only.
+
+Instead of:
+
+```html
+<p>Could not load weather data.</p>
+```
+
+do:
+
+```html
+<p>Could not load weather data.</p>
+<liquidos-callback on="click" scope="components/weather"
+    prompt="Retry loading the weather data; the previous load failed.">
+    <button>Retry</button>
+</liquidos-callback>
+```
+
+The exception is the escalation case (see Diagnostics → Escalation below): when the agent has determined it cannot perform the action — typically a harness or infrastructure bug — it says so plainly and stops. A button that loops back to the same failure is worse than no button.
+
 ## Diagnostics
 
 When something looks broken, look in `<component>/diagnostics/` first. The harness writes status info and logs there. The agent reads them; the agent does not write them.
