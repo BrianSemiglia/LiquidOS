@@ -88,7 +88,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
             defer: false
         )
         window?.title = ""
-        window?.titleVisibility = .hidden
+        window?.titleVisibility = .visible
         window?.titlebarAppearsTransparent = true
         window?.isOpaque = false
         window?.backgroundColor = .clear
@@ -632,6 +632,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         }
 
         canvasesRootURL = url.standardizedFileURL
+        window?.title = url.deletingPathExtension().lastPathComponent
         showStartingScreen()
         stopServer()
         startServer()
