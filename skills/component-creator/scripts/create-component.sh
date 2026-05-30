@@ -76,7 +76,11 @@ if [ -e "$component_dir" ]; then
     exit 1
 fi
 
-mkdir -p "$presented_dir/services" "$component_dir/data"
+mkdir -p "$presented_dir/services" "$component_dir/data" "$component_dir/diagnostics"
+
+# diagnostics/status.json — populated by the harness when something goes wrong.
+# The agent reads this file as its first move when fixing a broken component.
+printf '{}\n' > "$component_dir/diagnostics/status.json"
 
 # feature-requirements.md ----------------------------------------------------
 cat > "$presented_dir/feature-requirements.md" <<MD

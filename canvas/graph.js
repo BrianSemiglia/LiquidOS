@@ -11,10 +11,10 @@ const createCanvasGraph = ({
         path.relative(getCanvasPath(), componentPath).split(path.sep).join('/');
 
     const componentFileUrl = componentPath =>
-        '/component/' + encodeURIComponent(componentScopePath(componentViewPath(componentPath))) + '/file';
+        '/component/' + encodeURIComponent(componentScopePath(componentPath)) + '/file';
 
     const componentResourceUrl = (componentPath, name) =>
-        '/component/' + encodeURIComponent(componentScopePath(componentViewPath(componentPath))) + '/resources/' + encodeURIComponent(name);
+        '/component/' + encodeURIComponent(componentScopePath(componentPath)) + '/resources/' + encodeURIComponent(name);
 
     const resourceUrl = (componentPath, name, resource) =>
         resource?.url ? String(resource.url) : componentResourceUrl(componentPath, name);
@@ -96,6 +96,11 @@ const createCanvasGraph = ({
     const componentDataPath = componentPath =>
         path.join(componentFolderPath(componentPath), 'data');
 
+    // diagnostics/ also lives at the component root so the agent has a stable
+    // place to read failure info regardless of presented/ swaps.
+    const componentDiagnosticsPath = componentPath =>
+        path.join(componentFolderPath(componentPath), 'diagnostics');
+
     const componentViewPath = componentPath =>
         fs.existsSync(componentPath) && fs.statSync(componentPath).isDirectory()
             ? path.join(componentPresentedPath(componentPath), 'view.json')
@@ -105,6 +110,46 @@ const createCanvasGraph = ({
         path.join(componentServicesPath(componentPath), 'start.sh');
 
     const componentViewCache = new Map();
+
+    // updateDiagnostics writes <component>/diagnostics/status.json. The agent
+    // reads this file as its first move when debugging. Each call merges into
+    // an existing category; other categories are preserved.
+    const updateDiagnostics = (componentPath, category, partial) => {
+        try {
+            const diagnosticsDir = componentDiagnosticsPath(componentPath);
+            const statusPath = path.join(diagnosticsDir, 'status.json');
+
+            fs.mkdirSync(diagnosticsDir, { recursive: true });
+
+            let current = {};
+            try {
+                current = JSON.parse(fs.readFileSync(statusPath, 'utf8')) || {};
+            } catch (error) {
+                current = {};
+            }
+
+            const now = new Date().toISOString();
+            const next = {
+                ...current,
+                updatedAt: now,
+                [category]: { ...partial, at: now }
+            };
+
+            fs.writeFileSync(statusPath, JSON.stringify(next, null, 2) + '\n');
+        } catch (error) {
+            // Diagnostics write must never break component loading.
+        }
+    };
+
+    const appendServiceLog = (componentPath, text) => {
+        try {
+            const diagnosticsDir = componentDiagnosticsPath(componentPath);
+            fs.mkdirSync(diagnosticsDir, { recursive: true });
+            fs.appendFileSync(path.join(diagnosticsDir, 'service.log'), text);
+        } catch (error) {
+            // Best-effort.
+        }
+    };
 
     const loadComponentView = componentPath => {
         const viewPath = componentViewPath(componentPath);
@@ -127,8 +172,10 @@ const createCanvasGraph = ({
         try {
             validateComponentFile(componentPath);
             component = readJson(viewPath);
+            updateDiagnostics(componentPath, 'view', { ok: true, error: null });
         } catch (error) {
             component = invalidComponentCard(viewPath, error);
+            updateDiagnostics(componentPath, 'view', { ok: false, error: error.message });
         }
 
         if (mtimeMs !== null) {
@@ -348,8 +395,11 @@ const createCanvasGraph = ({
         componentFolderPath,
         componentServicesPath,
         componentDataPath,
+        componentDiagnosticsPath,
         componentViewPath,
         componentStartPath,
+        updateDiagnostics,
+        appendServiceLog,
         resourceUrl,
         componentResources,
         renderedResources,

@@ -424,7 +424,9 @@ const shortText = value => {
 };
 
 const createServiceDispatchId = folder => [
-    path.basename(path.dirname(folder)).replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'component',
+    // folder is <component>/presented/services. The component name is two
+    // dirnames up.
+    path.basename(path.dirname(path.dirname(folder))).replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'component',
     crypto.randomUUID().slice(0, 8)
 ].join('-');
 
@@ -450,6 +452,8 @@ const startComponentService = folder => {
     }
 
     const dispatchId = createServiceDispatchId(folder);
+    // folder is <component>/presented/services. The component dir is two up.
+    const componentDir = path.dirname(path.dirname(folder));
     const child = childProcess.spawn('/bin/bash', [startPath, dispatchId], {
         cwd: folder,
         detached: true,
@@ -460,17 +464,21 @@ const startComponentService = folder => {
 
     componentServices.set(folder, { signature, processGroups, dispatchId });
     logServer('component-service', 'started', { folder, processGroups, dispatchId });
+    canvasGraph.updateDiagnostics(componentDir, 'service', { running: true, lastExit: null, lastStderr: '', dispatchId });
 
     child.stdout.on('data', chunk => {
         writeProcessOutput('[component-service]', chunk, process.stdout);
+        canvasGraph.appendServiceLog(componentDir, String(chunk));
     });
     child.stderr.on('data', chunk => {
         stderr += String(chunk);
         writeProcessOutput('[component-service]', chunk, process.stderr);
+        canvasGraph.appendServiceLog(componentDir, String(chunk));
     });
     child.on('error', error => {
         componentServices.delete(folder);
         logHermesError('component-service', error, { folder, message: 'start failed' });
+        canvasGraph.updateDiagnostics(componentDir, 'service', { running: false, error: error.message, lastStderr: shortText(stderr) });
     });
     child.on('close', code => {
         const current = componentServices.get(folder);
@@ -481,10 +489,12 @@ const startComponentService = folder => {
 
         if (code !== 0) {
             logHermesError('component-service', new Error('start.sh exited ' + code), { folder, stderr: shortText(stderr), processGroups, dispatchId });
+            canvasGraph.updateDiagnostics(componentDir, 'service', { running: false, lastExit: { code, at: new Date().toISOString() }, lastStderr: shortText(stderr) });
             return;
         }
 
         logServer('component-service', 'exited', { folder, processGroups, dispatchId });
+        canvasGraph.updateDiagnostics(componentDir, 'service', { running: false, lastExit: { code: 0, at: new Date().toISOString() }, lastStderr: shortText(stderr) });
     });
     child.unref();
 };
@@ -1248,11 +1258,14 @@ const refreshGraphWatchers = () => {
     entries.forEach(entry => {
         try {
             watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, (eventType, filename) => {
-                // Inside a component folder, the agent stages its draft in .presented/.
-                // Events there are not part of what the user sees, so they don't
-                // trigger re-render — only the swap into presented/ does.
-                if (entry.kind === 'component' && filename && (filename === '.presented' || filename.startsWith('.presented/'))) {
-                    return;
+                // Component watches are opt-in by path: only events under
+                // presented/ (the live state) trigger refresh. Anything else
+                // — data/, diagnostics/, .presented/ staging, future siblings —
+                // is implicitly ignored without needing an exclusion list.
+                if (entry.kind === 'component' && filename) {
+                    if (filename !== 'presented' && !filename.startsWith('presented/')) {
+                        return;
+                    }
                 }
                 scheduleWatchRefresh(entry);
             }));
@@ -1526,6 +1539,34 @@ const server = http.createServer(async (req, res) => {
             outputQueue.feedHermesOutput();
             broadcastQueueState();
             send(res, 204, '');
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/diagnostics') {
+            try {
+                const body = JSON.parse(await readBody(req) || '{}');
+                const componentPath = String(body.componentPath || '');
+                const category = String(body.category || '');
+                const data = body.data && typeof body.data === 'object' ? body.data : {};
+
+                if (!componentPath || !category) {
+                    send(res, 400, 'componentPath and category required');
+                    return;
+                }
+
+                const absolute = resolveCanvasReference(componentPath);
+                const componentDir = canvasGraph.componentFolderPath(absolute);
+
+                if (!pathIsInside(componentDir, CANVAS_PATH)) {
+                    send(res, 403, 'Component outside canvas');
+                    return;
+                }
+
+                canvasGraph.updateDiagnostics(componentDir, category, data);
+                send(res, 204, '');
+            } catch (error) {
+                send(res, 400, error.message);
+            }
             return;
         }
 

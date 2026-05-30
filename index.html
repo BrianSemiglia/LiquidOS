@@ -1130,6 +1130,16 @@
             item.__componentMountToken = null;
         };
 
+        const reportDiagnostic = (component, category, data) => {
+            const componentPath = component?.componentPath || component?.scope || '';
+            if (!componentPath) return;
+            fetch('/diagnostics', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ componentPath, category, data })
+            }).catch(() => { /* best-effort */ });
+        };
+
         const mountComponentFunctions = (item, component) => {
             destroyComponentFunctions(item);
 
@@ -1137,6 +1147,11 @@
             const surface = item.querySelector('.surface');
 
             if (!functionsUrl || !surface) {
+                // No browser-side JS is fine — trivially "mounted." Report ok
+                // so stale failures from a previous functions.js don't linger.
+                if (surface) {
+                    reportDiagnostic(component, 'mount', { ok: true, error: null, note: 'no functions.js' });
+                }
                 return;
             }
 
@@ -1148,10 +1163,21 @@
                     return;
                 }
 
-                componentMountsByItem.set(item, module.mount(surface) || {});
+                try {
+                    componentMountsByItem.set(item, module.mount(surface) || {});
+                    reportDiagnostic(component, 'mount', { ok: true, error: null });
+                } catch (error) {
+                    reportDiagnostic(component, 'mount', { ok: false, error: 'mount() threw: ' + error.message, stack: error.stack || '' });
+                    const status = item.querySelector('.status');
+                    if (status) {
+                        status.hidden = false;
+                        status.className = 'status error';
+                        status.textContent = 'Component functions error: ' + error.message;
+                    }
+                }
             }).catch(error => {
+                reportDiagnostic(component, 'mount', { ok: false, error: 'import failed: ' + error.message, url: functionsUrl });
                 const status = item.querySelector('.status');
-
                 if (!status) {
                     return;
                 }

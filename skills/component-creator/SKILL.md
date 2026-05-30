@@ -27,7 +27,10 @@ components/<name>/
 │       ├── render.js             Scaffold default: watches view.html, writes view.json.
 │       └── IO.swift              Optional. Native macOS side; compiled and launched by start.sh if present.
 ├── .presented/               ← agent's staging area, ignored by the harness (see "Atomic swap")
-└── data/                     ← persistent state; not touched by presented/ swaps
+├── data/                     ← persistent state; not touched by presented/ swaps
+└── diagnostics/              ← harness-written status and logs; agent reads here when debugging
+    ├── status.json               Current state per category (mount, service, view).
+    └── service.log               Append-only stdout/stderr from start.sh and children.
 ```
 
 The scaffold ships `view.html` + `render.js` because most components benefit from a template-and-substitute renderer that handles dynamic port injection. A component that doesn't need runtime substitution can produce `view.json` directly (e.g., by writing it from `render.js` with no template, or by having no `render.js` at all and treating `view.json` as the agent's editing surface).
@@ -64,16 +67,21 @@ Add more by extending render.js.
 
 ### Browser-side JavaScript
 
-Do not put `<script>` tags inside `view.html`. Scripts injected via `innerHTML` do not execute (browser spec). Put browser-side code in `functions.js` as an ES module exporting `mount(surface)`:
+All browser-side JS goes in `functions.js` as an ES module exporting `mount(surface)`. The harness imports it as a real module, calls `mount(surface)` with the component's DOM root, and calls the returned cleanup function before the next re-mount.
 
 ```js
 export const mount = (surface) => {
     // Wire up listeners, create resources. Scope queries with surface.querySelector(...).
-    // Optionally return a cleanup function; the harness calls it before re-mounting.
+    // Optionally return a cleanup function.
 }
 ```
 
-The harness imports `functions.js` as a real ES module and calls `mount(surface)` with the component's DOM root. `mount` can return a cleanup function that runs before the next re-mount.
+**Do not** put any JavaScript-executing constructs inside `view.html`:
+- No `<script>` tags. They don't execute when injected via `innerHTML`.
+- No inline event handlers (`onclick=`, `onerror=`, `onload=`, `onchange=`, `onsubmit=`, etc.). They *do* execute via `innerHTML`, but they bypass the `mount(surface)` lifecycle — no scoping, no cleanup, no instance isolation, accumulating listeners on every progressive update.
+- No `javascript:` URLs.
+
+Use `<liquidos-callback>` for user-initiated callbacks routed through the agent. Use `mount(surface)` for everything else.
 
 ### Adding resources
 
@@ -132,7 +140,7 @@ Do not touch any component other than the one being created.
 
 ## Updating an existing component
 
-1. Read `<canvas>/components/<component_name>/presented/feature-requirements.md` to confirm the component's purpose.
+1. Read `<canvas>/components/<component_name>/presented/feature-requirements.md` to confirm the component's purpose. If the user is reporting a problem, also check the `diagnostics/` folder.
 
 2. Write `view.html` with a placeholder showing the next intended action. Disable any inputs that would mutate the same data the agent is about to change.
 
@@ -143,6 +151,24 @@ Do not touch any component other than the one being created.
 5. Update `feature-requirements.md` if anything was learned about the requirements during the work.
 
 Do not touch any component other than the one being updated.
+
+## Diagnostics
+
+When something looks broken, look in `<component>/diagnostics/` first. The harness writes status info and logs there. The agent reads them; the agent does not write them.
+
+### Escalation
+
+If you've isolated the problem to the harness or infrastructure and there is no fix you can make from inside the component, do not invent a workaround that bypasses the contract (no inline JS smuggling, no `<img onerror>` tricks, no parallel mount mechanisms).
+
+Communicate with the user through the canvas — write the escalation into `view.html` so it appears as the component's view. The report should be visible without the user having to open a file or terminal.
+
+A useful escalation view names:
+- What was reported broken.
+- What you confirmed works (e.g., "the JS parses, the file is at the expected path").
+- What you suspect is wrong (e.g., "the resource URL `…` returns 404; I think the URL the harness generates doesn't match the route it serves").
+- That you are stopping rather than working around it.
+
+Then stop. The user reads the canvas, fixes the harness, and may ask you to retry. Workarounds that violate the markup rule above are worse than no fix — they make the component harder to maintain and hide the underlying bug.
 
 ## Progressive view updates
 
