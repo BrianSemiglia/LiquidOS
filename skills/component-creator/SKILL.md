@@ -9,40 +9,77 @@ triggers:
 
 # Component Guide
 
-## Literal components
-  
-- Slower but more dynamic for tasks that are less clearly defined. Agent can perform work and update as it progresses. Follow this template very closely: `examples/static/`.
-  
-  <canvas>/components/<component-name>/
-  `feature-requirements.md` required
-  `view.json`               required, observed to repaint canvas
-  
-## Programmatic components 
-  
-Faster and more repeatable for tasks more clearly defined. They should have a render.js that is a tiny component-local server that programmatically produces a view which listens for changes from that server and calls back to it. Follow this template very closely: `examples/programmatic-*/`.
-  
-  <canvas>/components/<component-name>/
-  `feature-requirements.md` required
-  `view.json`               required, listens for changes from `render.js`, makes callbacks
-  `services/`               required, observed to restart execution
-    `start.sh`              required, starts services
-    `render.js`             required, produces/updates `view.json`
-  `data/`                   optional durable component state (json, sql, etc)
+## Components
 
+Every component is a folder under the canvas's `components/` with the same shape:
+
+```
+components/<name>/
+├── feature-requirements.md   Required. User-facing description of what the component does.
+├── view.json                 Required. Rendered by render.js; the harness paints this.
+├── view.html                 Required. Agent's editing surface — HTML template with placeholders.
+├── functions.js              Optional. ES module exporting mount(surface) for browser-side JS.
+├── data/                     Optional. Component-owned state (json, sql, etc).
+└── services/
+    ├── start.sh              Required. Harness invokes to launch services.
+    ├── render.js             Required. Watches view.html, substitutes placeholders, writes view.json.
+    └── IO.swift              Optional. Native macOS side; compiled and launched by start.sh if present.
+```
+
+### How edits flow
+
+The agent's primary editing surface is `view.html`. `render.js` watches it via `fs.watch`, substitutes runtime values at write time, and emits `view.json`. The harness paints `view.json`. Editing `view.html` does NOT restart the service — `render.js` notices and re-emits.
+
+Editing `render.js`, `IO.swift`, or `start.sh` *does* restart the service (they live under `services/**`, which the harness watches for restarts).
+
+### Mustache placeholders
+
+`view.html` may use `{{name}}` placeholders that `render.js` substitutes at write time. The default scaffold exposes:
+
+- `{{port}}` — render.js's ephemeral HTTP port (useful if `functions.js` or external clients need a known endpoint).
+- `{{origin}}` — `http://127.0.0.1:{{port}}`.
+- `{{dispatchId}}` — the dispatch id passed to `start.sh`.
+
+Add more by extending render.js.
+
+### Browser-side JavaScript
+
+Do not put `<script>` tags inside `view.html`. Scripts injected via `innerHTML` do not execute (browser spec). Put browser-side code in `functions.js` as an ES module exporting `mount(surface)`:
+
+```js
+export const mount = (surface) => {
+    // Wire up listeners, create resources. Scope queries with surface.querySelector(...).
+    // Optionally return a cleanup function; the harness calls it before re-mounting.
+}
+```
+
+The harness imports `functions.js` as a real ES module and calls `mount(surface)` with the component's DOM root. `mount` can return a cleanup function that runs before the next re-mount.
+
+### Adding resources
+
+The scaffold's `render.js` auto-declares `resources.functions` in `view.json` when `functions.js` exists. For other resources (images, fonts, additional modules), extend `render.js` to add them to the view object it writes.
+
+### Scaffolding, not rails
+
+Every generated file has a comment header explaining its role and what's safe to change. Restructure the component as needed: rename files, add data files, ditch `IO.swift`, replace `render.js` with a different renderer. The only invariants the harness needs are that `view.json` eventually gets written and `start.sh` stays alive while services should run.
 
 ## Service Harness
 
-When a service exists, the harness starts it with:
+The harness invokes `services/start.sh` with a unique dispatch id:
 
 ```sh
 services/start.sh <dispatch-id>
 ```
 
-Treat the dispatch id as a function parameter. Use it in `start.sh` to namespace collision-prone runtime resources such as local sockets, temporary files, native source names, and service instances. Pass only the specific values each child process needs.
+Treat the dispatch id as a function parameter. Use it in `start.sh` to namespace collision-prone runtime resources (sockets, temp files, native binaries). The default scaffold exports `LIQUIDOS_DISPATCH_ID` for child processes.
 
 The harness starts and stops the service process group. `start.sh` should stay alive while the service is alive and should not daemonize or detach child processes.
 
-The harness observes `view.json` for canvas refreshes and `services/**` for service restarts. Other component files are component-owned and may be organized as needed.
+The harness watches:
+- `view.json` for canvas repaints.
+- `services/**` for service restarts.
+
+Files outside `services/` (including `view.html`, `functions.js`, `data/`) are component-owned and do not trigger restarts. `render.js` handles `view.html` changes itself.
 
 ## Feature Requirements
 
@@ -53,67 +90,96 @@ Each requirement should be simple, specific, and non-redundant.
 Requirements must be faithful to the component: do not claim behavior, resources, permissions, or limits that the component does not actually provide or intend to provide.
 When requirements and implementation disagree, resolve the mismatch instead of preserving inaccurate text.
 
-## Adding/Updating
+## Creating a component
 
-1. Prompt arrives.
-2. Agent creates or finds existing component folder at `<canvas>/components/<component_name>/`.
-3. Agent reads `<canvas>/input.json` and preserves every existing key and component path.
-4. Agent appends the new component folder path to `<canvas>/input.json` only if adding a new component and only if it is not already present. Existing `view.json` paths are also valid and should be preserved.
-5. Agent writes `view.json` with a placeholder showing the next intended action, disabling any inputs that would mutate the same data.
-6. Agent reads `<canvas>/components/<component_name>/feature-requirements.md`.
-7. Agent begins work.
-8. Agent writes `view.json` with the partial output and the next intended action, keeping those inputs disabled.
-9. Agent continues work.
-10. Agent writes `view.json` with the updated partial output and the next intended action, keeping those inputs disabled.
-11. Agent writes `view.json` with the final output and re-enables the inputs.
-12. Agent creates or updates `<canvas>/components/<component_name>/feature-requirements.md` if it has learned something new about the requirements.
+1. Run the scaffold script. It creates the folder, writes the loading-state files, drops a no-op `functions.js`, shells out `services/{start.sh, render.js, IO.swift}`, and registers the component in `input.json`:
 
-Do not erase or mutate unrelated components!
+   ```sh
+   bash skills/component-creator/scripts/create-component.sh <canvas-path> <component-name>
+   ```
 
-### Example: progressive view updates
+   Do not duplicate any of those steps by hand. Do not create the folder, write any of the scaffolded files, or edit `input.json` separately — the script has already done it.
 
-While the agent is mutating a component, intermediate `view.json` rewrites must set the `disabled` attribute on any inputs that would mutate the same data. Disabled inputs don't fire events. Otherwise concurrent user input would race the in-progress mutation and silently lose edits.
+2. Write `feature-requirements.md` describing what the user asked for, in plain language.
+
+3. Write `view.html` with a placeholder showing the next intended action. Disable any inputs that would mutate the same data the agent is about to change.
+
+4. Do the work. Between each meaningful step, write `view.html` with the partial output and the current next-intended-action. Keep the inputs disabled the whole time. See "Progressive view updates" below for the locking convention.
+
+5. Write `view.html` with the final output. Re-enable the inputs.
+
+6. Update `feature-requirements.md` if anything was learned about the requirements during the work.
+
+The scaffolded files are starting clay. Each has a comment header explaining what's safe to change. Restructure as needed — rename files, delete `IO.swift` if not needed, replace `render.js` — whatever fits the component.
+
+Do not touch any component other than the one being created.
+
+## Updating an existing component
+
+1. Read `<canvas>/components/<component_name>/feature-requirements.md` to confirm the component's purpose.
+
+2. Write `view.html` with a placeholder showing the next intended action. Disable any inputs that would mutate the same data the agent is about to change.
+
+3. Do the work. Between each meaningful step, write `view.html` with the partial output and the current next-intended-action. Keep the inputs disabled the whole time. See "Progressive view updates" below for the locking convention.
+
+4. Write `view.html` with the final output. Re-enable the inputs.
+
+5. Update `feature-requirements.md` if anything was learned about the requirements during the work.
+
+Do not touch any component other than the one being updated.
+
+## Progressive view updates
+
+While the agent is mutating a component, intermediate `view.html` rewrites must set the `disabled` attribute on any inputs that would mutate the same data. Disabled inputs don't fire events. Otherwise concurrent user input would race the in-progress mutation and silently lose edits.
 
 Inputs wrapped in `<liquidos-callback>` are auto-disabled by the harness while their callback's request is in flight, so they don't need manual `disabled` for that case. The rule below covers plain HTML inputs whose value the agent rewrites programmatically — those have no auto-lock.
 
 Before each rewrite, narrate the intent: which inputs are being disabled or restored, and why. This makes the lock-and-release pattern visible in the agent's reasoning and habitual over time.
 
+### Example
+
 Prompt: "fix the spelling". Component: `components/note/`. (The work is triggered from outside the component — e.g., the prompt bar — not by a callback inside it.)
 
-**Before the prompt — the existing view, fully interactive.**
+**Before the prompt — the existing `view.html`, fully interactive.**
 
-```json
-{
-  "html": "<div style=\"padding:1rem;\"><h2>Note</h2><textarea name=\"text\">i wnat to byu groceries tommorow</textarea></div>"
-}
+```html
+<div style="padding:1rem;">
+    <h2>Note</h2>
+    <textarea name="text">i wnat to byu groceries tommorow</textarea>
+</div>
 ```
 
-**Step 5 — placeholder. Textarea disabled.**
+**Placeholder write — textarea disabled.**
 
-> *Narration before writing:* "I'm about to mutate `components/note/view.json`. I need to disable the textarea so the user can't type a competing edit before I finish."
+> *Narration before writing:* "I'm about to mutate `components/note/view.html`. I need to disable the textarea so the user can't type a competing edit before I finish."
 
-```json
-{
-  "html": "<div style=\"padding:1rem;\"><h2>Note</h2><p>Checking spelling…</p><textarea name=\"text\" disabled>i wnat to byu groceries tommorow</textarea></div>"
-}
+```html
+<div style="padding:1rem;">
+    <h2>Note</h2>
+    <p>Checking spelling…</p>
+    <textarea name="text" disabled>i wnat to byu groceries tommorow</textarea>
+</div>
 ```
 
-**Step 8 — partial fix. Textarea still disabled.**
+**Partial write — textarea still disabled.**
 
-```json
-{
-  "html": "<div style=\"padding:1rem;\"><h2>Note</h2><p>Checking spelling… 3 of 5 words.</p><textarea name=\"text\" disabled>I want to buy groceries tommorow</textarea></div>"
-}
+```html
+<div style="padding:1rem;">
+    <h2>Note</h2>
+    <p>Checking spelling… 3 of 5 words.</p>
+    <textarea name="text" disabled>I want to buy groceries tommorow</textarea>
+</div>
 ```
 
-**Step 11 — final. `disabled` removed.**
+**Final write — `disabled` removed.**
 
 > *Narration before writing:* "Spell check is done. I'll write the final view with `disabled` removed so the user can edit again."
 
-```json
-{
-  "html": "<div style=\"padding:1rem;\"><h2>Note</h2><textarea name=\"text\">I want to buy groceries tomorrow.</textarea></div>"
-}
+```html
+<div style="padding:1rem;">
+    <h2>Note</h2>
+    <textarea name="text">I want to buy groceries tomorrow.</textarea>
+</div>
 ```
 
 ## Removing
