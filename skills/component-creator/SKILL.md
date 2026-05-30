@@ -59,16 +59,62 @@ When requirements and implementation disagree, resolve the mismatch instead of p
 2. Agent creates or finds existing component folder at `<canvas>/components/<component_name>/`.
 3. Agent reads `<canvas>/input.json` and preserves every existing key and component path.
 4. Agent appends the new component folder path to `<canvas>/input.json` only if adding a new component and only if it is not already present. Existing `view.json` paths are also valid and should be preserved.
-5. Agent overwrites the component so that it displays the agent's next intended action so that the user is informed.
+5. Agent writes `view.json` with a placeholder showing the next intended action, disabling any inputs that would mutate the same data.
 6. Agent reads `<canvas>/components/<component_name>/feature-requirements.md`.
 7. Agent begins work.
-8. Agent partially completes work and overwrites the component to show the partial output and the agent's next intended action so that the user is informed.
+8. Agent writes `view.json` with the partial output and the next intended action, keeping those inputs disabled.
 9. Agent continues work.
-10. Agent partially completes work and overwrites the component to show the partial output and the agent's next intended action so that the user is informed.
-11. Agent completes work and overwrites the component to show the final state so that the user is informed.
+10. Agent writes `view.json` with the updated partial output and the next intended action, keeping those inputs disabled.
+11. Agent writes `view.json` with the final output and re-enables the inputs.
 12. Agent creates or updates `<canvas>/components/<component_name>/feature-requirements.md` if it has learned something new about the requirements.
 
 Do not erase or mutate unrelated components!
+
+### Example: progressive view updates
+
+While the agent is mutating a component, intermediate `view.json` rewrites must set the `disabled` attribute on any inputs that would mutate the same data. Disabled inputs don't fire events. Otherwise concurrent user input would race the in-progress mutation and silently lose edits.
+
+Inputs wrapped in `<liquidos-callback>` are auto-disabled by the harness while their callback's request is in flight, so they don't need manual `disabled` for that case. The rule below covers plain HTML inputs whose value the agent rewrites programmatically — those have no auto-lock.
+
+Before each rewrite, narrate the intent: which inputs are being disabled or restored, and why. This makes the lock-and-release pattern visible in the agent's reasoning and habitual over time.
+
+Prompt: "fix the spelling". Component: `components/note/`. (The work is triggered from outside the component — e.g., the prompt bar — not by a callback inside it.)
+
+**Before the prompt — the existing view, fully interactive.**
+
+```json
+{
+  "html": "<div style=\"padding:1rem;\"><h2>Note</h2><textarea name=\"text\">i wnat to byu groceries tommorow</textarea></div>"
+}
+```
+
+**Step 5 — placeholder. Textarea disabled.**
+
+> *Narration before writing:* "I'm about to mutate `components/note/view.json`. I need to disable the textarea so the user can't type a competing edit before I finish."
+
+```json
+{
+  "html": "<div style=\"padding:1rem;\"><h2>Note</h2><p>Checking spelling…</p><textarea name=\"text\" disabled>i wnat to byu groceries tommorow</textarea></div>"
+}
+```
+
+**Step 8 — partial fix. Textarea still disabled.**
+
+```json
+{
+  "html": "<div style=\"padding:1rem;\"><h2>Note</h2><p>Checking spelling… 3 of 5 words.</p><textarea name=\"text\" disabled>I want to buy groceries tommorow</textarea></div>"
+}
+```
+
+**Step 11 — final. `disabled` removed.**
+
+> *Narration before writing:* "Spell check is done. I'll write the final view with `disabled` removed so the user can edit again."
+
+```json
+{
+  "html": "<div style=\"padding:1rem;\"><h2>Note</h2><textarea name=\"text\">I want to buy groceries tomorrow.</textarea></div>"
+}
+```
 
 ## Removing
 
