@@ -81,15 +81,24 @@ const createCanvasGraph = ({
             ? componentPath
             : path.dirname(componentPath);
 
-    const componentServicesPath = componentPath =>
-        path.join(componentFolderPath(componentPath), 'services');
+    // Per the component contract, the harness reads what the agent has
+    // "presented" — everything inside the presented/ subdir of the component.
+    // The agent stages multi-file changes in .presented/ alongside and swaps
+    // atomically via `rm -rf presented && mv .presented presented`.
+    const componentPresentedPath = componentPath =>
+        path.join(componentFolderPath(componentPath), 'presented');
 
+    const componentServicesPath = componentPath =>
+        path.join(componentPresentedPath(componentPath), 'services');
+
+    // data/ lives at the component root (outside presented/) so persistent
+    // state survives presented/ swaps.
     const componentDataPath = componentPath =>
         path.join(componentFolderPath(componentPath), 'data');
 
     const componentViewPath = componentPath =>
         fs.existsSync(componentPath) && fs.statSync(componentPath).isDirectory()
-            ? path.join(componentFolderPath(componentPath), 'view.json')
+            ? path.join(componentPresentedPath(componentPath), 'view.json')
             : componentPath;
 
     const componentStartPath = componentPath =>
@@ -176,7 +185,8 @@ const createCanvasGraph = ({
         ) || null;
     };
 
-    const componentResources = () => ({});
+    const componentResources = (componentPath, component) =>
+        component?.resources || {};
 
     const renderedResources = (componentPath, resources) =>
         Object.fromEntries(
@@ -217,7 +227,8 @@ const createCanvasGraph = ({
                     componentPath,
                     scope: componentScope(componentPath),
                     repairLevel: component.repairLevel || '',
-                    html: renderedHtml(componentPath, component)
+                    html: renderedHtml(componentPath, component),
+                    resources: renderedResources(componentPath, component.resources || {})
                 }))
             };
         } catch (error) {
@@ -266,15 +277,12 @@ const createCanvasGraph = ({
         return String(fs.statSync(file).mtimeMs);
     };
 
-    const componentViewWatchPaths = componentPaths =>
+    // One recursive watch per component folder picks up every event inside,
+    // including the presented/ directory swap. Events inside .presented/ (the
+    // agent's staging area) are filtered out at the watch callback in server.js.
+    const componentWatchPaths = componentPaths =>
         Array.from(new Set(componentPaths
             .map(componentFolderPath)
-            .filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
-            .filter(isInsideCanvas)));
-
-    const componentServiceWatchPaths = componentPaths =>
-        Array.from(new Set(componentPaths
-            .map(componentServicesPath)
             .filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
             .filter(isInsideCanvas)));
 
@@ -288,8 +296,7 @@ const createCanvasGraph = ({
                 .filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
                 .filter(isInsideCanvas)
                 .map(file => ({ path: file, recursive: false, kind: 'presentation' })),
-            ...componentViewWatchPaths(componentPaths).map(file => ({ path: file, recursive: false, kind: 'view' })),
-            ...componentServiceWatchPaths(componentPaths).map(file => ({ path: file, recursive: true, kind: 'service' }))
+            ...componentWatchPaths(componentPaths).map(file => ({ path: file, recursive: true, kind: 'component' }))
         ];
     };
 

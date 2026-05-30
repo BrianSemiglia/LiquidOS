@@ -69,16 +69,17 @@ fi
 display_title="$(printf '%s' "$safe_name" | awk -F'[-_]' '{ out=""; for (i=1; i<=NF; i++) { if (i>1) out=out " "; out=out toupper(substr($i,1,1)) substr($i,2) } print out }')"
 
 component_dir="$canvas_dir/components/$safe_name"
+presented_dir="$component_dir/presented"
 
 if [ -e "$component_dir" ]; then
     echo "Error: component already exists: $component_dir" >&2
     exit 1
 fi
 
-mkdir -p "$component_dir/services" "$component_dir/data"
+mkdir -p "$presented_dir/services" "$component_dir/data"
 
 # feature-requirements.md ----------------------------------------------------
-cat > "$component_dir/feature-requirements.md" <<MD
+cat > "$presented_dir/feature-requirements.md" <<MD
 # ${display_title}
 
 <!--
@@ -99,7 +100,7 @@ MD
 # The agent's editing surface during work. render.js watches this file and
 # regenerates view.json on every change. Mustache-style placeholders are
 # substituted at render time. No service restart on edit.
-cat > "$component_dir/view.html" <<HTML
+cat > "$presented_dir/view.html" <<HTML
 <!--
 view.html — agent's editing surface.
 
@@ -127,10 +128,10 @@ node -e '
 const fs = require("fs");
 const [path, html] = process.argv.slice(1);
 fs.writeFileSync(path, JSON.stringify({ html }, null, 2) + "\n");
-' "$component_dir/view.json" "<div style=\"padding:1.5rem;display:grid;gap:0.5rem;color:rgba(255,255,255,.8);font-family:-apple-system,BlinkMacSystemFont,sans-serif;\"><h2 style=\"margin:0;font-size:1.1rem;font-weight:600;\">${display_title}</h2><p style=\"margin:0;color:rgba(255,255,255,.6);\">Loading…</p></div>"
+' "$presented_dir/view.json" "<div style=\"padding:1.5rem;display:grid;gap:0.5rem;color:rgba(255,255,255,.8);font-family:-apple-system,BlinkMacSystemFont,sans-serif;\"><h2 style=\"margin:0;font-size:1.1rem;font-weight:600;\">${display_title}</h2><p style=\"margin:0;color:rgba(255,255,255,.6);\">Loading…</p></div>"
 
 # functions.js (no-op mount stub) ------------------------------------------
-cat > "$component_dir/functions.js" <<'FUNCTIONSJS'
+cat > "$presented_dir/functions.js" <<'FUNCTIONSJS'
 //
 // functions.js — interactive behavior for this component.
 //
@@ -160,7 +161,7 @@ export const mount = (surface) => {
 FUNCTIONSJS
 
 # services/start.sh --------------------------------------------------------
-cat > "$component_dir/services/start.sh" <<'STARTSH'
+cat > "$presented_dir/services/start.sh" <<'STARTSH'
 #!/usr/bin/env bash
 #
 # start.sh — launches this component's services.
@@ -187,7 +188,9 @@ cd "$(dirname "$0")"
 
 dispatch_id="${1:?missing dispatch id}"
 export LIQUIDOS_DISPATCH_ID="$dispatch_id"
-runtime_dir="../data/.runtime/${dispatch_id}"
+# data/ lives at the component root, outside presented/, so it survives
+# presented/ swaps. From presented/services/ that's two levels up.
+runtime_dir="../../data/.runtime/${dispatch_id}"
 mkdir -p "${runtime_dir}"
 
 render_pid=""
@@ -235,10 +238,10 @@ while true; do
     sleep 2
 done
 STARTSH
-chmod +x "$component_dir/services/start.sh"
+chmod +x "$presented_dir/services/start.sh"
 
 # services/render.js -------------------------------------------------------
-cat > "$component_dir/services/render.js" <<'RENDERJS'
+cat > "$presented_dir/services/render.js" <<'RENDERJS'
 //
 // render.js — watches ../view.html and produces ../view.json.
 //
@@ -271,8 +274,9 @@ const temporaryViewPath = new URL("../view.json.tmp", here)
 const functionsPath = new URL("../functions.js", here)
 
 const dispatchId = process.env.LIQUIDOS_DISPATCH_ID || "unknown"
-const componentName = path.basename(path.dirname(process.cwd()))
-const componentResourceBase = `components/${componentName}`
+// cwd is <component>/presented/services. Two dirnames up is the component dir.
+const componentName = path.basename(path.dirname(path.dirname(process.cwd())))
+const componentResourceBase = `components/${componentName}/presented`
 
 const substitute = (template, values) =>
     template.replace(/\{\{(\w+)\}\}/g, (match, key) =>
@@ -347,7 +351,7 @@ server.listen(0, "127.0.0.1", async () => {
 RENDERJS
 
 # services/IO.swift -------------------------------------------------------
-cat > "$component_dir/services/IO.swift" <<'SWIFT'
+cat > "$presented_dir/services/IO.swift" <<'SWIFT'
 //
 // IO.swift — native side of this component.
 //

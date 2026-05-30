@@ -11,26 +11,46 @@ triggers:
 
 ## Components
 
-Every component is a folder under the canvas's `components/` with the same shape:
+Every component is a folder under the canvas's `components/`. Inside, the live state lives in `presented/`; the agent uses `.presented/` as a staging area when it needs to change multiple files atomically.
+
+The harness's actual contract is small: it reads `presented/view.json` and invokes `presented/services/start.sh` if it exists. Everything else in the layout below is a recommendation the scaffold ships; the agent can replace any of it with a different approach.
 
 ```
 components/<name>/
-├── feature-requirements.md   Required. User-facing description of what the component does.
-├── view.json                 Required. Rendered by render.js; the harness paints this.
-├── view.html                 Required. Agent's editing surface — HTML template with placeholders.
-├── functions.js              Optional. ES module exporting mount(surface) for browser-side JS.
-├── data/                     Optional. Component-owned state (json, sql, etc).
-└── services/
-    ├── start.sh              Required. Harness invokes to launch services.
-    ├── render.js             Required. Watches view.html, substitutes placeholders, writes view.json.
-    └── IO.swift              Optional. Native macOS side; compiled and launched by start.sh if present.
+├── presented/                ← what the harness reads and paints
+│   ├── feature-requirements.md   User-facing description of what the component does.
+│   ├── view.json                 Required. The harness paints this — it's the contract.
+│   ├── view.html                 Scaffold default: template render.js reads.
+│   ├── functions.js              Optional. ES module exporting mount(surface) for browser-side JS.
+│   └── services/
+│       ├── start.sh              Invoked by the harness; needed only if the component has services.
+│       ├── render.js             Scaffold default: watches view.html, writes view.json.
+│       └── IO.swift              Optional. Native macOS side; compiled and launched by start.sh if present.
+├── .presented/               ← agent's staging area, ignored by the harness (see "Atomic swap")
+└── data/                     ← persistent state; not touched by presented/ swaps
 ```
+
+The scaffold ships `view.html` + `render.js` because most components benefit from a template-and-substitute renderer that handles dynamic port injection. A component that doesn't need runtime substitution can produce `view.json` directly (e.g., by writing it from `render.js` with no template, or by having no `render.js` at all and treating `view.json` as the agent's editing surface).
 
 ### How edits flow
 
-The agent's primary editing surface is `view.html`. `render.js` watches it via `fs.watch`, substitutes runtime values at write time, and emits `view.json`. The harness paints `view.json`. Editing `view.html` does NOT restart the service — `render.js` notices and re-emits.
+The agent's primary editing surface is `presented/view.html`. `render.js` watches it via `fs.watch`, substitutes runtime values at write time, and emits `presented/view.json`. The harness paints `view.json`. Editing `view.html` does NOT restart the service — `render.js` notices and re-emits.
 
-Editing `render.js`, `IO.swift`, or `start.sh` *does* restart the service (they live under `services/**`, which the harness watches for restarts).
+Editing `render.js`, `IO.swift`, or `start.sh` *does* restart the service.
+
+### In-place edits vs atomic swap
+
+The agent has two modes, picked by the shape of the change:
+
+**In place** — for single-file edits (the common case: progressive `view.html` rewrites during work). Write directly to `presented/<file>`. Each write is observable to the user and tracked by the harness watcher. This is the default.
+
+**Atomic swap** — for multi-file changes that would leave the component broken if applied one at a time (e.g., a `view.html` ↔ `functions.js` refactor where attribute selectors change in both). Stage everything in `.presented/` alongside, then commit with a single command:
+
+```sh
+rm -rf components/<name>/presented && mv components/<name>/.presented components/<name>/presented
+```
+
+The harness watches the outer `components/<name>/` and ignores events inside `.presented/`, so staging activity is invisible. The swap fires a burst of events that the harness debounces and re-evaluates once. If the process dies between `rm` and `mv`, `presented/` is missing — `git checkout components/<name>/presented` restores it (the workspace is git-tracked).
 
 ### Mustache placeholders
 
@@ -65,21 +85,17 @@ Every generated file has a comment header explaining its role and what's safe to
 
 ## Service Harness
 
-The harness invokes `services/start.sh` with a unique dispatch id:
+The harness invokes `presented/services/start.sh` with a unique dispatch id:
 
 ```sh
-services/start.sh <dispatch-id>
+presented/services/start.sh <dispatch-id>
 ```
 
 Treat the dispatch id as a function parameter. Use it in `start.sh` to namespace collision-prone runtime resources (sockets, temp files, native binaries). The default scaffold exports `LIQUIDOS_DISPATCH_ID` for child processes.
 
 The harness starts and stops the service process group. `start.sh` should stay alive while the service is alive and should not daemonize or detach child processes.
 
-The harness watches:
-- `view.json` for canvas repaints.
-- `services/**` for service restarts.
-
-Files outside `services/` (including `view.html`, `functions.js`, `data/`) are component-owned and do not trigger restarts. `render.js` handles `view.html` changes itself.
+The harness watches the component folder recursively. Events inside `.presented/` are ignored. Edits inside `presented/services/` restart the service; edits to `presented/view.html` are handled by `render.js` without a restart.
 
 ## Feature Requirements
 
@@ -116,7 +132,7 @@ Do not touch any component other than the one being created.
 
 ## Updating an existing component
 
-1. Read `<canvas>/components/<component_name>/feature-requirements.md` to confirm the component's purpose.
+1. Read `<canvas>/components/<component_name>/presented/feature-requirements.md` to confirm the component's purpose.
 
 2. Write `view.html` with a placeholder showing the next intended action. Disable any inputs that would mutate the same data the agent is about to change.
 

@@ -1247,7 +1247,15 @@ const refreshGraphWatchers = () => {
 
     entries.forEach(entry => {
         try {
-            watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, () => scheduleWatchRefresh(entry)));
+            watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, (eventType, filename) => {
+                // Inside a component folder, the agent stages its draft in .presented/.
+                // Events there are not part of what the user sees, so they don't
+                // trigger re-render — only the swap into presented/ does.
+                if (entry.kind === 'component' && filename && (filename === '.presented' || filename.startsWith('.presented/'))) {
+                    return;
+                }
+                scheduleWatchRefresh(entry);
+            }));
         } catch (error) {
             logHermesError('watch', error, { file: entry.path, message: 'file watch skipped' });
         }
