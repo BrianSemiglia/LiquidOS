@@ -75,7 +75,7 @@ Use the app/server workflow provided by the LiquidOS runtime. Do not create or c
 
 ## Presentation contract
 
-Every canvas must include the presentation file referenced by `input.json`.
+Every canvas must include the presentation file referenced by `input.json`:
 
 ```json
 {
@@ -84,8 +84,10 @@ Every canvas must include the presentation file referenced by `input.json`.
 }
 ```
 
-The `presentations/` folder is required inside the canvas. Do not reference skill-folder presentation files from a canvas.
+A presentation is a JS module that decides how the canvas's components are arranged and viewed — a flat CSS stack, a 3D room, a node graph, anything. The `presentations/` folder is required inside the canvas; canvases can't reference skill-folder or workspace-shared presentation files.
 
-Presentation CSS owns the canvas domain: canvas surface, component layout, spacing, alignment, overflow, item sizing, and canvas-local motion.
+The scaffold ships two: `presentations/stack.js` (default vertical layout) and `presentations/room-3d.js` (first-person 3D scene). Fork either as a starting point.
 
-The harness owns protected UI outside presentation control: prompt bar, debug view, loading/errors, and the component requirements editor. Do not put requirements editor styling in presentation CSS.
+The presentation owns the canvas surface, component layout, spacing, alignment, overflow, item sizing, and canvas-local motion. The harness owns the protected UI outside that — prompt bar, debug view, loading/errors, requirements editor. Do not style the harness chrome from a presentation.
+
+For the full contract — factory signature, state files, hot reload, focus handoff to components — see `../presentation-creator/SKILL.md`.
