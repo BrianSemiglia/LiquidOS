@@ -1483,14 +1483,101 @@
             return item;
         };
 
+        const componentResourcesSig = (component) =>
+            component && component.resources ? JSON.stringify(component.resources) : '';
+
+        // --- Minimal DOM morph ---------------------------------------------
+        // Replacing component HTML with `surface.innerHTML = newHtml` destroys
+        // element identity on every server-side update: CSS entry animations
+        // re-fire, input selection / focus is lost, <video> and <canvas>
+        // restart. morphChildren walks the existing tree and patches it
+        // in-place against the new HTML — nodes that didn't structurally
+        // change keep their identity.
+        const morphAttributes = (target, source) => {
+            for (let i = 0; i < source.attributes.length; i++) {
+                const attr = source.attributes[i];
+                if (target.getAttribute(attr.name) !== attr.value) {
+                    target.setAttribute(attr.name, attr.value);
+                }
+            }
+            const sourceNames = new Set();
+            for (let i = 0; i < source.attributes.length; i++) sourceNames.add(source.attributes[i].name);
+            for (let i = target.attributes.length - 1; i >= 0; i--) {
+                const name = target.attributes[i].name;
+                if (!sourceNames.has(name)) target.removeAttribute(name);
+            }
+        };
+
+        const morphNode = (target, source) => {
+            if (target.nodeType !== source.nodeType) {
+                target.replaceWith(source);
+                return source;
+            }
+            if (target.nodeType === Node.TEXT_NODE || target.nodeType === Node.COMMENT_NODE) {
+                if (target.nodeValue !== source.nodeValue) target.nodeValue = source.nodeValue;
+                return target;
+            }
+            if (target.nodeType === Node.ELEMENT_NODE) {
+                if (target.tagName !== source.tagName) {
+                    target.replaceWith(source);
+                    return source;
+                }
+                morphAttributes(target, source);
+                // Form-control value isn't reflected in attributes once the
+                // user has edited the field; sync it explicitly so server
+                // re-renders that include the latest value still take effect,
+                // but user typing isn't blown away mid-edit.
+                if (target.tagName === 'INPUT' && source.hasAttribute('value')) {
+                    const v = source.getAttribute('value');
+                    if (document.activeElement !== target && target.value !== v) target.value = v;
+                }
+                if (target.tagName === 'TEXTAREA' && document.activeElement !== target) {
+                    if (target.value !== source.textContent) target.value = source.textContent;
+                }
+                morphChildren(target, source);
+                return target;
+            }
+            return target;
+        };
+
+        const morphChildren = (targetParent, sourceParent) => {
+            const targetChildren = Array.from(targetParent.childNodes);
+            const sourceChildren = Array.from(sourceParent.childNodes);
+            const max = Math.max(targetChildren.length, sourceChildren.length);
+            for (let i = 0; i < max; i++) {
+                const t = targetChildren[i];
+                const s = sourceChildren[i];
+                if (t && s) morphNode(t, s);
+                else if (s) targetParent.appendChild(s);
+                else if (t) t.remove();
+            }
+        };
+
+        const morphInto = (target, html) => {
+            const tpl = document.createElement('template');
+            tpl.innerHTML = html || '';
+            morphChildren(target, tpl.content);
+        };
+
         const updateComponentItem = (item, component) => {
+            const prev = item.__component;
             item.__component = component;
             item.dataset.componentPath = component.scope || '';
             item.dataset.repairLevel = component.repairLevel || '';
             item.classList.toggle('canvas-repair-item', component.repairLevel === 'canvas');
             const surface = item.querySelector('.surface');
-            if (surface) {
-                surface.innerHTML = component.html || '';
+            if (!surface) return;
+
+            // Only touch the inner DOM when html or resources actually
+            // changed. State or layout updates ripple through renderedInput
+            // but shouldn't destroy the component's mount-time state (audio
+            // context, timers, etc.).
+            const htmlChanged = !prev || prev.html !== component.html;
+            const resourcesChanged = componentResourcesSig(prev) !== componentResourcesSig(component);
+            if (htmlChanged) {
+                morphInto(surface, component.html || '');
+            }
+            if (htmlChanged || resourcesChanged) {
                 mountComponentFunctions(item, component);
             }
         };
@@ -1569,13 +1656,13 @@
                 syncCallbackState();
             };
 
-            if (typeof document.startViewTransition === 'function') {
-                document.startViewTransition(() => {
-                    commit();
-                });
-            } else {
-                commit();
-            }
+            // No document.startViewTransition wrapper here: a global crossfade
+            // captures a flat snapshot of the canvas (including any 3D-
+            // transformed content) and stacks it over the live render for one
+            // frame, which reads as a scale/opacity pop in presentations that
+            // animate their own transforms. Presentations should own their
+            // transitions; the harness keeps the DOM stable.
+            commit();
         };
 
         const showCanvasDamaged = error => {
@@ -1953,6 +2040,22 @@
                     syncCallbackState();
                 } else {
                     load().catch(showCanvasDamaged);
+                }
+                return;
+            }
+
+            if (payload && payload.type === 'state-changed') {
+                latestPresentationState = payload.state || { canvas: null, components: {} };
+                if (currentPresentation && renderedItemsByIndex.size > 0) {
+                    const items = Array.from(renderedItemsByIndex.entries())
+                        .sort(([a], [b]) => a - b)
+                        .map(([, item]) => item);
+                    try {
+                        currentPresentation.place(items, latestComponents, latestPresentationState);
+                    } catch (error) {
+                        console.error('presentation place threw on state update:', error);
+                        load().catch(showCanvasDamaged);
+                    }
                 }
                 return;
             }

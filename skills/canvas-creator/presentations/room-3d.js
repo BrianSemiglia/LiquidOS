@@ -73,9 +73,17 @@ export default (root, context = {}) => {
         }).catch(() => { /* best-effort */ });
 
     let pendingCameraWrite = null;
+    // Snapshot of the last camera object we POSTed. When the harness echoes
+    // a state-changed event back, place() compares incoming sourceCamera to
+    // this snapshot — if equal, the echo is our own write and we skip the
+    // adopt+updateWorld lines entirely (no compositor work for our own
+    // round-trip).
+    let lastWrittenCameraSig = '';
+    const cameraSig = (c) => c ? `${c.x}|${c.y}|${c.z}|${c.yaw}|${c.pitch}` : '';
     const persistCamera = () => {
         clearTimeout(pendingCameraWrite);
         pendingCameraWrite = setTimeout(() => {
+            lastWrittenCameraSig = cameraSig(camera);
             postState('canvas', { data: { camera } });
         }, 600);
     };
@@ -91,11 +99,19 @@ export default (root, context = {}) => {
             `\nkeys=${[...keys].join(',') || '·'}`;
     };
 
+    let lastWorldTransform = '';
     const updateWorld = () => {
-        world.style.transform =
+        const next =
             `translateZ(800px) ` +
             `rotateX(${-camera.pitch}deg) rotateY(${-camera.yaw}deg) ` +
             `translate3d(${-camera.x}px, ${-camera.y}px, ${-camera.z}px)`;
+        // Avoid re-assigning the same transform: in WebKit, restyling a
+        // composited 3D parent with `will-change: transform` can re-rasterize
+        // its subtree for a frame even when the string is identical.
+        if (next !== lastWorldTransform) {
+            world.style.transform = next;
+            lastWorldTransform = next;
+        }
         updateDebug();
     };
 
@@ -153,12 +169,12 @@ export default (root, context = {}) => {
 
     return {
         place(items, components, state) {
-            // Adopt camera state — push model: every state change re-applies
-            // here. Dedupe (suppressing echoes of our own writes) is a known
-            // follow-up; expect a frame of judder during continuous scrolling
-            // while the round-trip catches up.
+            // Adopt camera state, but skip our own echoed writes: when the
+            // signature matches what we just POSTed, the incoming camera is
+            // the round-trip of our own value — no compositor work needed.
             const sourceCamera = state?.canvas?.camera;
-            if (sourceCamera) {
+            const isSelfEcho = sourceCamera && cameraSig(sourceCamera) === lastWrittenCameraSig;
+            if (sourceCamera && !isSelfEcho) {
                 camera = {
                     x: typeof sourceCamera.x === 'number' ? sourceCamera.x : camera.x,
                     y: typeof sourceCamera.y === 'number' ? sourceCamera.y : camera.y,
@@ -166,26 +182,41 @@ export default (root, context = {}) => {
                     yaw: typeof sourceCamera.yaw === 'number' ? sourceCamera.yaw : camera.yaw,
                     pitch: typeof sourceCamera.pitch === 'number' ? sourceCamera.pitch : camera.pitch
                 };
+                updateWorld();
             }
-            updateWorld();
 
-            Array.from(world.querySelectorAll('.presentation-room-card')).forEach(el => el.remove());
+            // Diff-friendly placement: reuse each item's existing wrapper
+            // instead of rebuilding it. Rebuilding rips items out of their
+            // parents and re-appends them, which causes the entire 3D scene
+            // to re-rasterize for a frame.
             const count = items.length;
             const spacing = 700;
             const totalWidth = (count - 1) * spacing;
             const componentStates = state?.components || {};
+            const keptWraps = new Set();
             items.forEach((item, index) => {
-                const cardWrap = document.createElement('div');
-                cardWrap.className = 'presentation-room-card';
+                let cardWrap = item.parentElement;
+                const hasWrap = cardWrap && cardWrap.classList && cardWrap.classList.contains('presentation-room-card');
+                if (!hasWrap) {
+                    cardWrap = document.createElement('div');
+                    cardWrap.className = 'presentation-room-card';
+                    cardWrap.appendChild(item);
+                    world.appendChild(cardWrap);
+                }
                 const scope = components?.[index]?.scope;
                 const componentState = scope && componentStates[scope];
                 const persistedPosition = componentState?.position;
                 const [x, y, z] = Array.isArray(persistedPosition) && persistedPosition.length === 3
                     ? persistedPosition
                     : [-totalWidth / 2 + index * spacing, 0, 0];
-                cardWrap.style.transform = `translate3d(${x}px, ${y}px, ${z}px)`;
-                cardWrap.appendChild(item);
-                world.appendChild(cardWrap);
+                const nextTransform = `translate3d(${x}px, ${y}px, ${z}px)`;
+                if (cardWrap.style.transform !== nextTransform) {
+                    cardWrap.style.transform = nextTransform;
+                }
+                keptWraps.add(cardWrap);
+            });
+            Array.from(world.querySelectorAll('.presentation-room-card')).forEach(wrap => {
+                if (!keptWraps.has(wrap)) wrap.remove();
             });
         },
         teardown() {

@@ -1136,23 +1136,27 @@ const broadcastQueueState = (componentPath = '', completed = null) => {
 };
 
 const componentChangePayload = (entries, rendered) => {
-    if (entries.length === 0 || !entries.every(entry => entry.kind === 'view')) {
-        return null;
+    if (entries.length === 0) return null;
+    if (!rendered || rendered.canvasError) return null;
+
+    // State-only edits (canvas/per-component state.<presentation>.json) don't
+    // alter component HTML, mount lifecycles, or services — only what the
+    // presentation does with state. Ship just the new state so the client can
+    // re-call place() without re-staging items.
+    if (entries.every(entry => entry.kind === 'canvas-state')) {
+        return { type: 'state-changed', state: rendered.state || { canvas: null, components: {} } };
     }
 
-    if (!rendered || rendered.canvasError || !Array.isArray(rendered.components)) {
-        return null;
+    if (entries.every(entry => entry.kind === 'component') && Array.isArray(rendered.components)) {
+        const dirtyFolders = new Set(entries.map(entry => entry.path));
+        const components = rendered.components.filter(component =>
+            dirtyFolders.has(canvasGraph.componentFolderPath(component.componentPath)));
+
+        if (components.length === 0) return null;
+        return { type: 'components-changed', components };
     }
 
-    const dirtyFolders = new Set(entries.map(entry => entry.path));
-    const components = rendered.components.filter(component =>
-        dirtyFolders.has(canvasGraph.componentFolderPath(component.componentPath)));
-
-    if (components.length === 0) {
-        return null;
-    }
-
-    return { type: 'components-changed', components };
+    return null;
 };
 
 const scheduleWatchRefresh = entry => {
