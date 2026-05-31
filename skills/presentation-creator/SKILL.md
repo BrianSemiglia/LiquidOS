@@ -147,34 +147,11 @@ teardown()                ← once, when the presentation is being replaced.
 
 A presentation closure persists across `place()` calls — that's the right place to hold camera state, animation timers, audio contexts, etc. Hot-reload of the presentation file blows the closure away (factory re-runs); hot-reload of a state file does not.
 
-## Controls
+## Input controls
 
-The presentation can install global listeners (`window.addEventListener('keydown', ...)`) because at any time exactly one presentation is mounted. Two conventions to keep things friendly:
+Custom layouts might necessitate custom controls, but don't neglect to honor input that components would otherwise consume, or provide a means of forwarding control to a component.
 
-- **Skip when typing.** Check `document.activeElement` — if it's an `<input>`, `<textarea>`, or `contentEditable` element, let the keystroke through. The user is typing in a component.
-- **`preventDefault` what you consume.** macOS plays an "invalid input" beep if a tracked key isn't `preventDefault`'d. Always preventDefault the keys you actually use.
-
-## Handing focus to a component
-
-When a component should consume keys that the presentation normally captures (e.g., walking around the 3D room, then "stepping into" a piano keyboard so WASD plays notes instead of moving you), the presentation owns the toggle.
-
-The convention is a marker class on the focused card's wrapper:
-
-```js
-// in presentation.place(), when a component is engaged:
-cardWrap.classList.add('is-focused');
-```
-
-The presentation stops processing its own keys while any wrapper carries `.is-focused`. The component's `functions.js` checks for the marker before reacting:
-
-```js
-window.addEventListener('keydown', (e) => {
-    if (!surface.closest('.is-focused')) return;
-    // ...handle keys
-});
-```
-
-Trigger the toggle however fits the presentation — click on a card, proximity, dedicated keypress, explicit menu. Esc usually disengages.
+The convention for forwarding is a marker class on the focused card's wrapper — `.is-focused`. The presentation skips its own input handling while any wrapper carries the marker; a component that wants to react when focused checks for the marker before handling input. Trigger the toggle however fits the presentation, and disengage on Esc.
 
 ## Shipping a presentation
 
