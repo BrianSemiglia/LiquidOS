@@ -1,8 +1,10 @@
-/* Canvas presentation.
-   Owns the canvas surface, layout, item sizing, and canvas-local motion.
-   Requirements editor and other harness chrome stay outside this file.
-   Copied per canvas; no shared imports. */
+// Default stack presentation: cards laid out top-to-bottom by CSS.
+// Delegates to the shared cssLayout helper — the harness has no special
+// path for CSS; it's just one composition pattern that this file picks.
 
+import { cssLayout } from '/lib/css-layout.js';
+
+export default cssLayout(`
 .canvas-shell {
     position: fixed;
     top: 0;
@@ -54,8 +56,9 @@
 }
 
 @media (max-width: 1100px) {
-  .canvas-shell {
-    left: 0;
-    padding: 1rem 1rem var(--prompt-chrome-space);
-  }
+    .canvas-shell {
+        left: 0;
+        padding: 1rem 1rem var(--prompt-chrome-space);
+    }
 }
+`);

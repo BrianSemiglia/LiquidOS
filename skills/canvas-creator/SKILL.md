@@ -80,7 +80,7 @@ Every canvas must include the presentation file referenced by `input.json`.
 ```json
 {
   "components": [],
-  "presentation": "presentations/stack.css"
+  "presentation": "presentations/stack.js"
 }
 ```
 

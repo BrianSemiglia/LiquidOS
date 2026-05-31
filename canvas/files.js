@@ -57,7 +57,7 @@ const createCanvasFiles = ({
             if (typeof input.presentation !== 'string' || !input.presentation.trim()) {
                 fs.writeFileSync(inputPath, JSON.stringify({
                     ...input,
-                    presentation: 'presentations/stack.css'
+                    presentation: 'presentations/stack.js'
                 }, null, 2) + '\n');
             }
         } catch (error) {
@@ -82,7 +82,7 @@ const createCanvasFiles = ({
             path.join(canvasPath, 'input.json'),
             JSON.stringify({
                 components: [],
-                presentation: 'presentations/stack.css'
+                presentation: 'presentations/stack.js'
             }, null, 2) + '\n'
         );
         ensureLocalAssetReferences(canvasPath);

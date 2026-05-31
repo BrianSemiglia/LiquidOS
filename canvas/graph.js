@@ -254,6 +254,38 @@ const createCanvasGraph = ({
     const componentScope = componentPath =>
         componentFolderPath(componentPath);
 
+    // Presentation state lives in two layers of JSON files, both optional:
+    //   <canvas>/state.<presentation-base>.json           — global state
+    //   <canvas>/components/<name>/state.<presentation-base>.json — per-component
+    // Aggregated as { canvas, components: { componentPath: ... } } and passed
+    // to the presentation via place(). Missing files become null entries.
+    const stateFileName = (presentationBase) => 'state.' + presentationBase + '.json';
+
+    const canvasStatePath = (presentationBase) =>
+        path.join(getCanvasPath(), stateFileName(presentationBase));
+
+    const componentStatePath = (componentPath, presentationBase) =>
+        path.join(componentFolderPath(componentPath), stateFileName(presentationBase));
+
+    const readJsonOrNull = (file) => {
+        try {
+            return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+        } catch (error) {
+            return null;
+        }
+    };
+
+    const readPresentationState = (presentationBase, leaves) => {
+        if (!presentationBase) return { canvas: null, components: {} };
+        const canvasState = readJsonOrNull(canvasStatePath(presentationBase));
+        const componentsState = {};
+        leaves.forEach(({ componentPath }) => {
+            const scope = componentScopePath(componentPath);
+            componentsState[scope] = readJsonOrNull(componentStatePath(componentPath, presentationBase));
+        });
+        return { canvas: canvasState, components: componentsState };
+    };
+
     const renderedInput = () => {
         try {
             const input = readJson(getInputPath());
@@ -266,11 +298,14 @@ const createCanvasGraph = ({
                 throw new Error('input.json must contain { "presentation": "presentations/name.css" }');
             }
 
+            const presentationBase = path.basename(input.presentation).replace(/\.[^.]+$/, '');
+            const leaves = leafComponents();
             return {
                 canvasPath: getCanvasPath(),
                 ...input,
                 presentationVersion: inputReferenceVersion('presentation'),
-                components: leafComponents().map(({ componentPath, component }) => ({
+                state: readPresentationState(presentationBase, leaves),
+                components: leaves.map(({ componentPath, component }) => ({
                     componentPath,
                     scope: componentScope(componentPath),
                     repairLevel: component.repairLevel || '',
@@ -343,6 +378,13 @@ const createCanvasGraph = ({
                 .filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
                 .filter(isInsideCanvas)
                 .map(file => ({ path: file, recursive: false, kind: 'presentation' })),
+            // Non-recursive watch on canvas root to catch edits to the canvas
+            // state file (state.<presentation>.json). The watch callback in
+            // server.js filters by filename so only state.*.json triggers
+            // refresh — other top-level files (input.json is watched directly,
+            // selected-canvas.json, etc.) don't double-fire.
+            ...[getCanvasPath()].filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
+                .map(file => ({ path: file, recursive: false, kind: 'canvas-state' })),
             ...componentWatchPaths(componentPaths).map(file => ({ path: file, recursive: true, kind: 'component' }))
         ];
     };
@@ -398,6 +440,9 @@ const createCanvasGraph = ({
         componentDiagnosticsPath,
         componentViewPath,
         componentStartPath,
+        canvasStatePath,
+        componentStatePath,
+        stateFileName,
         updateDiagnostics,
         appendServiceLog,
         resourceUrl,

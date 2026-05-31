@@ -1243,13 +1243,19 @@ const refreshGraphWatchers = () => {
         try {
             watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, (eventType, filename) => {
                 // Component watches are opt-in by path: only events under
-                // presented/ (the live state) trigger refresh. Anything else
-                // — data/, diagnostics/, .presented/ staging, future siblings —
-                // is implicitly ignored without needing an exclusion list.
+                // presented/ (the live state) and per-component state files
+                // (state.<presentation>.json at the component root) trigger
+                // refresh. Anything else — data/, diagnostics/, .presented/,
+                // future siblings — is implicitly ignored.
                 if (entry.kind === 'component' && filename) {
-                    if (filename !== 'presented' && !filename.startsWith('presented/')) {
-                        return;
-                    }
+                    const isPresented = filename === 'presented' || filename.startsWith('presented/');
+                    const isState = /^state\.[^./]+\.json$/.test(filename);
+                    if (!isPresented && !isState) return;
+                }
+                // The canvas-state watch is on the whole canvas root for fs.watch
+                // ergonomics; only state.*.json events at that level matter.
+                if (entry.kind === 'canvas-state' && filename) {
+                    if (!/^state\.[^./]+\.json$/.test(filename)) return;
                 }
                 scheduleWatchRefresh(entry);
             }));
@@ -1554,8 +1560,55 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        if (req.method === 'POST' && url.pathname === '/state') {
+            try {
+                const body = JSON.parse(await readBody(req) || '{}');
+                const scope = String(body.scope || '');
+                const presentation = String(body.presentation || '').trim();
+                const data = body.data === undefined ? null : body.data;
 
-        const canvasAsset = url.pathname.match(/^\/(presentations)\/([A-Za-z0-9._-]+\.css)$/);
+                if (!presentation) {
+                    send(res, 400, 'presentation required');
+                    return;
+                }
+                if (scope !== 'canvas' && scope !== 'component') {
+                    send(res, 400, 'scope must be "canvas" or "component"');
+                    return;
+                }
+
+                const fileName = canvasGraph.stateFileName(presentation);
+                let targetFile;
+                if (scope === 'canvas') {
+                    targetFile = path.join(CANVAS_PATH, fileName);
+                } else {
+                    const componentPath = String(body.componentPath || '');
+                    if (!componentPath) {
+                        send(res, 400, 'componentPath required for scope=component');
+                        return;
+                    }
+                    const absolute = resolveCanvasReference(componentPath);
+                    targetFile = canvasGraph.componentStatePath(absolute, presentation);
+                }
+
+                if (!pathIsInside(targetFile, CANVAS_PATH)) {
+                    send(res, 403, 'state file outside canvas');
+                    return;
+                }
+
+                fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+                fs.writeFileSync(targetFile, JSON.stringify(data, null, 2) + '\n');
+                send(res, 204, '');
+            } catch (error) {
+                send(res, 400, error.message);
+            }
+            return;
+        }
+
+
+        // Presentations are JS modules served from the canvas folder. Any
+        // CSS-only presentation is one that imports the cssLayout helper
+        // from /lib/ and delegates; the server has no format knowledge.
+        const canvasAsset = url.pathname.match(/^\/(presentations)\/([A-Za-z0-9._-]+\.js)$/);
 
         if (req.method === 'GET' && canvasAsset) {
             const resolvedPath = path.resolve(CANVAS_PATH, canvasAsset[1], canvasAsset[2]);
@@ -1571,7 +1624,7 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            streamFile(req, res, resolvedPath, 'text/css; charset=utf-8');
+            streamFile(req, res, resolvedPath, 'text/javascript; charset=utf-8');
             return;
         }
 
@@ -1687,12 +1740,18 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        streamFile(
-            req,
-            res,
-            file,
-            path.basename(file) === 'index.html' ? 'text/html; charset=utf-8' : undefined
-        );
+        // MIME by extension. Browsers require text/javascript for ES module
+        // imports (e.g. /lib/css-layout.js imported from a presentation).
+        const ext = path.extname(file).toLowerCase();
+        const mime = {
+            '.html': 'text/html; charset=utf-8',
+            '.js':   'text/javascript; charset=utf-8',
+            '.mjs':  'text/javascript; charset=utf-8',
+            '.css':  'text/css; charset=utf-8',
+            '.json': 'application/json; charset=utf-8'
+        }[ext];
+
+        streamFile(req, res, file, mime);
     } catch (error) {
         logHermesError('request', error, { message: 'request error' });
         send(res, error.statusCode || 500, 'Error: ' + error.message);

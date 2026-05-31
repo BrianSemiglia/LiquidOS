@@ -69,7 +69,7 @@ if [ ! -f "$CANVAS_DIR/input.json" ]; then
     cat > "$CANVAS_DIR/input.json" <<'JSON'
 {
   "components": [],
-  "presentation": "presentations/stack.css"
+  "presentation": "presentations/stack.js"
 }
 JSON
 fi
@@ -79,7 +79,7 @@ const fs = require("fs");
 const inputPath = process.argv[1];
 const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
 if (!Array.isArray(input.components)) input.components = [];
-if (typeof input.presentation !== "string" || !input.presentation.trim()) input.presentation = "presentations/stack.css";
+if (typeof input.presentation !== "string" || !input.presentation.trim()) input.presentation = "presentations/stack.js";
 fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + "\n");
 ' "$CANVAS_DIR/input.json"
 

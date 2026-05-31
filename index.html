@@ -724,7 +724,9 @@
         const debugCopy = document.getElementById('debug-copy');
         const debugResizer = document.getElementById('debug-resizer');
         const instanceStyle = document.createElement('style');
-        const presentationStyle = document.createElement('style');
+        // (Presentation styles are now owned by each presentation module — it
+        // creates and manages its own <style> elements via the cssLayout helper
+        // or whatever else it imports.)
         let latestComponents = [];
         let currentCanvasName = '';
         let currentCanvasPath = '';
@@ -742,10 +744,9 @@
         // Keep the open requirements editor tied to the component path so rerenders can restore it.
         let openRequirementsComponentPath = '';
         let lastCanvasSnapshot = '';
+        let latestPresentationState = null;
         instanceStyle.id = 'instance-style';
         document.head.append(instanceStyle);
-        presentationStyle.id = 'presentation-style';
-        document.head.append(presentationStyle);
         const scrollKey = canvasName => 'live-edit-scroll:' + (canvasName || 'default');
         const debugRailWidthKey = 'live-edit-debug-rail-width';
 
@@ -1042,15 +1043,55 @@
             '</div>' +
             '</div>';
 
-        const setPresentation = async presentation => {
-            if (typeof presentation !== 'string' || !presentation.trim()) {
-                presentationStyle.textContent = '';
+        // Presentation loader — the only way the canvas region gets painted.
+        //
+        // A presentation is whatever the canvas's input.json `presentation`
+        // field points at, served via /presentations/<file>. The server
+        // returns a JS factory module for any extension (CSS files are
+        // transparently wrapped, so the client interface is uniform).
+        //
+        // Factory signature: (root, context) -> { place(items, components), teardown() }
+        // The harness still owns the cards (surface, flip-back, mount, callbacks);
+        // the presentation only decides where they live.
+        let currentPresentation = null;
+        let currentPresentationCacheKey = null;
+        let currentPresentationLoad = null;
+
+        const loadPresentation = async (presentationPath, version, context) => {
+            if (typeof presentationPath !== 'string' || !presentationPath.trim()) {
+                if (currentPresentation) {
+                    try { currentPresentation.teardown(); } catch (error) { /* tolerate */ }
+                    currentPresentation = null;
+                    currentPresentationCacheKey = null;
+                }
                 updatePromptChromeSpace();
-                return;
+                return null;
             }
 
-            presentationStyle.textContent = await loadTextResource(presentation);
+            const cacheKey = presentationPath + '@' + (version || '');
+            if (cacheKey === currentPresentationCacheKey && currentPresentation) {
+                return currentPresentation;
+            }
+
+            const url = '/' + presentationPath + (version ? '?v=' + encodeURIComponent(version) : '');
+            const importPromise = import(url);
+            currentPresentationLoad = importPromise;
+
+            const mod = await importPromise;
+            if (currentPresentationLoad !== importPromise) {
+                return null; // superseded by a newer load
+            }
+            if (typeof mod.default !== 'function') {
+                throw new Error('Presentation ' + presentationPath + ' must default-export a factory function');
+            }
+
+            if (currentPresentation) {
+                try { currentPresentation.teardown(); } catch (error) { /* tolerate */ }
+            }
+            currentPresentation = mod.default(app, context || {});
+            currentPresentationCacheKey = cacheKey;
             updatePromptChromeSpace();
+            return currentPresentation;
         };
 
         applyDebugRailWidth(loadDebugRailWidth());
@@ -1454,18 +1495,6 @@
             }
         };
 
-        const applyLayout = items => {
-            items.forEach(item => {
-                item.style.position = '';
-                item.style.left = '';
-                item.style.top = '';
-                item.style.width = '';
-                item.style.transformOrigin = '';
-                item.style.transform = '';
-                item.style.animation = '';
-                item.style.zIndex = '';
-            });
-        };
 
         const orderedIndexes = () =>
             latestComponents.map(component => component.index);
@@ -1498,8 +1527,40 @@
                     }
                 });
 
-                app.replaceChildren(...nextItems);
-                applyLayout(nextItems, layout);
+                // Hand the presentation clean items. Whatever inline styles a
+                // previous presentation set (transforms, absolute positions,
+                // animations) get cleared, so the new place() call starts from
+                // a known state without needing each presentation to do its
+                // own defensive resets.
+                nextItems.forEach(item => {
+                    item.style.position = '';
+                    item.style.left = '';
+                    item.style.top = '';
+                    item.style.width = '';
+                    item.style.transformOrigin = '';
+                    item.style.transform = '';
+                    item.style.animation = '';
+                    item.style.zIndex = '';
+                });
+                if (currentPresentation) {
+                    try {
+                        currentPresentation.place(nextItems, latestComponents, latestPresentationState);
+                    } catch (error) {
+                        // A broken place() shouldn't freeze the canvas. Drop
+                        // the presentation back to "none" — the fallback below
+                        // will at least render the cards directly, and the
+                        // next render attempt re-runs loadPresentation.
+                        try { currentPresentation.teardown(); } catch {}
+                        currentPresentation = null;
+                        currentPresentationCacheKey = null;
+                        app.replaceChildren(...nextItems);
+                        console.error('presentation place threw:', error);
+                    }
+                } else {
+                    // Presentation not loaded yet; the next render after
+                    // loadPresentation resolves will pick this up.
+                    app.replaceChildren(...nextItems);
+                }
                 restoreOpenRequirementsOverlay();
                 requestAnimationFrame(() => {
                     nextItems.forEach(item => delete item.dataset.layoutEnter);
@@ -1583,6 +1644,7 @@
             }
 
             currentCanvasPath = typeof data.canvasPath === 'string' && data.canvasPath ? data.canvasPath : currentCanvasPath;
+            latestPresentationState = data.state || { canvas: null, components: {} };
             globalSubmitCallback.setAttribute('scope', currentCanvasPath);
             latestComponents = data.components.map((component, index) => ({
                 ...component,
@@ -1591,9 +1653,13 @@
             }));
             latestComponentByIndex = new Map(latestComponents.map(component => [component.index, component]));
             try {
-                await setPresentation(data.presentation);
+                await loadPresentation(data.presentation, data.presentationVersion, { canvasPath: currentCanvasPath });
             } catch (error) {
-                presentationStyle.textContent = '';
+                if (currentPresentation) {
+                    try { currentPresentation.teardown(); } catch {}
+                    currentPresentation = null;
+                    currentPresentationCacheKey = null;
+                }
                 latestComponents = [{
                     index: 0,
                     scope: currentCanvasPath || '.',
