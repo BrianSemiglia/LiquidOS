@@ -858,18 +858,18 @@
             if (!show) return;
 
             if (running) {
-                workspaceMigrationTitle.textContent = 'Fixing workspace';
+                workspaceMigrationTitle.textContent = 'Fixing this workspace';
                 workspaceMigrationDetail.textContent =
-                    'The runtime hit a problem opening this workspace. An agent is investigating and trying to fix it. Input is paused until it finishes — usually a minute or two. You can cancel if you’d rather not wait.';
+                    'Something went wrong opening this workspace. We’re trying to fix it — usually takes a minute or two. Cancel if you’d rather not wait.';
             } else {
-                workspaceMigrationTitle.textContent = 'Workspace still has a problem';
+                workspaceMigrationTitle.textContent = 'Couldn’t fix this workspace';
                 workspaceMigrationDetail.textContent =
-                    'The agent didn’t finish fixing the workspace. Try again, or read its reasoning below to see what it thought.';
+                    'We weren’t able to fix the problem. You can try again, or look at the details below.';
             }
 
             if (error) {
                 workspaceMigrationError.hidden = false;
-                workspaceMigrationError.textContent = 'Last error: ' + error;
+                workspaceMigrationError.textContent = error;
             } else {
                 workspaceMigrationError.hidden = true;
                 workspaceMigrationError.textContent = '';

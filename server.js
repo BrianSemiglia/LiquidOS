@@ -335,7 +335,7 @@ const dispatchMigration = () => {
                 if (result?.error) {
                     MIGRATION_STATE.lastError = summarizeMigrationError(result.error);
                 } else if (result?.errorFileCleared === false) {
-                    MIGRATION_STATE.lastError = 'agent returned but did not clear the workspace-error file';
+                    MIGRATION_STATE.lastError = 'The fix didn’t complete.';
                 } else {
                     MIGRATION_STATE.lastError = null;
                 }
