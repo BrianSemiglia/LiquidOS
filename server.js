@@ -14,7 +14,7 @@ const { createPromptBuilder } = require('./canvas/prompt-builder');
 const { syncSkills } = require('./workspace/sync-skills');
 const { runMigration } = require('./workspace/run-migration');
 
-const WORKSPACE_FIX_MARKER_REL = path.join('.liquidos', 'workspace-error');
+const WORKSPACE_ERROR_FILE_REL = path.join('.liquidos', 'workspace-error');
 
 const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
@@ -216,11 +216,13 @@ let ACTIVE_AGENT_KIND = activeAgentKindFromFile();
 const AGENT_RUNTIME_PATH = path.join(os.homedir(), 'Library', 'Application Support', 'LiquidOS', 'AgentRuntime');
 const SKILLS_SOURCE_PATH = path.join(ROOT, 'skills');
 
-// Skill sync runs before anything else touches the workspace. It ensures the
-// workspace is a git repo, refreshes <workspace>/skills/ from the runtime,
-// and commits any delta. A delta drops a marker file (.liquidos/migration-
-// pending) downstream code can act on. Failures don't abort startup — the
-// runtime should still come up so the user can recover.
+// Skill sync runs before anything else touches the workspace. It ensures
+// the workspace is a git repo, refreshes <workspace>/skills/ from the
+// runtime, and commits any delta for audit history. The trigger to fire
+// the workspace-fix agent is purely error-driven (see
+// collectWorkspaceErrors below); a skills delta alone doesn't write the
+// workspace-error file. Failures here don't abort startup — the runtime
+// should still come up so the user can recover.
 const SKILLS_SYNC = syncSkills({
     workspacePath: WORKSPACE_PATH,
     skillsSourcePath: SKILLS_SOURCE_PATH
@@ -244,7 +246,7 @@ const MIGRATION_STATE = {
     running: false,
     lastError: null
 };
-const isMigrationPending = () => fs.existsSync(path.join(WORKSPACE_PATH, WORKSPACE_FIX_MARKER_REL));
+const isMigrationPending = () => fs.existsSync(path.join(WORKSPACE_PATH, WORKSPACE_ERROR_FILE_REL));
 
 // Catch-all detector for workspace-scope problems. Wraps each top-level
 // invariant in its own try/catch so a failure in one area doesn't suppress
@@ -286,15 +288,15 @@ const collectWorkspaceErrors = () => {
     return errors;
 };
 
-const writeWorkspaceFixMarker = (errors, context = {}) => {
-    const markerPath = path.join(WORKSPACE_PATH, WORKSPACE_FIX_MARKER_REL);
-    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+const writeWorkspaceErrorFile = (errors, context = {}) => {
+    const errorFilePath = path.join(WORKSPACE_PATH, WORKSPACE_ERROR_FILE_REL);
+    fs.mkdirSync(path.dirname(errorFilePath), { recursive: true });
     const body = {
         detectedAt: new Date().toISOString(),
         errors,
         ...context
     };
-    fs.writeFileSync(markerPath, JSON.stringify(body, null, 2) + '\n');
+    fs.writeFileSync(errorFilePath, JSON.stringify(body, null, 2) + '\n');
 };
 
 // Agent runtimes that fail mid-run can return the entire captured stdout
@@ -315,7 +317,7 @@ const summarizeMigrationError = raw => {
 // auto-fire and the manual /workspace/retry-migration endpoint.
 const dispatchMigration = () => {
     if (MIGRATION_STATE.running) return { ok: false, reason: 'already-running' };
-    if (!isMigrationPending()) return { ok: false, reason: 'no-marker' };
+    if (!isMigrationPending()) return { ok: false, reason: 'no-workspace-error-file' };
 
     MIGRATION_STATE.running = true;
     MIGRATION_STATE.lastError = null;
@@ -332,8 +334,8 @@ const dispatchMigration = () => {
                 logServer('migration', 'run complete', result);
                 if (result?.error) {
                     MIGRATION_STATE.lastError = summarizeMigrationError(result.error);
-                } else if (result?.markerCleared === false) {
-                    MIGRATION_STATE.lastError = 'agent returned but did not clear the migration marker';
+                } else if (result?.errorFileCleared === false) {
+                    MIGRATION_STATE.lastError = 'agent returned but did not clear the workspace-error file';
                 } else {
                     MIGRATION_STATE.lastError = null;
                 }
@@ -1737,7 +1739,7 @@ const server = http.createServer(async (req, res) => {
                 send(res, 202, '');
             } else if (result.reason === 'already-running') {
                 send(res, 409, 'migration already running');
-            } else if (result.reason === 'no-marker') {
+            } else if (result.reason === 'no-workspace-error-file') {
                 send(res, 204, '');
             } else {
                 send(res, 500, 'unknown dispatch state');
@@ -1748,8 +1750,8 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'POST' && url.pathname === '/workspace/cancel-migration') {
             // Asks the runtime to stop the in-flight agent. The promise the
             // runtime returned will reject when the child exits, the existing
-            // .catch handler captures the error, and the marker stays put —
-            // user lands back on the overlay with Try Again available.
+            // .catch handler captures the error, and the workspace-error file
+            // stays put — user lands back on the overlay with Try Again.
             if (!MIGRATION_STATE.running) {
                 send(res, 409, 'no migration to cancel');
                 return;
@@ -2020,16 +2022,17 @@ server.listen(PORT, '127.0.0.1', () => {
     console.log('Output: ' + OUTPUT_PATH);
 
     // Catch-all detection for workspace-level errors. If anything at the
-    // workspace's top-level state failed to load, write a marker with the
-    // captured errors so the next dispatchMigration() call fires the fix
-    // agent. Canvas- and component-level issues are intentionally not
-    // included here — those have their own repair flows. A marker that
-    // survived from a previous startup (agent failure or rejection) also
-    // stays in place; dispatchMigration() is a no-op when nothing is wrong.
+    // workspace's top-level state failed to load, write the workspace-error
+    // file with the captured errors so the next dispatchMigration() call
+    // fires the fix agent. Canvas- and component-level issues are
+    // intentionally not included here — those have their own repair flows.
+    // A workspace-error file that survived from a previous startup (agent
+    // failure or rejection) also stays in place; dispatchMigration() is a
+    // no-op when nothing is wrong.
     const workspaceErrors = collectWorkspaceErrors();
     if (workspaceErrors.length > 0) {
         logServer('workspace', 'errors detected at startup', { errors: workspaceErrors });
-        writeWorkspaceFixMarker(workspaceErrors, {
+        writeWorkspaceErrorFile(workspaceErrors, {
             syncedSkillsSha: SKILLS_SYNC.sha || null,
             syncedSkillsParentSha: SKILLS_SYNC.parentSha || null
         });

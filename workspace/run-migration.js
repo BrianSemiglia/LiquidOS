@@ -2,28 +2,30 @@
 //
 // The runtime writes .liquidos/workspace-error when its startup detects a
 // workspace-level problem it can't load past (see collectWorkspaceErrors in
-// server.js). This module reads that marker, asks the active runtime to
-// repair the workspace, and trusts the agent to clear the marker when done.
+// server.js). This module reads that workspace-error file, asks the active
+// runtime to repair the workspace, and trusts the agent to delete the file
+// when done.
 //
-// The marker is a JSON document with an `errors` array describing what
-// failed, plus optional context (e.g., the SHA of the most recent skills
-// sync). The agent uses both the marker and the workspace's current skills
-// to decide how to fix things — and is explicitly allowed to refuse if the
-// problem is outside what skills + workspace state can repair.
+// The workspace-error file is a JSON document with an `errors` array
+// describing what failed, plus optional context (e.g., the SHA of the most
+// recent skills sync). The agent uses both the file and the workspace's
+// current skills to decide how to fix things — and is explicitly allowed to
+// refuse if the problem is outside what skills + workspace state can
+// repair.
 
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const WORKSPACE_FIX_MARKER_REL = path.join('.liquidos', 'workspace-error');
+const WORKSPACE_ERROR_FILE_REL = path.join('.liquidos', 'workspace-error');
 
-const readMarker = workspacePath => {
-    const markerPath = path.join(workspacePath, WORKSPACE_FIX_MARKER_REL);
-    if (!fs.existsSync(markerPath)) return null;
+const readWorkspaceErrorFile = workspacePath => {
+    const errorFilePath = path.join(workspacePath, WORKSPACE_ERROR_FILE_REL);
+    if (!fs.existsSync(errorFilePath)) return null;
     try {
-        return JSON.parse(fs.readFileSync(markerPath, 'utf8'));
+        return JSON.parse(fs.readFileSync(errorFilePath, 'utf8'));
     } catch {
-        return { errors: [{ check: 'marker-read', error: 'marker file was unreadable' }] };
+        return { errors: [{ check: 'workspace-error-file-read', error: 'workspace-error file was unreadable' }] };
     }
 };
 
@@ -35,12 +37,12 @@ const skillsDiffSince = (workspacePath, sha) => {
     return result.status === 0 ? (result.stdout || '') : '';
 };
 
-const buildWorkspaceFixPrompt = ({ workspacePath, marker }) => {
-    const errors = (marker.errors || []).map(e =>
+const buildWorkspaceFixPrompt = ({ workspacePath, errorFile }) => {
+    const errors = (errorFile.errors || []).map(e =>
         `  - [${e.check}] ${e.error}`).join('\n') || '  (none recorded)';
 
-    const diff = marker.syncedSkillsSha
-        ? skillsDiffSince(workspacePath, marker.syncedSkillsSha).slice(0, 12000)
+    const diff = errorFile.syncedSkillsSha
+        ? skillsDiffSince(workspacePath, errorFile.syncedSkillsSha).slice(0, 12000)
         : '';
 
     return [
@@ -67,9 +69,10 @@ const buildWorkspaceFixPrompt = ({ workspacePath, marker }) => {
         '  4. If the problem is OUTSIDE your authority — a runtime bug, an',
         '     environmental issue (permissions, disk), or anything that',
         '     reading skills + editing workspace files can\'t address — leave',
-        '     the marker in place and explain in your final response why this',
-        '     is out of scope. The user will see your reasoning and can decide',
-        '     whether to retry or fix the underlying issue manually.',
+        '     the workspace-error file in place and explain in your final',
+        '     response why this is out of scope. The user will see your',
+        '     reasoning and can decide whether to retry or fix the underlying',
+        '     issue manually.',
         '',
         'Things you should NOT touch from here: individual canvas content or',
         'component content. Canvas and component issues have their own repair',
@@ -79,9 +82,9 @@ const buildWorkspaceFixPrompt = ({ workspacePath, marker }) => {
         'Errors the runtime reported:',
         errors,
         '',
-        marker.syncedSkillsSha
-            ? `Most recent skills sync: ${marker.syncedSkillsSha}` +
-              (marker.syncedSkillsParentSha ? ` (parent ${marker.syncedSkillsParentSha})` : '')
+        errorFile.syncedSkillsSha
+            ? `Most recent skills sync: ${errorFile.syncedSkillsSha}` +
+              (errorFile.syncedSkillsParentSha ? ` (parent ${errorFile.syncedSkillsParentSha})` : '')
             : 'No recent skills sync recorded.',
         '',
         diff ? 'Skills diff (most recent sync):\n```\n' + diff + '\n```' : ''
@@ -94,14 +97,14 @@ const runMigration = async ({
     logServer,
     systemPromptPath = null
 }) => {
-    const marker = readMarker(workspacePath);
-    if (!marker) return { skipped: 'no-marker' };
+    const errorFile = readWorkspaceErrorFile(workspacePath);
+    if (!errorFile) return { skipped: 'no-workspace-error-file' };
 
-    const prompt = buildWorkspaceFixPrompt({ workspacePath, marker });
+    const prompt = buildWorkspaceFixPrompt({ workspacePath, errorFile });
 
     logServer('migration', 'agent invoked', {
-        errors: marker.errors,
-        skillsSha: marker.syncedSkillsSha || null,
+        errors: errorFile.errors,
+        skillsSha: errorFile.syncedSkillsSha || null,
         systemPromptPath
     });
 
@@ -124,20 +127,20 @@ const runMigration = async ({
         error = e.message;
     }
 
-    const stillPending = fs.existsSync(path.join(workspacePath, WORKSPACE_FIX_MARKER_REL));
+    const stillPresent = fs.existsSync(path.join(workspacePath, WORKSPACE_ERROR_FILE_REL));
 
     logServer('migration', error ? 'agent failed' : 'agent returned', {
-        markerCleared: !stillPending,
+        errorFileCleared: !stillPresent,
         error,
         responsePreview: String(response || '').slice(0, 300)
     });
 
     return {
         ran: true,
-        markerCleared: !stillPending,
+        errorFileCleared: !stillPresent,
         error,
         response
     };
 };
 
-module.exports = { runMigration, buildWorkspaceFixPrompt, WORKSPACE_FIX_MARKER_REL };
+module.exports = { runMigration, buildWorkspaceFixPrompt, WORKSPACE_ERROR_FILE_REL };
