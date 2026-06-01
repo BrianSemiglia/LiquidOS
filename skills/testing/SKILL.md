@@ -60,9 +60,33 @@ home/input.json
 4. Inspect and edit output.workspace while testing.
 5. Use the browser like a user would.
 6. Reboot the sandbox when a clean run is useful.
-7. Apply the verified change to the source workspace.
+7. Apply the verified change to the source workspace via /workspace/apply.
 8. Terminate the launcher process when finished.
 ```
+
+## Applying changes back to the source workspace
+
+When the changes verify in the sandbox, hand the list of changed files to the **source** server's apply endpoint:
+
+```sh
+curl -X POST http://127.0.0.1:<source-port>/workspace/apply \
+    -H 'content-type: application/json' \
+    -d '{
+      "sandbox": "<sandbox-workspace-path>",
+      "files": ["<workspace-relative path>", ...]
+    }'
+```
+
+What the endpoint does, in one shot:
+
+- Validates each file path is workspace-relative, exists in the sandbox, and resolves inside both the sandbox and the source (no traversal).
+- Pauses the source server's filesystem watcher.
+- Copies each file from `sandbox/<rel>` → `source/<rel>`, creating parent directories as needed.
+- Resumes the watcher and emits one refresh.
+
+The user sees a single coherent update instead of a per-file flicker. If any copy fails partway, the response is 500 with a count of how many landed; the workspace is left in a partial state and the next refresh is emitted so the client sees what actually happened.
+
+Workspace-relative paths look like `"home/components/foo/presented/view.html"`. Absolute paths and `..` traversal are rejected.
 
 ## Useful checks
 

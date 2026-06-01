@@ -11,7 +11,7 @@ triggers:
 
 ## Components
 
-Every component is a folder under the canvas's `components/`. Inside, the live state lives in `presented/`; the agent uses `.presented/` as a staging area when it needs to change multiple files atomically.
+Every component is a folder under the canvas's `components/`. Inside, the live state lives in `presented/`. Multi-file changes are staged via a sandbox (see `../testing/SKILL.md`) and committed via the source workspace's `/workspace/apply` endpoint.
 
 The harness's actual contract is small: it reads `presented/view.json` and invokes `presented/services/start.sh` if it exists. Everything else in the layout below is a recommendation the scaffold ships; the agent can replace any of it with a different approach.
 
@@ -26,8 +26,7 @@ components/<name>/
 │       ├── start.sh              Invoked by the harness; needed only if the component has services.
 │       ├── render.js             Scaffold default: watches view.html, writes view.json.
 │       └── IO.swift              Optional. Native macOS side; compiled and launched by start.sh if present.
-├── .presented/               ← agent's staging area, ignored by the harness (see "Atomic swap")
-├── data/                     ← persistent state; not touched by presented/ swaps
+├── data/                     ← persistent state
 ├── diagnostics/              ← harness-written status and logs; agent reads here when debugging
 │   ├── status.json               Current state per category (mount, service, view).
 │   └── service.log               Append-only stdout/stderr from start.sh and children.
@@ -43,19 +42,29 @@ The agent's primary editing surface is `presented/view.html`. `render.js` watche
 
 Editing `render.js`, `IO.swift`, or `start.sh` *does* restart the service.
 
-### In-place edits vs atomic swap
+### In-place edits vs sandbox-and-apply
 
 The agent has two modes, picked by the shape of the change:
 
 **In place** — for single-file edits (the common case: progressive `view.html` rewrites during work). Write directly to `presented/<file>`. Each write is observable to the user and tracked by the harness watcher. This is the default.
 
-**Atomic swap** — for multi-file changes that would leave the component broken if applied one at a time (e.g., a `view.html` ↔ `functions.js` refactor where attribute selectors change in both). Stage everything in `.presented/` alongside, then commit with a single command:
+**Sandbox and apply** — for multi-file changes that would leave the component broken if applied one at a time (e.g., a `view.html` ↔ `functions.js` refactor where attribute selectors change in both). Boot a sandbox via `../testing/SKILL.md`, make all the edits in the sandbox copy, verify, then atomically apply by POSTing to the **source** server:
 
 ```sh
-rm -rf components/<name>/presented && mv components/<name>/.presented components/<name>/presented
+curl -X POST http://127.0.0.1:<source-port>/workspace/apply \
+    -H 'content-type: application/json' \
+    -d '{
+      "sandbox": "/var/folders/.../sandbox-workspace/Workspace.liquidos",
+      "files": [
+        "home/components/foo/presented/view.html",
+        "home/components/foo/presented/functions.js"
+      ]
+    }'
 ```
 
-The harness watches the outer `components/<name>/` and ignores events inside `.presented/`, so staging activity is invisible. The swap fires a burst of events that the harness debounces and re-evaluates once. If the process dies between `rm` and `mv`, `presented/` is missing — `git checkout components/<name>/presented` restores it (the workspace is git-tracked).
+The endpoint pauses the workspace watcher, copies the listed files in order, then fires one refresh — the user sees one coherent transition, not a flicker per file. `files` are workspace-relative; the endpoint validates each path stays inside both the sandbox and the source.
+
+This replaces the older `.presented/` swap pattern for staged multi-file changes.
 
 ### Mustache placeholders
 
@@ -123,7 +132,7 @@ Treat the dispatch id as a function parameter. Use it in `start.sh` to namespace
 
 The harness starts and stops the service process group. `start.sh` should stay alive while the service is alive and should not daemonize or detach child processes.
 
-The harness watches the component folder recursively. Events inside `.presented/` are ignored. Edits inside `presented/services/` restart the service; edits to `presented/view.html` are handled by `render.js` without a restart.
+The harness watches the component folder recursively. Edits inside `presented/services/` restart the service; edits to `presented/view.html` are handled by `render.js` without a restart.
 
 ## Feature Requirements
 

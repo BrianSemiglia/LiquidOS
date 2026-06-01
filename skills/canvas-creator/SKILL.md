@@ -146,6 +146,31 @@ Debounce continuous inputs (camera scrolls, drags). The file is replaced verbati
 - Edit `canvas.js` → harness re-imports the module, calls `teardown()` on the prior instance, runs the factory again, places fresh.
 - Edit a `state.json` file → harness re-aggregates and calls `place()` again with the new state. canvas.js stays mounted, just gets new data.
 
+### Editing canvas.js for anything non-trivial: use a sandbox
+
+A one-line tweak in place is fine; the user sees one hot-reload and you move on. For anything bigger — rewriting `place()`, restructuring how state is consumed, multi-file changes that touch components and canvas.js together — work in a sandbox via `../testing/SKILL.md`, then apply atomically.
+
+The flow:
+
+1. Boot a sandbox of the workspace (`boot-workspace-sandbox.mjs`).
+2. Make all your edits in the sandbox copy. Verify with Playwright or by interacting via the sandbox URL.
+3. When ready, POST to the **source** server (not the sandbox):
+
+   ```sh
+   curl -X POST http://127.0.0.1:<source-port>/workspace/apply \
+       -H 'content-type: application/json' \
+       -d '{
+         "sandbox": "/var/folders/.../sandbox-workspace/Workspace.liquidos",
+         "files": ["gadgets/canvas.js", "gadgets/components/foo/state.json"]
+       }'
+   ```
+
+   The source server pauses its watcher, copies the listed files in, then emits one refresh event. The user sees one transition, not one per file.
+
+4. Terminate the sandbox launcher.
+
+`files` is workspace-relative paths. The endpoint validates each path is inside both the sandbox and the workspace (no traversal, no absolute paths), copies them in order, and broadcasts a single `update` so the client refetches and re-renders.
+
 ### Loading state
 
 When you create or update a component instance, the first visible response should be a loading-state version of the relevant component. Keep it in place while work continues.

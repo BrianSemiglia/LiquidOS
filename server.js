@@ -1302,7 +1302,15 @@ const componentChangePayload = (entries, rendered) => {
     return null;
 };
 
+// When the apply endpoint is mid-flight, the watcher pipeline pauses:
+// fs.watch events for files we just wrote are dropped instead of being
+// rebroadcast. After the apply completes the server emits one explicit
+// refresh, so the client sees a single coherent change instead of one
+// event per copied file.
+let watcherPaused = false;
+
 const scheduleWatchRefresh = entry => {
+    if (watcherPaused) return;
     if (entry) {
         dirtyWatchEntries.push(entry);
     }
@@ -1780,6 +1788,101 @@ const server = http.createServer(async (req, res) => {
                 logServer('migration', 'cancel failed', { pid, error: error.message });
                 send(res, 500, 'kill failed: ' + error.message);
             }
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/workspace/apply') {
+            // Bulk apply changes the agent prepared in a sandbox into the
+            // live workspace. Pauses the watcher so the per-file copies
+            // don't fire individual change events, then emits one explicit
+            // refresh after all files have landed. Callers pass an absolute
+            // path to the sandbox workspace and a list of workspace-relative
+            // file paths they want copied over.
+            let body;
+            try {
+                body = JSON.parse(await readBody(req) || '{}');
+            } catch (error) {
+                send(res, 400, 'invalid json: ' + error.message);
+                return;
+            }
+            const sandbox = String(body.sandbox || '');
+            const files = Array.isArray(body.files) ? body.files : null;
+
+            if (!sandbox || !path.isAbsolute(sandbox)) {
+                send(res, 400, 'sandbox must be an absolute path');
+                return;
+            }
+            if (!fs.existsSync(sandbox) || !fs.statSync(sandbox).isDirectory()) {
+                send(res, 400, 'sandbox path does not exist');
+                return;
+            }
+            if (!files || files.length === 0) {
+                send(res, 400, 'files must be a non-empty array of workspace-relative paths');
+                return;
+            }
+            // Validate each file path is workspace-relative and resolves
+            // inside both the sandbox and the source. No traversal, no
+            // absolute paths.
+            const planned = [];
+            for (const rel of files) {
+                if (typeof rel !== 'string' || rel.length === 0) {
+                    send(res, 400, 'file path must be a non-empty string');
+                    return;
+                }
+                if (path.isAbsolute(rel)) {
+                    send(res, 400, 'file path must be workspace-relative: ' + rel);
+                    return;
+                }
+                const fromAbs = path.resolve(sandbox, rel);
+                const toAbs = path.resolve(WORKSPACE_PATH, rel);
+                if (!pathIsInside(fromAbs, sandbox)) {
+                    send(res, 400, 'file path escapes sandbox: ' + rel);
+                    return;
+                }
+                if (!pathIsInside(toAbs, WORKSPACE_PATH)) {
+                    send(res, 400, 'file path escapes workspace: ' + rel);
+                    return;
+                }
+                if (!fs.existsSync(fromAbs)) {
+                    send(res, 400, 'file does not exist in sandbox: ' + rel);
+                    return;
+                }
+                planned.push({ rel, fromAbs, toAbs });
+            }
+
+            watcherPaused = true;
+            const copied = [];
+            try {
+                for (const { rel, fromAbs, toAbs } of planned) {
+                    fs.mkdirSync(path.dirname(toAbs), { recursive: true });
+                    fs.copyFileSync(fromAbs, toAbs);
+                    copied.push(rel);
+                }
+            } catch (error) {
+                watcherPaused = false;
+                dirtyWatchEntries = [];
+                logServer('workspace', 'apply failed mid-copy', { error: error.message, copied });
+                send(res, 500, 'copy failed after ' + copied.length + ' of ' + planned.length + ' files: ' + error.message);
+                // Emit a refresh so the client sees whatever partial state landed.
+                scheduleWatchRefresh();
+                return;
+            }
+            watcherPaused = false;
+            dirtyWatchEntries = [];
+
+            // One explicit refresh: re-read the workspace, broadcast a
+            // generic 'update' so the client falls through to load() and
+            // picks up everything that changed in one pass.
+            try {
+                canvasGraph.renderedInput();
+                refreshGraphWatchers();
+                reconcileComponentServices();
+            } catch (error) {
+                logHermesError('apply', error, { message: 'post-apply refresh failed' });
+            }
+            broadcast();
+            logServer('workspace', 'apply complete', { files: copied });
+            send(res, 200, JSON.stringify({ applied: copied }), 'application/json; charset=utf-8');
             return;
         }
 
