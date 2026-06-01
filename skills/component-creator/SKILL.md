@@ -85,6 +85,24 @@ export const mount = (surface) => {
 
 Use `<liquidos-callback>` for user-initiated callbacks routed through the agent. Use `mount(surface)` for everything else.
 
+### Contract rules the harness relies on
+
+These aren't style preferences — the harness fails subtly when they're broken. Past versions of components have re-introduced these mistakes after refactors. If you're regenerating a component, check each:
+
+- **`mount()` may run more than once.** Whenever `view.json`'s html or resources change, the harness destroys the previous mount and runs `mount(surface)` again. Setup must be idempotent — if a service restart bumps the html and you allocate an audio context in `mount()`, you'll have two audio contexts unless you cleaned up the previous one.
+
+- **The return value cleans up the previous instance.** The harness accepts either form:
+  - `return () => { ... }` — a plain cleanup function.
+  - `return { destroy: () => { ... } }` — an object with a `.destroy()` method.
+
+  Pick either; the harness calls whichever it gets. Without a cleanup return, listeners and timers accumulate across re-mounts.
+
+- **HTML served via `view.json` must be deterministic.** Given the same inputs, the same output. **No `Math.random()` in ids, classes, gradient keys, or anything else that's rendered into the html.** The harness diffs old vs new html to decide whether to re-mount; random values force a re-mount on every render and replay any CSS entry animations on the affected elements.
+
+- **No `<script>` tags or inline event handlers in `view.html`.** Already covered above, but worth restating here as a rule: this is a harness contract, not a guideline. Use `mount(surface)` or `<liquidos-callback>`.
+
+- **Cache-bust resource URLs change when files change.** The harness imports `functions.js` via dynamic import with the file's mtime as the cache-bust query string. If you replace `functions.js`, the harness re-imports automatically. Don't try to hand-roll your own cache invalidation; you'll fight the framework.
+
 ### Adding resources
 
 The scaffold's `render.js` auto-declares `resources.functions` in `view.json` when `functions.js` exists. For other resources (images, fonts, additional modules), extend `render.js` to add them to the view object it writes.
