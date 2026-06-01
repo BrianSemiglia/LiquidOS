@@ -753,13 +753,13 @@
             </div>
         </form>
     </div>
-    <!-- Workspace migration overlay. Shown when the runtime is waiting for an
-         agent to bring the workspace into alignment with newly-installed
-         skills. Blocks input so a user-triggered job can't race the
-         migration agent. -->
+    <!-- Workspace-fix overlay. Shown when the runtime found a workspace-
+         level error and an agent is trying to fix it (or finished and
+         couldn't). Blocks input so a user-triggered job can't race the
+         agent on the same workspace's git state. -->
     <div class="workspace-migration-overlay" id="workspace-migration-overlay" hidden>
         <div class="workspace-migration-card" role="status" aria-live="polite">
-            <div class="workspace-migration-title" id="workspace-migration-title">Updating workspace</div>
+            <div class="workspace-migration-title" id="workspace-migration-title">Fixing workspace</div>
             <div class="workspace-migration-detail" id="workspace-migration-detail"></div>
             <div class="workspace-migration-error" id="workspace-migration-error" hidden></div>
             <div class="workspace-migration-actions" id="workspace-migration-actions" hidden>
@@ -858,13 +858,13 @@
             if (!show) return;
 
             if (running) {
-                workspaceMigrationTitle.textContent = 'Updating workspace';
+                workspaceMigrationTitle.textContent = 'Fixing workspace';
                 workspaceMigrationDetail.textContent =
-                    'The runtime installed new skills. An agent is reconciling this workspace to match — usually a minute or two. Input is paused until it finishes.';
+                    'The runtime hit a problem opening this workspace. An agent is investigating and trying to fix it. Input is paused until it finishes — usually a minute or two. You can cancel if you’d rather not wait.';
             } else {
-                workspaceMigrationTitle.textContent = 'Workspace update failed';
+                workspaceMigrationTitle.textContent = 'Workspace still has a problem';
                 workspaceMigrationDetail.textContent =
-                    'The migration agent didn’t finish. You can try again, or quit and restart to retry.';
+                    'The agent didn’t finish fixing the workspace. Try again, or read its reasoning below to see what it thought.';
             }
 
             if (error) {
