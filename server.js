@@ -11,6 +11,8 @@ const { createCanvasFiles } = require('./canvas/files');
 const { createCanvasGraph } = require('./canvas/graph');
 const { createOutputQueue } = require('./canvas/output-queue');
 const { createPromptBuilder } = require('./canvas/prompt-builder');
+const { syncSkills, PENDING_MARKER_REL } = require('./workspace/sync-skills');
+const { runMigration } = require('./workspace/run-migration');
 
 const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
@@ -211,6 +213,49 @@ let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
 let ACTIVE_AGENT_KIND = activeAgentKindFromFile();
 const AGENT_RUNTIME_PATH = path.join(os.homedir(), 'Library', 'Application Support', 'LiquidOS', 'AgentRuntime');
 const SKILLS_SOURCE_PATH = path.join(ROOT, 'skills');
+
+// Skill sync runs before anything else touches the workspace. It ensures the
+// workspace is a git repo, refreshes <workspace>/skills/ from the runtime,
+// and commits any delta. A delta drops a marker file (.liquidos/migration-
+// pending) downstream code can act on. Failures don't abort startup — the
+// runtime should still come up so the user can recover.
+const SKILLS_SYNC = syncSkills({
+    workspacePath: WORKSPACE_PATH,
+    skillsSourcePath: SKILLS_SOURCE_PATH
+});
+if (SKILLS_SYNC.error) {
+    console.warn('[skills-sync] failed:', SKILLS_SYNC.error);
+} else {
+    if (SKILLS_SYNC.initialized) console.log('[skills-sync] initialized workspace git');
+    if (SKILLS_SYNC.updated) {
+        console.log('[skills-sync] committed', SKILLS_SYNC.sha?.slice(0, 8),
+            '(parent', SKILLS_SYNC.parentSha?.slice(0, 8) || 'none', ')');
+    }
+    if (SKILLS_SYNC.migrationPending) console.log('[skills-sync] migration pending');
+}
+
+// Tracks the lifecycle of the current/last migration run. /input exposes
+// this so the client can show a loading state and the user can see why the
+// canvas is unresponsive. lastError persists across the run so a user
+// looking at the workspace after a failed startup knows what went wrong.
+const MIGRATION_STATE = {
+    running: false,
+    lastError: null
+};
+const isMigrationPending = () => fs.existsSync(path.join(WORKSPACE_PATH, PENDING_MARKER_REL));
+
+// Agent runtimes that fail mid-run can return the entire captured stdout
+// (often a 5-10KB JSON stream) as the error string. Trim it down to
+// something a human can read in an overlay; the full output is still in
+// the agent runtime's own log.
+const summarizeMigrationError = raw => {
+    const text = String(raw || '').trim();
+    if (!text) return null;
+    const firstLine = text.split('\n').find(line => line.trim().length > 0) || text;
+    const cleaned = firstLine.replace(/\s+/g, ' ').trim();
+    return cleaned.length > 240 ? cleaned.slice(0, 237) + '...' : cleaned;
+};
+
 const runtimeSet = createRuntimes({
     workspacePath: WORKSPACE_PATH,
     runtimePath: AGENT_RUNTIME_PATH,
@@ -1489,7 +1534,15 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'GET' && url.pathname === '/input') {
-            send(res, 200, JSON.stringify(canvasGraph.renderedInput()), 'application/json; charset=utf-8');
+            const rendered = canvasGraph.renderedInput();
+            const workspace = {
+                migrationPending: isMigrationPending(),
+                migrationRunning: MIGRATION_STATE.running,
+                migrationLastError: MIGRATION_STATE.lastError,
+                lastSkillsSha: SKILLS_SYNC.sha || null,
+                lastSkillsParentSha: SKILLS_SYNC.parentSha || null
+            };
+            send(res, 200, JSON.stringify({ ...rendered, workspace }), 'application/json; charset=utf-8');
             startGraphWatchAfterFirstInput();
             return;
         }
@@ -1821,4 +1874,37 @@ server.listen(PORT, '127.0.0.1', () => {
     console.log('Canvas: ' + CANVAS_PATH);
     console.log('Input: ' + INPUT_PATH);
     console.log('Output: ' + OUTPUT_PATH);
+
+    // If skills-sync committed a delta this startup (or a prior startup
+    // committed one that no agent has cleared yet), fire the migration agent.
+    // Runs async — the server stays up and /input keeps reporting
+    // migrationRunning until the agent removes the marker. On failure the
+    // marker stays put, so the next launch will retry.
+    if (isMigrationPending()) {
+        MIGRATION_STATE.running = true;
+        MIGRATION_STATE.lastError = null;
+        broadcast();
+
+        setImmediate(() => {
+            runMigration({ workspacePath: WORKSPACE_PATH, activeRuntime, logServer })
+                .then(result => {
+                    logServer('migration', 'run complete', result);
+                    if (result?.error) {
+                        MIGRATION_STATE.lastError = summarizeMigrationError(result.error);
+                    } else if (result?.markerCleared === false) {
+                        MIGRATION_STATE.lastError = 'agent returned but did not clear the migration marker';
+                    } else {
+                        MIGRATION_STATE.lastError = null;
+                    }
+                })
+                .catch(error => {
+                    logServer('migration', 'run errored', { error: error.message });
+                    MIGRATION_STATE.lastError = summarizeMigrationError(error.message);
+                })
+                .finally(() => {
+                    MIGRATION_STATE.running = false;
+                    broadcast();
+                });
+        });
+    }
 });

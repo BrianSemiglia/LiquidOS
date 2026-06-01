@@ -63,6 +63,41 @@
         }
 
 
+        .workspace-migration-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 15, 18, 0.78);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            color: rgba(232, 232, 234, 0.95);
+        }
+        .workspace-migration-card {
+            max-width: 32rem;
+            padding: 1.4rem 1.6rem;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 14px;
+            background: rgba(34, 34, 35, 0.92);
+            box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45);
+        }
+        .workspace-migration-title { font-weight: 600; font-size: 1rem; margin-bottom: 0.5rem; }
+        .workspace-migration-detail { font-size: 0.85rem; line-height: 1.45; color: rgba(232, 232, 234, 0.75); }
+        .workspace-migration-error {
+            margin-top: 0.85rem;
+            padding: 0.6rem 0.75rem;
+            border-radius: 8px;
+            background: rgba(127, 29, 29, 0.45);
+            border: 1px solid rgba(252, 165, 165, 0.35);
+            color: #fecaca;
+            font-size: 0.78rem;
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
+
         .global-prompt {
             position: fixed;
             left: calc(var(--debug-rail-space) + (100vw - var(--debug-rail-space)) / 2);
@@ -691,6 +726,19 @@
             </div>
         </form>
     </div>
+    <!-- Workspace migration overlay. Shown when the runtime is waiting for an
+         agent to bring the workspace into alignment with newly-installed
+         skills. Blocks input so a user-triggered job can't race the
+         migration agent. -->
+    <div class="workspace-migration-overlay" id="workspace-migration-overlay" hidden>
+        <div class="workspace-migration-card" role="status" aria-live="polite">
+            <div class="workspace-migration-title">Updating workspace</div>
+            <div class="workspace-migration-detail" id="workspace-migration-detail">
+                The runtime installed new skills. An agent is reconciling this workspace to match — usually a minute or two. Input is paused until it finishes.
+            </div>
+            <div class="workspace-migration-error" id="workspace-migration-error" hidden></div>
+        </div>
+    </div>
     <div class="global-prompt" id="global-prompt-bar">
         <div class="canvas-nav" aria-label="Canvas selection">
             <select id="canvas-select" aria-label="Canvas"></select>
@@ -709,6 +757,37 @@
         const app = document.getElementById('app');
         const canvasShell = document.getElementById('canvas-shell');
         const globalForm = document.getElementById('global-prompt');
+        const workspaceMigrationOverlay = document.getElementById('workspace-migration-overlay');
+        const workspaceMigrationDetail = document.getElementById('workspace-migration-detail');
+        const workspaceMigrationError = document.getElementById('workspace-migration-error');
+
+        // Mirrors data.workspace from /input. Shown when a migration is
+        // running so user input can't race the agent, and surfaces the last
+        // error if the most recent attempt failed.
+        const updateWorkspaceMigrationOverlay = workspace => {
+            const running = Boolean(workspace?.migrationRunning);
+            const pending = Boolean(workspace?.migrationPending);
+            const error = workspace?.migrationLastError || null;
+            const show = running || (pending && error);
+            workspaceMigrationOverlay.hidden = !show;
+            if (!show) return;
+
+            if (running) {
+                workspaceMigrationDetail.textContent =
+                    'The runtime installed new skills. An agent is reconciling this workspace to match — usually a minute or two. Input is paused until it finishes.';
+            } else {
+                workspaceMigrationDetail.textContent =
+                    'A workspace migration is pending. The previous attempt did not finish; the runtime will retry on next launch.';
+            }
+
+            if (error) {
+                workspaceMigrationError.hidden = false;
+                workspaceMigrationError.textContent = 'Last error: ' + error;
+            } else {
+                workspaceMigrationError.hidden = true;
+                workspaceMigrationError.textContent = '';
+            }
+        };
         const globalText = document.getElementById('global-text');
         const globalSubmitCallback = document.getElementById('global-submit-callback');
         const globalPromptBar = document.getElementById('global-prompt-bar');
@@ -1739,6 +1818,7 @@
 
             currentCanvasPath = typeof data.canvasPath === 'string' && data.canvasPath ? data.canvasPath : currentCanvasPath;
             latestCanvasState = data.state || { canvas: null, components: {} };
+            updateWorkspaceMigrationOverlay(data.workspace);
             globalSubmitCallback.setAttribute('scope', currentCanvasPath);
             latestComponents = data.components.map((component, index) => ({
                 ...component,
