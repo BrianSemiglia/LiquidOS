@@ -6,13 +6,12 @@
 //      git-timeline's ensureCanvasesGitRepo already ran or will run.
 //   2. Overwrites <workspace>/skills/ with the runtime's bundled skills.
 //   3. Stages skills/ and asks git whether the staged tree differs from HEAD.
-//   4. If yes, commits ("Runtime did update skills") and drops a marker at
-//      .liquidos/migration-pending containing the new commit SHA.
+//   4. If yes, commits ("Runtime did update skills") for audit history.
 //
-// The marker is what downstream code (an agent migration step) uses to
-// decide whether to act. The git commit is the audit trail and the diff
-// source. The runtime never invokes the agent itself — it just produces
-// the trigger.
+// This module does NOT decide whether the workspace needs a fix-up. That
+// decision is made by the runtime trying to load the workspace and seeing
+// what fails (see server.js's collectWorkspaceErrors). Skill prose changes
+// shouldn't trigger an agent run when the workspace happens to still work.
 //
 // Commits use the same -c user.name/user.email and structured Event/Scope/
 // Agent Response format as canvas/git-timeline.js so the workspace history
@@ -21,8 +20,6 @@
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-
-const PENDING_MARKER_REL = path.join('.liquidos', 'migration-pending');
 
 const GIT_AUTHOR = [
     '-c', 'user.name=LiquidOS',
@@ -98,19 +95,12 @@ const replaceDir = (sourcePath, destPath) => {
 const hasStagedSkillsDelta = workspacePath =>
     git(workspacePath, ['diff', '--cached', '--quiet', '--', 'skills']).status === 1;
 
-const writeMarker = (workspacePath, sha) => {
-    const markerPath = path.join(workspacePath, PENDING_MARKER_REL);
-    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
-    fs.writeFileSync(markerPath, sha + '\n');
-};
-
 const syncSkills = ({ workspacePath, skillsSourcePath }) => {
     const result = {
         initialized: false,
         updated: false,
         sha: null,
         parentSha: null,
-        migrationPending: false,
         error: null
     };
 
@@ -124,14 +114,6 @@ const syncSkills = ({ workspacePath, skillsSourcePath }) => {
         }
 
         if (hasStagedSkillsDelta(workspacePath)) {
-            // Look at the parent BEFORE committing — if it didn't have a
-            // skills/ tree, then this is the workspace's first encounter with
-            // skills and there's no prior state to migrate from. We still
-            // commit (so the workspace records what it was synced to), but we
-            // skip writing the migration marker. General rule, no "first
-            // time" special case.
-            const parentHadSkills = gitOut(workspacePath, ['cat-file', '-t', 'HEAD:skills']) === 'tree';
-
             if (git(workspacePath, ['commit', '-q', '-m', commitMessage({
                 event: 'Runtime did update skills',
                 scope: 'skills',
@@ -142,10 +124,7 @@ const syncSkills = ({ workspacePath, skillsSourcePath }) => {
             result.updated = true;
             result.sha = gitOut(workspacePath, ['rev-parse', 'HEAD']);
             result.parentSha = gitOut(workspacePath, ['rev-parse', 'HEAD~1']);
-            if (result.sha && parentHadSkills) writeMarker(workspacePath, result.sha);
         }
-
-        result.migrationPending = fs.existsSync(path.join(workspacePath, PENDING_MARKER_REL));
     } catch (error) {
         result.error = error.message;
     }
@@ -153,4 +132,4 @@ const syncSkills = ({ workspacePath, skillsSourcePath }) => {
     return result;
 };
 
-module.exports = { syncSkills, PENDING_MARKER_REL };
+module.exports = { syncSkills };

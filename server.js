@@ -11,8 +11,10 @@ const { createCanvasFiles } = require('./canvas/files');
 const { createCanvasGraph } = require('./canvas/graph');
 const { createOutputQueue } = require('./canvas/output-queue');
 const { createPromptBuilder } = require('./canvas/prompt-builder');
-const { syncSkills, PENDING_MARKER_REL } = require('./workspace/sync-skills');
+const { syncSkills } = require('./workspace/sync-skills');
 const { runMigration } = require('./workspace/run-migration');
+
+const WORKSPACE_FIX_MARKER_REL = path.join('.liquidos', 'workspace-error');
 
 const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
@@ -231,18 +233,69 @@ if (SKILLS_SYNC.error) {
         console.log('[skills-sync] committed', SKILLS_SYNC.sha?.slice(0, 8),
             '(parent', SKILLS_SYNC.parentSha?.slice(0, 8) || 'none', ')');
     }
-    if (SKILLS_SYNC.migrationPending) console.log('[skills-sync] migration pending');
 }
 
-// Tracks the lifecycle of the current/last migration run. /input exposes
-// this so the client can show a loading state and the user can see why the
-// canvas is unresponsive. lastError persists across the run so a user
-// looking at the workspace after a failed startup knows what went wrong.
+// Tracks the lifecycle of the current/last workspace-fix run. /input
+// exposes this so the client can show a loading state and the user can see
+// why the canvas is unresponsive. lastError persists across the run so a
+// user looking at the workspace after a failed startup knows what went
+// wrong.
 const MIGRATION_STATE = {
     running: false,
     lastError: null
 };
-const isMigrationPending = () => fs.existsSync(path.join(WORKSPACE_PATH, PENDING_MARKER_REL));
+const isMigrationPending = () => fs.existsSync(path.join(WORKSPACE_PATH, WORKSPACE_FIX_MARKER_REL));
+
+// Catch-all detector for workspace-scope problems. Wraps each top-level
+// invariant in its own try/catch so a failure in one area doesn't suppress
+// detection of others. Returns an array of { check, error } objects; an
+// empty array means the workspace's top-level state looks healthy. Canvas-
+// and component-level errors are intentionally NOT included here — those
+// surface through the existing repair-card flows and are handled by per-
+// canvas / per-component agents, not by this workspace-wide fix step.
+const collectWorkspaceErrors = () => {
+    const errors = [];
+    const check = (name, fn) => {
+        try { fn(); }
+        catch (error) { errors.push({ check: name, error: error.message }); }
+    };
+
+    check('active-canvas-resolves', () => {
+        const name = activeCanvasNameFromFile();
+        if (!name) throw new Error('no active canvas configured');
+        const folder = path.join(WORKSPACE_PATH, name);
+        if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory()) {
+            throw new Error(`active canvas folder is missing: ${name}`);
+        }
+    });
+
+    check('active-agent-valid', () => {
+        const kind = activeAgentKindFromFile();
+        if (!VALID_AGENT_KINDS.has(kind)) {
+            throw new Error(`unknown agent kind in active-agent.json: ${kind}`);
+        }
+    });
+
+    check('workspace-has-canvases', () => {
+        const list = canvasFiles.availableCanvases();
+        if (!Array.isArray(list) || list.length === 0) {
+            throw new Error('workspace has no canvases');
+        }
+    });
+
+    return errors;
+};
+
+const writeWorkspaceFixMarker = (errors, context = {}) => {
+    const markerPath = path.join(WORKSPACE_PATH, WORKSPACE_FIX_MARKER_REL);
+    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+    const body = {
+        detectedAt: new Date().toISOString(),
+        errors,
+        ...context
+    };
+    fs.writeFileSync(markerPath, JSON.stringify(body, null, 2) + '\n');
+};
 
 // Agent runtimes that fail mid-run can return the entire captured stdout
 // (often a 5-10KB JSON stream) as the error string. Trim it down to
@@ -1926,9 +1979,20 @@ server.listen(PORT, '127.0.0.1', () => {
     console.log('Input: ' + INPUT_PATH);
     console.log('Output: ' + OUTPUT_PATH);
 
-    // If skills-sync committed a delta this startup (or a prior startup
-    // committed one that no agent has cleared yet), fire the migration agent.
-    // The dispatchMigration helper is a no-op if there's no marker or a run
-    // is already in flight, so the call is safe regardless of state.
+    // Catch-all detection for workspace-level errors. If anything at the
+    // workspace's top-level state failed to load, write a marker with the
+    // captured errors so the next dispatchMigration() call fires the fix
+    // agent. Canvas- and component-level issues are intentionally not
+    // included here — those have their own repair flows. A marker that
+    // survived from a previous startup (agent failure or rejection) also
+    // stays in place; dispatchMigration() is a no-op when nothing is wrong.
+    const workspaceErrors = collectWorkspaceErrors();
+    if (workspaceErrors.length > 0) {
+        logServer('workspace', 'errors detected at startup', { errors: workspaceErrors });
+        writeWorkspaceFixMarker(workspaceErrors, {
+            syncedSkillsSha: SKILLS_SYNC.sha || null,
+            syncedSkillsParentSha: SKILLS_SYNC.parentSha || null
+        });
+    }
     dispatchMigration();
 });
