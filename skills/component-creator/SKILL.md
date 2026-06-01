@@ -31,8 +31,8 @@ components/<name>/
 ├── diagnostics/              ← harness-written status and logs; agent reads here when debugging
 │   ├── status.json               Current state per category (mount, service, view).
 │   └── service.log               Append-only stdout/stderr from start.sh and children.
-└── state.<name>.json       ← optional metadata written by the canvas's active presentation.
-                              Not the component's concern.
+└── state.json             ← optional per-component canvas state (position, etc.) written
+                              by the canvas's canvas.js. Not the component's concern.
 ```
 
 The scaffold ships `view.html` + `render.js` because most components benefit from a template-and-substitute renderer that handles dynamic port injection. A component that doesn't need runtime substitution can produce `view.json` directly (e.g., by writing it from `render.js` with no template, or by having no `render.js` at all and treating `view.json` as the agent's editing surface).

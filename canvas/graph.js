@@ -258,14 +258,14 @@ const createCanvasGraph = ({
     //   <canvas>/state.<presentation-base>.json           — global state
     //   <canvas>/components/<name>/state.<presentation-base>.json — per-component
     // Aggregated as { canvas, components: { componentPath: ... } } and passed
-    // to the presentation via place(). Missing files become null entries.
-    const stateFileName = (presentationBase) => 'state.' + presentationBase + '.json';
+    // to canvas.js via place(). Missing files become null entries.
+    const STATE_FILE = 'state.json';
 
-    const canvasStatePath = (presentationBase) =>
-        path.join(getCanvasPath(), stateFileName(presentationBase));
+    const canvasStatePath = () =>
+        path.join(getCanvasPath(), STATE_FILE);
 
-    const componentStatePath = (componentPath, presentationBase) =>
-        path.join(componentFolderPath(componentPath), stateFileName(presentationBase));
+    const componentStatePath = (componentPath) =>
+        path.join(componentFolderPath(componentPath), STATE_FILE);
 
     const readJsonOrNull = (file) => {
         try {
@@ -275,15 +275,22 @@ const createCanvasGraph = ({
         }
     };
 
-    const readPresentationState = (presentationBase, leaves) => {
-        if (!presentationBase) return { canvas: null, components: {} };
-        const canvasState = readJsonOrNull(canvasStatePath(presentationBase));
+    const readCanvasState = (leaves) => {
+        const canvasState = readJsonOrNull(canvasStatePath());
         const componentsState = {};
         leaves.forEach(({ componentPath }) => {
             const scope = componentScopePath(componentPath);
-            componentsState[scope] = readJsonOrNull(componentStatePath(componentPath, presentationBase));
+            componentsState[scope] = readJsonOrNull(componentStatePath(componentPath));
         });
         return { canvas: canvasState, components: componentsState };
+    };
+
+    const canvasJsPath = () => path.join(getCanvasPath(), 'canvas.js');
+
+    const canvasJsVersion = () => {
+        const file = canvasJsPath();
+        if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return '';
+        return String(fs.statSync(file).mtimeMs);
     };
 
     const renderedInput = () => {
@@ -294,17 +301,12 @@ const createCanvasGraph = ({
                 throw new Error('input.json must contain { "components": [...] }');
             }
 
-            if (typeof input.presentation !== 'string' || !input.presentation.trim()) {
-                throw new Error('input.json must contain { "presentation": "presentations/name.css" }');
-            }
-
-            const presentationBase = path.basename(input.presentation).replace(/\.[^.]+$/, '');
             const leaves = leafComponents();
             return {
                 canvasPath: getCanvasPath(),
                 ...input,
-                presentationVersion: inputReferenceVersion('presentation'),
-                state: readPresentationState(presentationBase, leaves),
+                canvasJsVersion: canvasJsVersion(),
+                state: readCanvasState(leaves),
                 components: leaves.map(({ componentPath, component }) => ({
                     componentPath,
                     scope: componentScope(componentPath),
@@ -316,8 +318,7 @@ const createCanvasGraph = ({
         } catch (error) {
             return {
                 canvasPath: getCanvasPath(),
-                presentation: '',
-                presentationVersion: '',
+                canvasJsVersion: '',
                 canvasError: error.message,
                 components: [{
                     componentPath: getCanvasPath(),
@@ -334,31 +335,6 @@ const createCanvasGraph = ({
         return relative && !relative.startsWith('..') && !path.isAbsolute(relative);
     };
 
-    const inputReferenceFile = name => {
-        const input = readJson(getInputPath());
-        return typeof input[name] === 'string' ? resolveCanvasReference(input[name]) : null;
-    };
-
-    const fileDirectoryWatchPath = file =>
-        file
-            ? fs.existsSync(file) && fs.statSync(file).isDirectory()
-                ? file
-                : path.dirname(file)
-            : null;
-
-    const inputReferenceWatchPath = name =>
-        fileDirectoryWatchPath(inputReferenceFile(name));
-
-    const inputReferenceVersion = name => {
-        const file = inputReferenceFile(name);
-
-        if (!file || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-            return '';
-        }
-
-        return String(fs.statSync(file).mtimeMs);
-    };
-
     // One recursive watch per component folder picks up every event inside,
     // including the presented/ directory swap. Events inside .presented/ (the
     // agent's staging area) are filtered out at the watch callback in server.js.
@@ -373,18 +349,12 @@ const createCanvasGraph = ({
 
         return [
             ...[getInputPath()].filter(Boolean).map(file => ({ path: file, recursive: false, kind: 'canvas' })),
-            ...[inputReferenceWatchPath('presentation')]
-                .filter(Boolean)
-                .filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
-                .filter(isInsideCanvas)
-                .map(file => ({ path: file, recursive: false, kind: 'presentation' })),
-            // Non-recursive watch on canvas root to catch edits to the canvas
-            // state file (state.<presentation>.json). The watch callback in
-            // server.js filters by filename so only state.*.json triggers
-            // refresh — other top-level files (input.json is watched directly,
-            // selected-canvas.json, etc.) don't double-fire.
+            // Non-recursive watch on the canvas root to catch edits to either
+            // canvas.js or state.json. The watch callback in server.js filters
+            // by filename so input.json (watched directly) and other top-level
+            // files (selected-canvas.json, etc.) don't double-fire.
             ...[getCanvasPath()].filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
-                .map(file => ({ path: file, recursive: false, kind: 'canvas-state' })),
+                .map(file => ({ path: file, recursive: false, kind: 'canvas-root' })),
             ...componentWatchPaths(componentPaths).map(file => ({ path: file, recursive: true, kind: 'component' }))
         ];
     };
@@ -442,7 +412,8 @@ const createCanvasGraph = ({
         componentStartPath,
         canvasStatePath,
         componentStatePath,
-        stateFileName,
+        canvasJsPath,
+        canvasJsVersion,
         updateDiagnostics,
         appendServiceLog,
         resourceUrl,

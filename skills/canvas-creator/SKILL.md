@@ -21,18 +21,22 @@ The `.liquidos` folder is the workspace root and the canvas root. A canvas is a 
 Workspace.liquidos/
   selected-canvas.json
   home/
-    input.json
-    output.json
-    components/
-    presentations/
+    input.json        — component manifest
+    output.json       — agent job queue
+    canvas.js         — presentation, input controls, anything canvas-scoped
+    state.json        — canvas.js's persisted state (optional)
+    components/       — component folders
+      foo/
+        state.json    — per-component canvas state (optional)
   <canvas-name>/
     input.json
     output.json
+    canvas.js
+    state.json
     components/
-    presentations/
 ```
 
-`input.json` is the component manifest. `components/` contains component folders. See `../component-creator/SKILL.md` for component structure.
+`input.json` is the component manifest (just `{ "components": [...] }`). `components/` contains component folders. See `../component-creator/SKILL.md` for component structure.
 
 ## Quick Start
 
@@ -47,8 +51,8 @@ This creates:
 ```text
 Workspace.liquidos/<canvas-name>/input.json
 Workspace.liquidos/<canvas-name>/output.json
+Workspace.liquidos/<canvas-name>/canvas.js
 Workspace.liquidos/<canvas-name>/components/
-Workspace.liquidos/<canvas-name>/presentations/
 ```
 
 ## Core Principle
@@ -73,21 +77,83 @@ When creating or updating a component instance, the first visible response shoul
 
 Use the app/server workflow provided by the LiquidOS runtime. Do not create or copy HTML entry files for the canvas.
 
-## Presentation contract
+## canvas.js — the one module per canvas
 
-Every canvas must include the presentation file referenced by `input.json`:
+Every canvas has exactly one `canvas.js` at its root. It owns presentation (where components live on screen), input handling (scroll, keyboard, custom gestures), and anything else canvas-scoped — recenter buttons, axis-invert toggles, scene chrome, audio context, whatever.
 
-```json
-{
-  "components": [],
-  "presentation": "presentations/stack.js"
-}
+`input.json` is just `{ "components": [...] }` — no `presentation` field. The harness always loads `<canvas>/canvas.js`.
+
+### Contract
+
+```js
+import { cssLayout } from '/lib/css-layout.js'; // optional, for CSS-only canvases
+
+export default (root, context) => {
+    // root: the canvas DOM region this module owns.
+    // context: { canvasPath } — useful for state keys, logging, scoping.
+    //
+    // Build scene chrome, attach input listeners, hold camera/audio state
+    // in the closure. The harness will then call place() with the components
+    // and again on every change. teardown() runs before the next load.
+
+    return {
+        place(items, components, state) {
+            // items:      array of card DOM elements (already wired with
+            //             surface, mount lifecycle, callbacks).
+            // components: parallel array of metadata for each card —
+            //             { componentPath, scope, html, resources, ... }.
+            // state:      { canvas, components: { scope: ... } } — current
+            //             state read from canvas/per-component state.json files.
+            //
+            // The harness clears items' inline styles before each call, so
+            // every place() starts from clean cards.
+        },
+        teardown() {
+            // Remove DOM, listeners, timers. The next canvas.js load gets
+            // a fresh root.
+        }
+    };
+};
 ```
 
-A presentation is a JS module that decides how the canvas's components are arranged and viewed — a flat CSS stack, a 3D room, a node graph, anything. The `presentations/` folder is required inside the canvas; canvases can't reference skill-folder or workspace-shared presentation files.
+### State
 
-The scaffold ships two: `presentations/stack.js` (default vertical layout) and `presentations/room-3d.js` (first-person 3D scene). Fork either as a starting point.
+State is JSON, lazy-created, hot-reloaded by the harness.
 
-The presentation owns the canvas surface, component layout, spacing, alignment, overflow, item sizing, and canvas-local motion. The harness owns the protected UI outside that — prompt bar, debug view, loading/errors, requirements editor. Do not style the harness chrome from a presentation.
+- `<canvas>/state.json` — canvas-wide state (camera position, zoom, etc.). Arrives as `state.canvas`.
+- `<canvas>/components/<comp>/state.json` — per-component state for this canvas (per-card position, pin status, etc.). Arrives as `state.components[scope]`.
 
-For the full contract — factory signature, state files, hot reload, focus handoff to components — see `../presentation-creator/SKILL.md`.
+Both layers are optional. Either may be `null`.
+
+Write via POST to `/state`:
+
+```js
+fetch('/state', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+        scope: 'canvas',                    // or 'component'
+        componentPath: '...',               // required when scope='component'
+        data: { camera: { x, y, z, yaw, pitch } }
+    })
+});
+```
+
+Debounce continuous inputs (camera scrolls, drags). The file is replaced verbatim — always send the full object you want stored.
+
+### Hot reload
+
+- Edit `canvas.js` → harness re-imports the module, calls `teardown()` on the prior instance, runs the factory again, places fresh.
+- Edit a `state.json` file → harness re-aggregates and calls `place()` again with the new state. canvas.js stays mounted, just gets new data.
+
+### Loading state
+
+When you create or update a component instance, the first visible response should be a loading-state version of the relevant component. Keep it in place while work continues.
+
+### Default
+
+The scaffolder ships a CSS stack canvas.js that delegates to `/lib/css-layout.js`. Edit it freely or rewrite. Keep the default-export factory shape and the `{ place, teardown }` return shape; nothing else is fixed.
+
+### What canvas.js does NOT own
+
+The harness owns prompt bar, debug rail, loading/error chrome, the requirements editor. Don't style those from canvas.js. The components own their own surface content. canvas.js sits between: it decides where the components live and how the user navigates them.

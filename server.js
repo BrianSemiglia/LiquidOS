@@ -1139,10 +1139,10 @@ const componentChangePayload = (entries, rendered) => {
     if (entries.length === 0) return null;
     if (!rendered || rendered.canvasError) return null;
 
-    // State-only edits (canvas/per-component state.<presentation>.json) don't
-    // alter component HTML, mount lifecycles, or services — only what the
-    // presentation does with state. Ship just the new state so the client can
-    // re-call place() without re-staging items.
+    // State-only edits (canvas/per-component state.json) don't alter
+    // component HTML, mount lifecycles, or services — only what canvas.js
+    // does with state. Ship just the new state so the client can re-call
+    // place() without re-staging items.
     if (entries.every(entry => entry.kind === 'canvas-state')) {
         return { type: 'state-changed', state: rendered.state || { canvas: null, components: {} } };
     }
@@ -1247,19 +1247,29 @@ const refreshGraphWatchers = () => {
         try {
             watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, (eventType, filename) => {
                 // Component watches are opt-in by path: only events under
-                // presented/ (the live state) and per-component state files
-                // (state.<presentation>.json at the component root) trigger
-                // refresh. Anything else — data/, diagnostics/, .presented/,
-                // future siblings — is implicitly ignored.
+                // presented/ (the live state) and the per-component state
+                // file at the component root trigger refresh. Anything else —
+                // data/, diagnostics/, .presented/, future siblings — is
+                // implicitly ignored.
                 if (entry.kind === 'component' && filename) {
                     const isPresented = filename === 'presented' || filename.startsWith('presented/');
-                    const isState = /^state\.[^./]+\.json$/.test(filename);
+                    const isState = filename === 'state.json';
                     if (!isPresented && !isState) return;
                 }
-                // The canvas-state watch is on the whole canvas root for fs.watch
-                // ergonomics; only state.*.json events at that level matter.
-                if (entry.kind === 'canvas-state' && filename) {
-                    if (!/^state\.[^./]+\.json$/.test(filename)) return;
+                // The canvas-root watch covers state.json (fast path: re-place
+                // without re-staging) and canvas.js (presentation reload).
+                // Synthesise a sub-kind so componentChangePayload can route
+                // each to the right path.
+                if (entry.kind === 'canvas-root' && filename) {
+                    if (filename === 'state.json') {
+                        scheduleWatchRefresh({ ...entry, kind: 'canvas-state' });
+                        return;
+                    }
+                    if (filename === 'canvas.js') {
+                        scheduleWatchRefresh({ ...entry, kind: 'canvas-js' });
+                        return;
+                    }
+                    return;
                 }
                 scheduleWatchRefresh(entry);
             }));
@@ -1568,22 +1578,16 @@ const server = http.createServer(async (req, res) => {
             try {
                 const body = JSON.parse(await readBody(req) || '{}');
                 const scope = String(body.scope || '');
-                const presentation = String(body.presentation || '').trim();
                 const data = body.data === undefined ? null : body.data;
 
-                if (!presentation) {
-                    send(res, 400, 'presentation required');
-                    return;
-                }
                 if (scope !== 'canvas' && scope !== 'component') {
                     send(res, 400, 'scope must be "canvas" or "component"');
                     return;
                 }
 
-                const fileName = canvasGraph.stateFileName(presentation);
                 let targetFile;
                 if (scope === 'canvas') {
-                    targetFile = path.join(CANVAS_PATH, fileName);
+                    targetFile = canvasGraph.canvasStatePath();
                 } else {
                     const componentPath = String(body.componentPath || '');
                     if (!componentPath) {
@@ -1591,7 +1595,7 @@ const server = http.createServer(async (req, res) => {
                         return;
                     }
                     const absolute = resolveCanvasReference(componentPath);
-                    targetFile = canvasGraph.componentStatePath(absolute, presentation);
+                    targetFile = canvasGraph.componentStatePath(absolute);
                 }
 
                 if (!pathIsInside(targetFile, CANVAS_PATH)) {
@@ -1609,25 +1613,15 @@ const server = http.createServer(async (req, res) => {
         }
 
 
-        // Presentations are JS modules served from the canvas folder. Any
-        // CSS-only presentation is one that imports the cssLayout helper
-        // from /lib/ and delegates; the server has no format knowledge.
-        const canvasAsset = url.pathname.match(/^\/(presentations)\/([A-Za-z0-9._-]+\.js)$/);
-
-        if (req.method === 'GET' && canvasAsset) {
-            const resolvedPath = path.resolve(CANVAS_PATH, canvasAsset[1], canvasAsset[2]);
-            const canvasBoundary = CANVAS_PATH + path.sep;
-
-            if (!resolvedPath.startsWith(canvasBoundary)) {
-                send(res, 403, 'Forbidden');
-                return;
-            }
-
+        // The canvas's own module — presentation, input controls, anything
+        // canvas-scoped. Always served from <canvas>/canvas.js. CSS-only
+        // canvases import the cssLayout helper from /lib/ and delegate.
+        if (req.method === 'GET' && url.pathname === '/canvas.js') {
+            const resolvedPath = canvasGraph.canvasJsPath();
             if (!fs.existsSync(resolvedPath) || fs.statSync(resolvedPath).isDirectory()) {
-                send(res, 404, 'Not found');
+                send(res, 404, 'canvas.js not found');
                 return;
             }
-
             streamFile(req, res, resolvedPath, 'text/javascript; charset=utf-8');
             return;
         }

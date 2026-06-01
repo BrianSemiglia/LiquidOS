@@ -744,7 +744,7 @@
         // Keep the open requirements editor tied to the component path so rerenders can restore it.
         let openRequirementsComponentPath = '';
         let lastCanvasSnapshot = '';
-        let latestPresentationState = null;
+        let latestCanvasState = null;
         instanceStyle.id = 'instance-style';
         document.head.append(instanceStyle);
         const scrollKey = canvasName => 'live-edit-scroll:' + (canvasName || 'default');
@@ -1043,55 +1043,43 @@
             '</div>' +
             '</div>';
 
-        // Presentation loader — the only way the canvas region gets painted.
+        // Canvas loader — the only way the canvas region gets painted.
         //
-        // A presentation is whatever the canvas's input.json `presentation`
-        // field points at, served via /presentations/<file>. The server
-        // returns a JS factory module for any extension (CSS files are
-        // transparently wrapped, so the client interface is uniform).
+        // Every canvas has exactly one canvas.js at its root. The module
+        // owns presentation, input handling, and anything else canvas-scoped.
         //
-        // Factory signature: (root, context) -> { place(items, components), teardown() }
+        // Factory signature: (root, context) -> { place(items, components, state), teardown() }
         // The harness still owns the cards (surface, flip-back, mount, callbacks);
-        // the presentation only decides where they live.
-        let currentPresentation = null;
-        let currentPresentationCacheKey = null;
-        let currentPresentationLoad = null;
+        // canvas.js decides where they live and how the user navigates them.
+        let currentCanvas = null;
+        let currentCanvasCacheKey = null;
+        let currentCanvasLoad = null;
 
-        const loadPresentation = async (presentationPath, version, context) => {
-            if (typeof presentationPath !== 'string' || !presentationPath.trim()) {
-                if (currentPresentation) {
-                    try { currentPresentation.teardown(); } catch (error) { /* tolerate */ }
-                    currentPresentation = null;
-                    currentPresentationCacheKey = null;
-                }
-                updatePromptChromeSpace();
-                return null;
+        const loadCanvas = async (version, context) => {
+            const cacheKey = '/canvas.js@' + (version || '');
+            if (cacheKey === currentCanvasCacheKey && currentCanvas) {
+                return currentCanvas;
             }
 
-            const cacheKey = presentationPath + '@' + (version || '');
-            if (cacheKey === currentPresentationCacheKey && currentPresentation) {
-                return currentPresentation;
-            }
-
-            const url = '/' + presentationPath + (version ? '?v=' + encodeURIComponent(version) : '');
+            const url = '/canvas.js' + (version ? '?v=' + encodeURIComponent(version) : '');
             const importPromise = import(url);
-            currentPresentationLoad = importPromise;
+            currentCanvasLoad = importPromise;
 
             const mod = await importPromise;
-            if (currentPresentationLoad !== importPromise) {
+            if (currentCanvasLoad !== importPromise) {
                 return null; // superseded by a newer load
             }
             if (typeof mod.default !== 'function') {
-                throw new Error('Presentation ' + presentationPath + ' must default-export a factory function');
+                throw new Error('canvas.js must default-export a factory function');
             }
 
-            if (currentPresentation) {
-                try { currentPresentation.teardown(); } catch (error) { /* tolerate */ }
+            if (currentCanvas) {
+                try { currentCanvas.teardown(); } catch (error) { /* tolerate */ }
             }
-            currentPresentation = mod.default(app, context || {});
-            currentPresentationCacheKey = cacheKey;
+            currentCanvas = mod.default(app, context || {});
+            currentCanvasCacheKey = cacheKey;
             updatePromptChromeSpace();
-            return currentPresentation;
+            return currentCanvas;
         };
 
         applyDebugRailWidth(loadDebugRailWidth());
@@ -1163,8 +1151,17 @@
 
             const mounted = componentMountsByItem.get(item);
 
-            if (mounted && typeof mounted.destroy === 'function') {
-                mounted.destroy();
+            // mount() may return either a cleanup function (React-style)
+            // or an object with a .destroy() method. Accept both — the
+            // function form is what every shipped component actually uses.
+            try {
+                if (typeof mounted === 'function') {
+                    mounted();
+                } else if (mounted && typeof mounted.destroy === 'function') {
+                    mounted.destroy();
+                }
+            } catch (error) {
+                console.error('component cleanup threw:', error);
             }
 
             componentMountsByItem.delete(item);
@@ -1199,7 +1196,15 @@
             const token = {};
             item.__componentMountToken = token;
 
-            import(functionsUrl + '?v=' + encodeURIComponent(JSON.stringify(component))).then(module => {
+            // Cache-bust against the resource's mtime, not the full component
+            // object. JSON.stringify(component) can balloon to many KB for a
+            // component with rich HTML and push the URL past WebKit's import
+            // limit (~16KB) — the resulting "module script failed" error is
+            // opaque. resources.functions.version is the file mtimeMs and
+            // changes whenever functions.js itself does, which is exactly the
+            // signal we want to invalidate the cache on.
+            const cacheKey = component?.resources?.functions?.version || '';
+            import(functionsUrl + (cacheKey ? '?v=' + encodeURIComponent(cacheKey) : '')).then(module => {
                 if (item.__componentMountToken !== token || typeof module.mount !== 'function') {
                     return;
                 }
@@ -1389,7 +1394,10 @@
             item.dataset.repairLevel = component.repairLevel || '';
             item.classList.toggle('canvas-repair-item', component.repairLevel === 'canvas');
             item.dataset.layoutEnter = 'true';
-            item.__component = component;
+            // __component is intentionally left unset here so the first
+            // updateComponentItem(item, component) call sees prev=undefined,
+            // populates the surface via morphInto, and runs mount() — keeping
+            // a single code path for both initial paint and live updates.
 
             const frame = document.createElement('div');
             frame.className = 'harness-component-frame-watcher';
@@ -1399,7 +1407,6 @@
 
             const surface = document.createElement('div');
             surface.className = 'surface';
-            surface.innerHTML = component.html || '';
 
             const back = document.createElement('div');
             back.className = 'component-face component-back';
@@ -1629,23 +1636,23 @@
                     item.style.animation = '';
                     item.style.zIndex = '';
                 });
-                if (currentPresentation) {
+                if (currentCanvas) {
                     try {
-                        currentPresentation.place(nextItems, latestComponents, latestPresentationState);
+                        currentCanvas.place(nextItems, latestComponents, latestCanvasState);
                     } catch (error) {
                         // A broken place() shouldn't freeze the canvas. Drop
-                        // the presentation back to "none" — the fallback below
-                        // will at least render the cards directly, and the
-                        // next render attempt re-runs loadPresentation.
-                        try { currentPresentation.teardown(); } catch {}
-                        currentPresentation = null;
-                        currentPresentationCacheKey = null;
+                        // canvas.js back to "none" — the fallback below will
+                        // at least render the cards directly, and the next
+                        // render attempt re-runs loadCanvas.
+                        try { currentCanvas.teardown(); } catch {}
+                        currentCanvas = null;
+                        currentCanvasCacheKey = null;
                         app.replaceChildren(...nextItems);
-                        console.error('presentation place threw:', error);
+                        console.error('canvas.js place threw:', error);
                     }
                 } else {
-                    // Presentation not loaded yet; the next render after
-                    // loadPresentation resolves will pick this up.
+                    // canvas.js not loaded yet; the next render after
+                    // loadCanvas resolves will pick this up.
                     app.replaceChildren(...nextItems);
                 }
                 restoreOpenRequirementsOverlay();
@@ -1731,7 +1738,7 @@
             }
 
             currentCanvasPath = typeof data.canvasPath === 'string' && data.canvasPath ? data.canvasPath : currentCanvasPath;
-            latestPresentationState = data.state || { canvas: null, components: {} };
+            latestCanvasState = data.state || { canvas: null, components: {} };
             globalSubmitCallback.setAttribute('scope', currentCanvasPath);
             latestComponents = data.components.map((component, index) => ({
                 ...component,
@@ -1740,12 +1747,12 @@
             }));
             latestComponentByIndex = new Map(latestComponents.map(component => [component.index, component]));
             try {
-                await loadPresentation(data.presentation, data.presentationVersion, { canvasPath: currentCanvasPath });
+                await loadCanvas(data.canvasJsVersion, { canvasPath: currentCanvasPath });
             } catch (error) {
-                if (currentPresentation) {
-                    try { currentPresentation.teardown(); } catch {}
-                    currentPresentation = null;
-                    currentPresentationCacheKey = null;
+                if (currentCanvas) {
+                    try { currentCanvas.teardown(); } catch {}
+                    currentCanvas = null;
+                    currentCanvasCacheKey = null;
                 }
                 latestComponents = [{
                     index: 0,
@@ -2020,7 +2027,9 @@
                 activeLanes = new Set((state.jobs || []).map(job => job.lane).filter(Boolean));
                 syncBusyUI();
                 handleCompleted(payload.completed);
-                load().catch(showCanvasDamaged);
+                // No load() here: queue updates are purely about busy UI.
+                // File writes from completing jobs flow through their own
+                // components-changed events via fs.watch.
                 return;
             }
 
@@ -2045,15 +2054,15 @@
             }
 
             if (payload && payload.type === 'state-changed') {
-                latestPresentationState = payload.state || { canvas: null, components: {} };
-                if (currentPresentation && renderedItemsByIndex.size > 0) {
+                latestCanvasState = payload.state || { canvas: null, components: {} };
+                if (currentCanvas && renderedItemsByIndex.size > 0) {
                     const items = Array.from(renderedItemsByIndex.entries())
                         .sort(([a], [b]) => a - b)
                         .map(([, item]) => item);
                     try {
-                        currentPresentation.place(items, latestComponents, latestPresentationState);
+                        currentCanvas.place(items, latestComponents, latestCanvasState);
                     } catch (error) {
-                        console.error('presentation place threw on state update:', error);
+                        console.error('canvas.js place threw on state update:', error);
                         load().catch(showCanvasDamaged);
                     }
                 }

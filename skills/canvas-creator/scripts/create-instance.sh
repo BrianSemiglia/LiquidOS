@@ -50,26 +50,12 @@ mkdir -p "$CANVAS_DIR/components"
 
 if [ -d "$TEMPLATE_DIR" ]; then
     cp -R "$TEMPLATE_DIR/." "$CANVAS_DIR/"
-    rm -f "$CANVAS_DIR/canvas.html"
 fi
-
-for name in presentations; do
-    if [ -d "$SCRIPT_DIR/../$name" ]; then
-        mkdir -p "$CANVAS_DIR/$name"
-        cp -R "$SCRIPT_DIR/../$name/." "$CANVAS_DIR/$name/"
-    else
-        echo "Error: missing required $name directory in canvas-creator skill." >&2
-        exit 1
-    fi
-done
-
-mkdir -p "$CANVAS_DIR/components"
 
 if [ ! -f "$CANVAS_DIR/input.json" ]; then
     cat > "$CANVAS_DIR/input.json" <<'JSON'
 {
-  "components": [],
-  "presentation": "presentations/stack.js"
+  "components": []
 }
 JSON
 fi
@@ -79,7 +65,7 @@ const fs = require("fs");
 const inputPath = process.argv[1];
 const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
 if (!Array.isArray(input.components)) input.components = [];
-if (typeof input.presentation !== "string" || !input.presentation.trim()) input.presentation = "presentations/stack.js";
+delete input.presentation;
 fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + "\n");
 ' "$CANVAS_DIR/input.json"
 
