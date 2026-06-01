@@ -11,7 +11,7 @@ triggers:
 
 ## Components
 
-Every component is a folder under the canvas's `components/`. Inside, the live state lives in `presented/`. Multi-file changes are staged via a sandbox (see `../testing/SKILL.md`) and committed via the source workspace's `/workspace/apply` endpoint.
+Every component is a folder under the canvas's `components/`. Inside, the live state lives in `presented/`. Multi-file changes are staged via a sandbox (see `../testing/SKILL.md`) and committed via the source workspace's `/workspace/writes` endpoint.
 
 The harness's actual contract is small: it reads `presented/view.json` and invokes `presented/services/start.sh` if it exists. Everything else in the layout below is a recommendation the scaffold ships; the agent can replace any of it with a different approach.
 
@@ -48,23 +48,21 @@ The agent has two modes, picked by the shape of the change:
 
 **In place** — for single-file edits (the common case: progressive `view.html` rewrites during work). Write directly to `presented/<file>`. Each write is observable to the user and tracked by the harness watcher. This is the default.
 
-**Sandbox and apply** — for multi-file changes that would leave the component broken if applied one at a time (e.g., a `view.html` ↔ `functions.js` refactor where attribute selectors change in both). Boot a sandbox via `../testing/SKILL.md`, make all the edits in the sandbox copy, verify, then atomically apply by POSTing to the **source** server:
+**Sandbox and apply** — for multi-file changes that would leave the component broken if applied one at a time (e.g., a `view.html` ↔ `functions.js` refactor where attribute selectors change in both). Boot a sandbox via `../testing/SKILL.md`, make all the edits in the sandbox copy, verify, then atomically apply by POSTing to the **source** server's writes endpoint:
 
 ```sh
-curl -X POST http://127.0.0.1:<source-port>/workspace/apply \
+curl -X POST http://127.0.0.1:<source-port>/workspace/writes \
     -H 'content-type: application/json' \
     -d '{
       "sandbox": "/var/folders/.../sandbox-workspace/Workspace.liquidos",
-      "files": [
-        "home/components/foo/presented/view.html",
-        "home/components/foo/presented/functions.js"
+      "writes": [
+        { "path": "home/components/foo/presented/view.html", "from": "home/components/foo/presented/view.html" },
+        { "path": "home/components/foo/presented/functions.js", "from": "home/components/foo/presented/functions.js" }
       ]
     }'
 ```
 
-The endpoint pauses the workspace watcher, copies the listed files in order, then fires one refresh — the user sees one coherent transition, not a flicker per file. `files` are workspace-relative; the endpoint validates each path stays inside both the sandbox and the source.
-
-This replaces the older `.presented/` swap pattern for staged multi-file changes.
+The endpoint pauses the workspace watcher, processes the batch, then fires one refresh — the user sees one coherent transition, not a flicker per file. Each `write` entry is either `{ path, content }` (inline) or `{ path, from }` (copy from disk; relative `from` resolves against the optional top-level `sandbox`). Paths are workspace-relative.
 
 ### Mustache placeholders
 

@@ -125,19 +125,21 @@ State is JSON, lazy-created, hot-reloaded by the harness.
 
 Both layers are optional. Either may be `null`.
 
-Write via POST to `/state`:
+Write via POST to `/workspace/writes`:
 
 ```js
-fetch('/state', {
+fetch('/workspace/writes', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-        scope: 'canvas',                    // or 'component'
-        componentPath: '...',               // required when scope='component'
-        data: { camera: { x, y, z, yaw, pitch } }
+        writes: [
+            { path: '<canvas-name>/state.json', content: { camera: { x, y, z, yaw, pitch } } }
+        ]
     })
 });
 ```
+
+`path` is workspace-relative. `content` is any JSON-encodable value; the server writes it as pretty JSON. You can batch multiple writes in one call — the watcher pauses for the whole batch and emits one refresh.
 
 Debounce continuous inputs (camera scrolls, drags). The file is replaced verbatim — always send the full object you want stored.
 
@@ -154,22 +156,25 @@ The flow:
 
 1. Boot a sandbox of the workspace (`boot-workspace-sandbox.mjs`).
 2. Make all your edits in the sandbox copy. Verify with Playwright or by interacting via the sandbox URL.
-3. When ready, POST to the **source** server (not the sandbox):
+3. When ready, POST to the **source** server (not the sandbox), using the same `/workspace/writes` endpoint the browser uses — with `from` entries instead of `content`:
 
    ```sh
-   curl -X POST http://127.0.0.1:<source-port>/workspace/apply \
+   curl -X POST http://127.0.0.1:<source-port>/workspace/writes \
        -H 'content-type: application/json' \
        -d '{
          "sandbox": "/var/folders/.../sandbox-workspace/Workspace.liquidos",
-         "files": ["gadgets/canvas.js", "gadgets/components/foo/state.json"]
+         "writes": [
+           { "path": "gadgets/canvas.js", "from": "gadgets/canvas.js" },
+           { "path": "gadgets/components/foo/state.json", "from": "gadgets/components/foo/state.json" }
+         ]
        }'
    ```
 
-   The source server pauses its watcher, copies the listed files in, then emits one refresh event. The user sees one transition, not one per file.
+   The source server pauses its watcher, processes all writes, then emits one refresh event. The user sees one transition, not one per file.
 
 4. Terminate the sandbox launcher.
 
-`files` is workspace-relative paths. The endpoint validates each path is inside both the sandbox and the workspace (no traversal, no absolute paths), copies them in order, and broadcasts a single `update` so the client refetches and re-renders.
+Each write entry is `{ path, content }` (inline JSON) or `{ path, from }` (copy from disk; relative paths resolve against `sandbox` if provided). Paths are workspace-relative; absolute paths and `..` traversal are rejected.
 
 ### Loading state
 

@@ -1282,14 +1282,8 @@ const componentChangePayload = (entries, rendered) => {
     if (entries.length === 0) return null;
     if (!rendered || rendered.canvasError) return null;
 
-    // State-only edits (canvas/per-component state.json) don't alter
-    // component HTML, mount lifecycles, or services — only what canvas.js
-    // does with state. Ship just the new state so the client can re-call
-    // place() without re-staging items.
-    if (entries.every(entry => entry.kind === 'canvas-state')) {
-        return { type: 'state-changed', state: rendered.state || { canvas: null, components: {} } };
-    }
-
+    // When only component view files changed, ship the affected components
+    // in a typed event so the client can update them without a full reload.
     if (entries.every(entry => entry.kind === 'component') && Array.isArray(rendered.components)) {
         const dirtyFolders = new Set(entries.map(entry => entry.path));
         const components = rendered.components.filter(component =>
@@ -1299,6 +1293,10 @@ const componentChangePayload = (entries, rendered) => {
         return { type: 'components-changed', components };
     }
 
+    // Everything else (state.json, canvas.js, or any mix) emits a generic
+    // update; the client falls through to load() which is now cheap enough
+    // (existing DOM is reused; state changes flow through morph as no-ops)
+    // that a separate fast path isn't worth the API surface.
     return null;
 };
 
@@ -1791,13 +1789,17 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        if (req.method === 'POST' && url.pathname === '/workspace/apply') {
-            // Bulk apply changes the agent prepared in a sandbox into the
-            // live workspace. Pauses the watcher so the per-file copies
-            // don't fire individual change events, then emits one explicit
-            // refresh after all files have landed. Callers pass an absolute
-            // path to the sandbox workspace and a list of workspace-relative
-            // file paths they want copied over.
+        if (req.method === 'POST' && url.pathname === '/workspace/writes') {
+            // One endpoint for any workspace write — inline content
+            // (browser persisting state) or files copied from a sandbox
+            // (agent landing a verified batch). Each write entry takes one
+            // of two shapes:
+            //   { path, content }        — inline; content is a JSON-encodable
+            //                              value, written as JSON to path.
+            //   { path, from }           — copy; from is absolute or
+            //                              sandbox-relative if `sandbox` is set.
+            // The watcher pauses for the full batch and emits one refresh
+            // when the writes finish, so the client sees one coherent update.
             let body;
             try {
                 body = JSON.parse(await readBody(req) || '{}');
@@ -1805,122 +1807,99 @@ const server = http.createServer(async (req, res) => {
                 send(res, 400, 'invalid json: ' + error.message);
                 return;
             }
-            const sandbox = String(body.sandbox || '');
-            const files = Array.isArray(body.files) ? body.files : null;
 
-            if (!sandbox || !path.isAbsolute(sandbox)) {
-                send(res, 400, 'sandbox must be an absolute path');
+            const sandbox = body.sandbox != null ? String(body.sandbox) : null;
+            const writes = Array.isArray(body.writes) ? body.writes : null;
+
+            if (sandbox && !path.isAbsolute(sandbox)) {
+                send(res, 400, 'sandbox must be an absolute path when provided');
                 return;
             }
-            if (!fs.existsSync(sandbox) || !fs.statSync(sandbox).isDirectory()) {
+            if (sandbox && (!fs.existsSync(sandbox) || !fs.statSync(sandbox).isDirectory())) {
                 send(res, 400, 'sandbox path does not exist');
                 return;
             }
-            if (!files || files.length === 0) {
-                send(res, 400, 'files must be a non-empty array of workspace-relative paths');
+            if (!writes || writes.length === 0) {
+                send(res, 400, 'writes must be a non-empty array');
                 return;
             }
-            // Validate each file path is workspace-relative and resolves
-            // inside both the sandbox and the source. No traversal, no
-            // absolute paths.
+
             const planned = [];
-            for (const rel of files) {
-                if (typeof rel !== 'string' || rel.length === 0) {
-                    send(res, 400, 'file path must be a non-empty string');
+            for (const write of writes) {
+                if (!write || typeof write !== 'object') {
+                    send(res, 400, 'each write must be an object');
                     return;
                 }
-                if (path.isAbsolute(rel)) {
-                    send(res, 400, 'file path must be workspace-relative: ' + rel);
+                const rel = typeof write.path === 'string' ? write.path : '';
+                if (!rel || path.isAbsolute(rel)) {
+                    send(res, 400, 'write.path must be a non-empty workspace-relative string');
                     return;
                 }
-                const fromAbs = path.resolve(sandbox, rel);
                 const toAbs = path.resolve(WORKSPACE_PATH, rel);
-                if (!pathIsInside(fromAbs, sandbox)) {
-                    send(res, 400, 'file path escapes sandbox: ' + rel);
-                    return;
-                }
                 if (!pathIsInside(toAbs, WORKSPACE_PATH)) {
-                    send(res, 400, 'file path escapes workspace: ' + rel);
+                    send(res, 400, 'write.path escapes workspace: ' + rel);
                     return;
                 }
-                if (!fs.existsSync(fromAbs)) {
-                    send(res, 400, 'file does not exist in sandbox: ' + rel);
+                if (write.content !== undefined) {
+                    planned.push({ rel, toAbs, kind: 'inline', content: write.content });
+                } else if (typeof write.from === 'string' && write.from.length > 0) {
+                    const fromAbs = path.isAbsolute(write.from)
+                        ? path.resolve(write.from)
+                        : (sandbox ? path.resolve(sandbox, write.from) : null);
+                    if (!fromAbs) {
+                        send(res, 400, 'write.from is relative but no sandbox was provided: ' + rel);
+                        return;
+                    }
+                    if (sandbox && !pathIsInside(fromAbs, sandbox)) {
+                        send(res, 400, 'write.from escapes sandbox: ' + rel);
+                        return;
+                    }
+                    if (!fs.existsSync(fromAbs)) {
+                        send(res, 400, 'write.from does not exist: ' + rel);
+                        return;
+                    }
+                    planned.push({ rel, toAbs, kind: 'copy', fromAbs });
+                } else {
+                    send(res, 400, 'write must include either `content` or `from`: ' + rel);
                     return;
                 }
-                planned.push({ rel, fromAbs, toAbs });
             }
 
             watcherPaused = true;
-            const copied = [];
+            const applied = [];
             try {
-                for (const { rel, fromAbs, toAbs } of planned) {
-                    fs.mkdirSync(path.dirname(toAbs), { recursive: true });
-                    fs.copyFileSync(fromAbs, toAbs);
-                    copied.push(rel);
+                for (const write of planned) {
+                    fs.mkdirSync(path.dirname(write.toAbs), { recursive: true });
+                    if (write.kind === 'inline') {
+                        fs.writeFileSync(write.toAbs, JSON.stringify(write.content, null, 2) + '\n');
+                    } else {
+                        fs.copyFileSync(write.fromAbs, write.toAbs);
+                    }
+                    applied.push(write.rel);
                 }
             } catch (error) {
                 watcherPaused = false;
                 dirtyWatchEntries = [];
-                logServer('workspace', 'apply failed mid-copy', { error: error.message, copied });
-                send(res, 500, 'copy failed after ' + copied.length + ' of ' + planned.length + ' files: ' + error.message);
-                // Emit a refresh so the client sees whatever partial state landed.
+                logServer('workspace', 'writes failed mid-batch', { error: error.message, applied });
+                send(res, 500, 'write failed after ' + applied.length + ' of ' + planned.length + ': ' + error.message);
                 scheduleWatchRefresh();
                 return;
             }
             watcherPaused = false;
             dirtyWatchEntries = [];
 
-            // One explicit refresh: re-read the workspace, broadcast a
-            // generic 'update' so the client falls through to load() and
-            // picks up everything that changed in one pass.
+            // One explicit refresh: re-read workspace, broadcast generic
+            // update so the client runs load() once for the entire batch.
             try {
                 canvasGraph.renderedInput();
                 refreshGraphWatchers();
                 reconcileComponentServices();
             } catch (error) {
-                logHermesError('apply', error, { message: 'post-apply refresh failed' });
+                logHermesError('writes', error, { message: 'post-writes refresh failed' });
             }
             broadcast();
-            logServer('workspace', 'apply complete', { files: copied });
-            send(res, 200, JSON.stringify({ applied: copied }), 'application/json; charset=utf-8');
-            return;
-        }
-
-        if (req.method === 'POST' && url.pathname === '/state') {
-            try {
-                const body = JSON.parse(await readBody(req) || '{}');
-                const scope = String(body.scope || '');
-                const data = body.data === undefined ? null : body.data;
-
-                if (scope !== 'canvas' && scope !== 'component') {
-                    send(res, 400, 'scope must be "canvas" or "component"');
-                    return;
-                }
-
-                let targetFile;
-                if (scope === 'canvas') {
-                    targetFile = canvasGraph.canvasStatePath();
-                } else {
-                    const componentPath = String(body.componentPath || '');
-                    if (!componentPath) {
-                        send(res, 400, 'componentPath required for scope=component');
-                        return;
-                    }
-                    const absolute = resolveCanvasReference(componentPath);
-                    targetFile = canvasGraph.componentStatePath(absolute);
-                }
-
-                if (!pathIsInside(targetFile, CANVAS_PATH)) {
-                    send(res, 403, 'state file outside canvas');
-                    return;
-                }
-
-                fs.mkdirSync(path.dirname(targetFile), { recursive: true });
-                fs.writeFileSync(targetFile, JSON.stringify(data, null, 2) + '\n');
-                send(res, 204, '');
-            } catch (error) {
-                send(res, 400, error.message);
-            }
+            logServer('workspace', 'writes complete', { files: applied });
+            send(res, 200, JSON.stringify({ applied }), 'application/json; charset=utf-8');
             return;
         }
 

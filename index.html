@@ -898,9 +898,11 @@
         let debugLines = [];
         let debugState = null;
         let activeLanes = new Set();
-        const renderedItemsByIndex = new Map();
+        // Both maps key on the component's path (componentPath, absolute).
+        // Path is stable across input.json reorders; the array index is not.
+        const renderedItemsByPath = new Map();
         const componentMountsByItem = new WeakMap();
-        let latestComponentByIndex = new Map();
+        let latestComponentByPath = new Map();
         // Keep the open requirements editor tied to the component path so rerenders can restore it.
         let openRequirementsComponentPath = '';
         let lastCanvasSnapshot = '';
@@ -1481,9 +1483,7 @@
                 return;
             }
 
-            const item = Array.from(renderedItemsByIndex.values()).find(entry =>
-                String(entry.dataset.componentPath || '') === openRequirementsComponentPath
-            );
+            const item = renderedItemsByPath.get(openRequirementsComponentPath);
 
             if (!item) {
                 openRequirementsComponentPath = '';
@@ -1549,7 +1549,6 @@
         const renderComponent = component => {
             const item = document.createElement('section');
             item.className = 'item';
-            item.dataset.componentIndex = component.index;
             item.dataset.componentPath = component.scope || '';
             item.dataset.repairLevel = component.repairLevel || '';
             item.classList.toggle('canvas-repair-item', component.repairLevel === 'canvas');
@@ -1757,9 +1756,9 @@
                 const nextItems = [];
 
                 items.forEach(item => {
-                    const index = Number(item.dataset.componentIndex);
-                    const existing = renderedItemsByIndex.get(index);
-                    const component = latestComponentByIndex.get(index);
+                    const path = item.dataset.componentPath;
+                    const existing = renderedItemsByPath.get(path);
+                    const component = latestComponentByPath.get(path);
 
                     if (existing && component) {
                         updateComponentItem(existing, component);
@@ -1768,16 +1767,17 @@
                     }
 
                     nextItems.push(item);
-                    renderedItemsByIndex.set(index, item);
+                    renderedItemsByPath.set(path, item);
                     if (component) {
                         updateComponentItem(item, component);
                     }
                 });
 
-                Array.from(renderedItemsByIndex.entries()).forEach(([index, item]) => {
-                    if (!nextItems.includes(item)) {
+                const keepers = new Set(nextItems);
+                Array.from(renderedItemsByPath.entries()).forEach(([path, item]) => {
+                    if (!keepers.has(item)) {
                         destroyComponentFunctions(item);
-                        renderedItemsByIndex.delete(index);
+                        renderedItemsByPath.delete(path);
                     }
                 });
 
@@ -1857,18 +1857,12 @@
 
             return components.every(updated => {
                 const scope = updated.scope || '';
-                const item = Array.from(renderedItemsByIndex.values())
-                    .find(entry => entry.dataset.componentPath === scope);
+                const item = renderedItemsByPath.get(scope);
+                if (!item) return false;
 
-                if (!item) {
-                    return false;
-                }
-
-                const index = Number(item.dataset.componentIndex);
-                const merged = { ...updated, index };
-                const position = latestComponents.findIndex(component => component.index === index);
-
-                latestComponentByIndex.set(index, merged);
+                const position = latestComponents.findIndex(component => component.componentPath === updated.componentPath);
+                const merged = { ...updated };
+                latestComponentByPath.set(scope, merged);
                 if (position !== -1) {
                     latestComponents[position] = merged;
                 }
@@ -1901,12 +1895,11 @@
             latestCanvasState = data.state || { canvas: null, components: {} };
             updateWorkspaceMigrationOverlay(data.workspace);
             globalSubmitCallback.setAttribute('scope', currentCanvasPath);
-            latestComponents = data.components.map((component, index) => ({
+            latestComponents = data.components.map(component => ({
                 ...component,
-                index,
                 repairLevel: component.repairLevel || (data.canvasError && component.scope === data.canvasPath ? 'canvas' : '')
             }));
-            latestComponentByIndex = new Map(latestComponents.map(component => [component.index, component]));
+            latestComponentByPath = new Map(latestComponents.map(component => [component.scope, component]));
             try {
                 await loadCanvas(data.canvasJsVersion, { canvasPath: currentCanvasPath });
             } catch (error) {
@@ -1916,7 +1909,6 @@
                     currentCanvasCacheKey = null;
                 }
                 latestComponents = [{
-                    index: 0,
                     scope: currentCanvasPath || '.',
                     repairLevel: 'canvas',
                     html: repairCardHtml({
@@ -1926,9 +1918,16 @@
                         message: error.message
                     })
                 }];
-                latestComponentByIndex = new Map([[0, latestComponents[0]]]);
+                latestComponentByPath = new Map([[latestComponents[0].scope, latestComponents[0]]]);
             }
-            const items = latestComponents.map(renderComponent);
+            // Reuse existing DOM items when possible — only create a new
+            // <section> for components we haven't seen before. Previously this
+            // always called renderComponent for every component and let
+            // commit() throw away duplicates, which allocated DOM that ended
+            // up unused. The reuse here is what makes load() cheap enough that
+            // we don't need a separate state-changed fast path.
+            const items = latestComponents.map(component =>
+                renderedItemsByPath.get(component.scope) || renderComponent(component));
             instanceStyle.textContent = '';
             renderCanvas(items, null);
             lastCanvasSnapshot = snapshot;
@@ -2210,22 +2209,6 @@
                     syncCallbackState();
                 } else {
                     load().catch(showCanvasDamaged);
-                }
-                return;
-            }
-
-            if (payload && payload.type === 'state-changed') {
-                latestCanvasState = payload.state || { canvas: null, components: {} };
-                if (currentCanvas && renderedItemsByIndex.size > 0) {
-                    const items = Array.from(renderedItemsByIndex.entries())
-                        .sort(([a], [b]) => a - b)
-                        .map(([, item]) => item);
-                    try {
-                        currentCanvas.place(items, latestComponents, latestCanvasState);
-                    } catch (error) {
-                        console.error('canvas.js place threw on state update:', error);
-                        load().catch(showCanvasDamaged);
-                    }
                 }
                 return;
             }

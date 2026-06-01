@@ -60,33 +60,41 @@ home/input.json
 4. Inspect and edit output.workspace while testing.
 5. Use the browser like a user would.
 6. Reboot the sandbox when a clean run is useful.
-7. Apply the verified change to the source workspace via /workspace/apply.
+7. Apply the verified change to the source workspace via /workspace/writes.
 8. Terminate the launcher process when finished.
 ```
 
 ## Applying changes back to the source workspace
 
-When the changes verify in the sandbox, hand the list of changed files to the **source** server's apply endpoint:
+When the changes verify in the sandbox, POST the batch to the **source** server's writes endpoint:
 
 ```sh
-curl -X POST http://127.0.0.1:<source-port>/workspace/apply \
+curl -X POST http://127.0.0.1:<source-port>/workspace/writes \
     -H 'content-type: application/json' \
     -d '{
       "sandbox": "<sandbox-workspace-path>",
-      "files": ["<workspace-relative path>", ...]
+      "writes": [
+        { "path": "<workspace-relative>", "from": "<sandbox-relative>" },
+        { "path": "<workspace-relative>", "content": <inline JSON value> }
+      ]
     }'
 ```
 
+Each `write` entry is one of:
+
+- `{ path, content }` — inline JSON value, written to the workspace as pretty JSON.
+- `{ path, from }` — copy from disk. `from` resolves against the optional top-level `sandbox` when relative, or can be absolute.
+
 What the endpoint does, in one shot:
 
-- Validates each file path is workspace-relative, exists in the sandbox, and resolves inside both the sandbox and the source (no traversal).
+- Validates each path is workspace-relative; resolves inside the workspace; if a `from` is sandbox-relative, also inside the sandbox.
 - Pauses the source server's filesystem watcher.
-- Copies each file from `sandbox/<rel>` → `source/<rel>`, creating parent directories as needed.
-- Resumes the watcher and emits one refresh.
+- Processes each write in order, creating parent directories as needed.
+- Resumes the watcher and emits one refresh broadcast.
 
-The user sees a single coherent update instead of a per-file flicker. If any copy fails partway, the response is 500 with a count of how many landed; the workspace is left in a partial state and the next refresh is emitted so the client sees what actually happened.
+The user sees a single coherent update instead of a per-file flicker. If any write fails partway, the response is 500 with a count of how many landed; the workspace is left in a partial state and a refresh is emitted so the client sees what actually happened.
 
-Workspace-relative paths look like `"home/components/foo/presented/view.html"`. Absolute paths and `..` traversal are rejected.
+Workspace-relative paths look like `"home/components/foo/presented/view.html"`. Absolute paths and `..` traversal are rejected for `path`.
 
 ## Useful checks
 
