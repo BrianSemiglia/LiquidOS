@@ -76,6 +76,10 @@
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             color: rgba(232, 232, 234, 0.95);
         }
+        /* The custom display:flex above outranks the user-agent
+           [hidden]{display:none}, so without this rule the overlay would be
+           visible even when toggled hidden by JS. */
+        .workspace-migration-overlay[hidden] { display: none; }
         .workspace-migration-card {
             max-width: 32rem;
             padding: 1.4rem 1.6rem;
@@ -97,6 +101,20 @@
             line-height: 1.4;
             white-space: pre-wrap;
         }
+        .workspace-migration-actions { margin-top: 0.95rem; display: flex; justify-content: flex-end; }
+        .workspace-migration-actions button {
+            font: inherit;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #fff;
+            background: rgba(59, 130, 246, 0.9);
+            border: 1px solid rgba(96, 165, 250, 0.65);
+            border-radius: 8px;
+            padding: 0.4rem 0.9rem;
+            cursor: pointer;
+        }
+        .workspace-migration-actions button:disabled { opacity: 0.6; cursor: progress; }
+        .workspace-migration-actions button:hover:not(:disabled) { background: rgba(59, 130, 246, 1); }
 
         .global-prompt {
             position: fixed;
@@ -732,11 +750,12 @@
          migration agent. -->
     <div class="workspace-migration-overlay" id="workspace-migration-overlay" hidden>
         <div class="workspace-migration-card" role="status" aria-live="polite">
-            <div class="workspace-migration-title">Updating workspace</div>
-            <div class="workspace-migration-detail" id="workspace-migration-detail">
-                The runtime installed new skills. An agent is reconciling this workspace to match — usually a minute or two. Input is paused until it finishes.
-            </div>
+            <div class="workspace-migration-title" id="workspace-migration-title">Updating workspace</div>
+            <div class="workspace-migration-detail" id="workspace-migration-detail"></div>
             <div class="workspace-migration-error" id="workspace-migration-error" hidden></div>
+            <div class="workspace-migration-actions" id="workspace-migration-actions" hidden>
+                <button type="button" id="workspace-migration-retry">Try again</button>
+            </div>
         </div>
     </div>
     <div class="global-prompt" id="global-prompt-bar">
@@ -758,26 +777,69 @@
         const canvasShell = document.getElementById('canvas-shell');
         const globalForm = document.getElementById('global-prompt');
         const workspaceMigrationOverlay = document.getElementById('workspace-migration-overlay');
+        const workspaceMigrationTitle = document.getElementById('workspace-migration-title');
         const workspaceMigrationDetail = document.getElementById('workspace-migration-detail');
         const workspaceMigrationError = document.getElementById('workspace-migration-error');
+        const workspaceMigrationActions = document.getElementById('workspace-migration-actions');
+        const workspaceMigrationRetry = document.getElementById('workspace-migration-retry');
+
+        workspaceMigrationRetry.addEventListener('click', async () => {
+            workspaceMigrationRetry.disabled = true;
+            workspaceMigrationRetry.textContent = 'Retrying…';
+            try {
+                await fetch('/workspace/retry-migration', { method: 'POST' });
+            } catch {
+                // The next SSE-triggered /input refresh will surface whatever
+                // state the server lands in (running, failed again, or done),
+                // so swallow transient fetch errors here. updateWorkspaceMigra-
+                // tionOverlay will re-enable the button if we're back in the
+                // error state.
+            }
+        });
+
+        // Dev-only URL override for the migration overlay so the visual can
+        // be exercised without invoking the live agent runtime. Recognised
+        // values: "running", "error", "pending-error", "off". Anything else
+        // (or absent) falls through to the real workspace state from /input.
+        // Read once per call so reload toggles work.
+        const migrationOverlayUrlOverride = () => {
+            try {
+                const value = new URL(window.location.href).searchParams.get('mig');
+                if (!value) return null;
+                if (value === 'off') return { migrationRunning: false, migrationPending: false, migrationLastError: null };
+                if (value === 'running') return { migrationRunning: true, migrationPending: true, migrationLastError: null };
+                if (value === 'error' || value === 'pending-error') {
+                    return {
+                        migrationRunning: false,
+                        migrationPending: true,
+                        migrationLastError: 'Simulated migration error for visual test'
+                    };
+                }
+                return null;
+            } catch { return null; }
+        };
 
         // Mirrors data.workspace from /input. Shown when a migration is
         // running so user input can't race the agent, and surfaces the last
-        // error if the most recent attempt failed.
+        // error (plus a Try Again button) if the most recent attempt failed
+        // so the user isn't stuck at a dead end.
         const updateWorkspaceMigrationOverlay = workspace => {
-            const running = Boolean(workspace?.migrationRunning);
-            const pending = Boolean(workspace?.migrationPending);
-            const error = workspace?.migrationLastError || null;
+            const source = migrationOverlayUrlOverride() || workspace || {};
+            const running = Boolean(source.migrationRunning);
+            const pending = Boolean(source.migrationPending);
+            const error = source.migrationLastError || null;
             const show = running || (pending && error);
             workspaceMigrationOverlay.hidden = !show;
             if (!show) return;
 
             if (running) {
+                workspaceMigrationTitle.textContent = 'Updating workspace';
                 workspaceMigrationDetail.textContent =
                     'The runtime installed new skills. An agent is reconciling this workspace to match — usually a minute or two. Input is paused until it finishes.';
             } else {
+                workspaceMigrationTitle.textContent = 'Workspace update failed';
                 workspaceMigrationDetail.textContent =
-                    'A workspace migration is pending. The previous attempt did not finish; the runtime will retry on next launch.';
+                    'The migration agent didn’t finish. You can try again, or quit and restart to retry.';
             }
 
             if (error) {
@@ -787,7 +849,17 @@
                 workspaceMigrationError.hidden = true;
                 workspaceMigrationError.textContent = '';
             }
+
+            const showRetry = !running && pending;
+            workspaceMigrationActions.hidden = !showRetry;
+            if (showRetry) {
+                workspaceMigrationRetry.disabled = false;
+                workspaceMigrationRetry.textContent = 'Try again';
+            }
         };
+        // Apply the override (if any) immediately so ?mig= works before the
+        // first /input arrives.
+        updateWorkspaceMigrationOverlay(null);
         const globalText = document.getElementById('global-text');
         const globalSubmitCallback = document.getElementById('global-submit-callback');
         const globalPromptBar = document.getElementById('global-prompt-bar');

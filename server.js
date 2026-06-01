@@ -256,6 +256,43 @@ const summarizeMigrationError = raw => {
     return cleaned.length > 240 ? cleaned.slice(0, 237) + '...' : cleaned;
 };
 
+// Single entry point for kicking off a migration. Idempotent: returns
+// { ok: false, reason } if there's nothing to do or a run is already in
+// flight, so callers don't need to know the state. Used by both startup
+// auto-fire and the manual /workspace/retry-migration endpoint.
+const dispatchMigration = () => {
+    if (MIGRATION_STATE.running) return { ok: false, reason: 'already-running' };
+    if (!isMigrationPending()) return { ok: false, reason: 'no-marker' };
+
+    MIGRATION_STATE.running = true;
+    MIGRATION_STATE.lastError = null;
+    broadcast();
+
+    setImmediate(() => {
+        runMigration({ workspacePath: WORKSPACE_PATH, activeRuntime, logServer })
+            .then(result => {
+                logServer('migration', 'run complete', result);
+                if (result?.error) {
+                    MIGRATION_STATE.lastError = summarizeMigrationError(result.error);
+                } else if (result?.markerCleared === false) {
+                    MIGRATION_STATE.lastError = 'agent returned but did not clear the migration marker';
+                } else {
+                    MIGRATION_STATE.lastError = null;
+                }
+            })
+            .catch(error => {
+                logServer('migration', 'run errored', { error: error.message });
+                MIGRATION_STATE.lastError = summarizeMigrationError(error.message);
+            })
+            .finally(() => {
+                MIGRATION_STATE.running = false;
+                broadcast();
+            });
+    });
+
+    return { ok: true };
+};
+
 const runtimeSet = createRuntimes({
     workspacePath: WORKSPACE_PATH,
     runtimePath: AGENT_RUNTIME_PATH,
@@ -1627,6 +1664,20 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        if (req.method === 'POST' && url.pathname === '/workspace/retry-migration') {
+            const result = dispatchMigration();
+            if (result.ok) {
+                send(res, 202, '');
+            } else if (result.reason === 'already-running') {
+                send(res, 409, 'migration already running');
+            } else if (result.reason === 'no-marker') {
+                send(res, 204, '');
+            } else {
+                send(res, 500, 'unknown dispatch state');
+            }
+            return;
+        }
+
         if (req.method === 'POST' && url.pathname === '/state') {
             try {
                 const body = JSON.parse(await readBody(req) || '{}');
@@ -1877,34 +1928,7 @@ server.listen(PORT, '127.0.0.1', () => {
 
     // If skills-sync committed a delta this startup (or a prior startup
     // committed one that no agent has cleared yet), fire the migration agent.
-    // Runs async — the server stays up and /input keeps reporting
-    // migrationRunning until the agent removes the marker. On failure the
-    // marker stays put, so the next launch will retry.
-    if (isMigrationPending()) {
-        MIGRATION_STATE.running = true;
-        MIGRATION_STATE.lastError = null;
-        broadcast();
-
-        setImmediate(() => {
-            runMigration({ workspacePath: WORKSPACE_PATH, activeRuntime, logServer })
-                .then(result => {
-                    logServer('migration', 'run complete', result);
-                    if (result?.error) {
-                        MIGRATION_STATE.lastError = summarizeMigrationError(result.error);
-                    } else if (result?.markerCleared === false) {
-                        MIGRATION_STATE.lastError = 'agent returned but did not clear the migration marker';
-                    } else {
-                        MIGRATION_STATE.lastError = null;
-                    }
-                })
-                .catch(error => {
-                    logServer('migration', 'run errored', { error: error.message });
-                    MIGRATION_STATE.lastError = summarizeMigrationError(error.message);
-                })
-                .finally(() => {
-                    MIGRATION_STATE.running = false;
-                    broadcast();
-                });
-        });
-    }
+    // The dispatchMigration helper is a no-op if there's no marker or a run
+    // is already in flight, so the call is safe regardless of state.
+    dispatchMigration();
 });
