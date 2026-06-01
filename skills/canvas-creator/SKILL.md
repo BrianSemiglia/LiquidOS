@@ -146,20 +146,6 @@ Debounce continuous inputs (camera scrolls, drags). The file is replaced verbati
 - Edit `canvas.js` → harness re-imports the module, calls `teardown()` on the prior instance, runs the factory again, places fresh.
 - Edit a `state.json` file → harness re-aggregates and calls `place()` again with the new state. canvas.js stays mounted, just gets new data.
 
-### Editing canvas.js: use a draft
-
-For anything beyond a small in-place tweak, edit in a draft file first and only swap into `canvas.js` once you're done. Suggested name: `<canvas>/.canvas.js` (dot-prefixed; symmetric with the `.presented/` staging the components use).
-
-The harness only watches the canvas root for changes to two specific filenames — `canvas.js` and `state.json`. Anything else at the root is ignored, so a draft file produces no hot-reload churn while you're iterating. When the draft is ready:
-
-```sh
-mv .canvas.js canvas.js
-```
-
-The single watcher event fires, the harness re-imports once, the user sees one clean transition instead of every intermediate broken state. Same reason the component contract has `.presented/` — staging so the harness doesn't observe inconsistent in-progress edits.
-
-You can `node --check .canvas.js` before swapping to catch syntax errors without ever surfacing them to the canvas.
-
 ### Loading state
 
 When you create or update a component instance, the first visible response should be a loading-state version of the relevant component. Keep it in place while work continues.
