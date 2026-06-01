@@ -1398,6 +1398,16 @@ const refreshGraphWatchers = () => {
                     const isPresented = filename === 'presented' || filename.startsWith('presented/');
                     const isState = filename === 'state.json';
                     if (!isPresented && !isState) return;
+                    // Per-component state.json is state, not a component
+                    // update — route it through the same canvas-state path
+                    // as the canvas's own state.json so canvas.js's place()
+                    // re-runs with the new state and cards reposition. The
+                    // default component-kind path goes through applyComponent-
+                    // Updates which only swaps html, leaving stale transforms.
+                    if (isState && !isPresented) {
+                        scheduleWatchRefresh({ ...entry, kind: 'canvas-state' });
+                        return;
+                    }
                 }
                 // The canvas-root watch covers state.json (fast path: re-place
                 // without re-staging) and canvas.js (presentation reload).

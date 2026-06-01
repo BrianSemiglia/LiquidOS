@@ -279,7 +279,12 @@ const createCanvasGraph = ({
         const canvasState = readJsonOrNull(canvasStatePath());
         const componentsState = {};
         leaves.forEach(({ componentPath }) => {
-            const scope = componentScopePath(componentPath);
+            // Key the state map by the same scope the components[] array
+            // exposes (componentScope, absolute path). canvas.js looks up
+            // state.components[components[i].scope]; if these differ the
+            // lookup misses and per-component placement silently falls back
+            // to the canvas default.
+            const scope = componentScope(componentPath);
             componentsState[scope] = readJsonOrNull(componentStatePath(componentPath));
         });
         return { canvas: canvasState, components: componentsState };
