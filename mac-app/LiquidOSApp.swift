@@ -66,6 +66,12 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     private func showWindow() {
         let configuration = WKWebViewConfiguration()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        // HTML5 element fullscreen (Element.requestFullscreen()) is off by
+        // default in WKWebView on macOS — without this, an iframe video
+        // player's "fullscreen" button does nothing. macOS 12.3+.
+        if #available(macOS 12.3, *) {
+            configuration.preferences.isElementFullscreenEnabled = true
+        }
         configuration.userContentController.add(self, name: "liquidosMac")
 
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -145,14 +151,19 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         return nil
     }
 
-    // Keep the app on its local server; send external links to the browser, and let
-    // download links (the `download` attribute) become real downloads.
+    // Keep the app on its local server; send user-clicked external links to the
+    // browser, and let download links (the `download` attribute) become real
+    // downloads. Iframe loads and subresource navigations are NOT intercepted —
+    // a component embedding e.g. a third-party player iframe needs that iframe
+    // to actually load inline, not get hijacked to Safari.
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        if let url = navigationAction.request.url, isExternalLink(url) {
+        let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? false
+        let isLinkClick = navigationAction.navigationType == .linkActivated
+        if isMainFrame, isLinkClick, let url = navigationAction.request.url, isExternalLink(url) {
             openExternally(url)
             decisionHandler(.cancel)
             return
