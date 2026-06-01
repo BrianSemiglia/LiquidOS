@@ -1495,7 +1495,7 @@ const componentFolderPath = componentPath =>
         : path.dirname(componentPath);
 
 const componentFeatureFile = componentPath =>
-    path.join(componentFolderPath(componentPath), 'feature-requirements.md');
+    path.join(componentFolderPath(componentPath), 'presented', 'feature-requirements.md');
 
 const readComponentFeatureText = componentPath => {
     const file = componentFeatureFile(componentPath);
