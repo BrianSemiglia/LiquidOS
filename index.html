@@ -101,7 +101,7 @@
             line-height: 1.4;
             white-space: pre-wrap;
         }
-        .workspace-migration-actions { margin-top: 0.95rem; display: flex; justify-content: flex-end; }
+        .workspace-migration-actions { margin-top: 0.95rem; display: flex; justify-content: flex-end; gap: 0.6rem; }
         .workspace-migration-actions button {
             font: inherit;
             font-size: 0.82rem;
@@ -115,6 +115,15 @@
         }
         .workspace-migration-actions button:disabled { opacity: 0.6; cursor: progress; }
         .workspace-migration-actions button:hover:not(:disabled) { background: rgba(59, 130, 246, 1); }
+        .workspace-migration-actions button.is-secondary {
+            background: transparent;
+            color: rgba(232, 232, 234, 0.7);
+            border-color: rgba(255, 255, 255, 0.18);
+        }
+        .workspace-migration-actions button.is-secondary:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.06);
+            color: rgba(232, 232, 234, 0.95);
+        }
 
         .global-prompt {
             position: fixed;
@@ -754,7 +763,8 @@
             <div class="workspace-migration-detail" id="workspace-migration-detail"></div>
             <div class="workspace-migration-error" id="workspace-migration-error" hidden></div>
             <div class="workspace-migration-actions" id="workspace-migration-actions" hidden>
-                <button type="button" id="workspace-migration-retry">Try again</button>
+                <button type="button" id="workspace-migration-cancel" hidden>Cancel</button>
+                <button type="button" id="workspace-migration-retry" hidden>Try again</button>
             </div>
         </div>
     </div>
@@ -782,6 +792,8 @@
         const workspaceMigrationError = document.getElementById('workspace-migration-error');
         const workspaceMigrationActions = document.getElementById('workspace-migration-actions');
         const workspaceMigrationRetry = document.getElementById('workspace-migration-retry');
+        const workspaceMigrationCancel = document.getElementById('workspace-migration-cancel');
+        workspaceMigrationCancel.classList.add('is-secondary');
 
         workspaceMigrationRetry.addEventListener('click', async () => {
             workspaceMigrationRetry.disabled = true;
@@ -794,6 +806,19 @@
                 // so swallow transient fetch errors here. updateWorkspaceMigra-
                 // tionOverlay will re-enable the button if we're back in the
                 // error state.
+            }
+        });
+
+        workspaceMigrationCancel.addEventListener('click', async () => {
+            workspaceMigrationCancel.disabled = true;
+            workspaceMigrationCancel.textContent = 'Cancelling…';
+            try {
+                await fetch('/workspace/cancel-migration', { method: 'POST' });
+            } catch {
+                // The runtime's broadcast on cancel completion will refresh
+                // /input and the overlay state, so swallow transient errors
+                // here. If the cancel didn't take effect (no PID, etc.), the
+                // overlay stays in running state and the button re-enables.
             }
         });
 
@@ -850,8 +875,18 @@
                 workspaceMigrationError.textContent = '';
             }
 
+            // Action visibility: Cancel while running (lets the user abort an
+            // agent run they think is stuck or unwanted), Try Again when the
+            // last attempt failed and they want to re-fire it.
+            const showCancel = running;
             const showRetry = !running && pending;
-            workspaceMigrationActions.hidden = !showRetry;
+            workspaceMigrationActions.hidden = !(showCancel || showRetry);
+            workspaceMigrationCancel.hidden = !showCancel;
+            workspaceMigrationRetry.hidden = !showRetry;
+            if (showCancel) {
+                workspaceMigrationCancel.disabled = false;
+                workspaceMigrationCancel.textContent = 'Cancel';
+            }
             if (showRetry) {
                 workspaceMigrationRetry.disabled = false;
                 workspaceMigrationRetry.textContent = 'Try again';

@@ -91,7 +91,8 @@ const buildWorkspaceFixPrompt = ({ workspacePath, marker }) => {
 const runMigration = async ({
     workspacePath,
     activeRuntime,
-    logServer
+    logServer,
+    systemPromptPath = null
 }) => {
     const marker = readMarker(workspacePath);
     if (!marker) return { skipped: 'no-marker' };
@@ -100,7 +101,8 @@ const runMigration = async ({
 
     logServer('migration', 'agent invoked', {
         errors: marker.errors,
-        skillsSha: marker.syncedSkillsSha || null
+        skillsSha: marker.syncedSkillsSha || null,
+        systemPromptPath
     });
 
     let response = '';
@@ -111,6 +113,11 @@ const runMigration = async ({
             canvasPath: workspacePath,
             inputPath: null,
             outputPath: null,
+            // Threading the same systemPromptPath that queued component jobs
+            // use so the migration agent gets the standard runtime context
+            // (AGENTS.md). Without it, the agent operates without the
+            // baseline rules other agent jobs see.
+            systemPromptPath,
             job: { id: 'workspace-fix-' + Date.now(), event: 'Runtime did request workspace fix' }
         });
     } catch (e) {

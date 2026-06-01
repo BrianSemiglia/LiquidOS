@@ -322,7 +322,12 @@ const dispatchMigration = () => {
     broadcast();
 
     setImmediate(() => {
-        runMigration({ workspacePath: WORKSPACE_PATH, activeRuntime, logServer })
+        runMigration({
+            workspacePath: WORKSPACE_PATH,
+            activeRuntime,
+            logServer,
+            systemPromptPath: AGENTS_RUNTIME_PATH
+        })
             .then(result => {
                 logServer('migration', 'run complete', result);
                 if (result?.error) {
@@ -1682,6 +1687,15 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'POST' && url.pathname === '/output') {
+            // Belt-and-suspenders over the overlay: even if the client bypasses
+            // the migration UI (programmatic fetch, browser bookmark, etc.),
+            // refuse to queue new agent work while the workspace is being
+            // reconciled. Two agents racing the same workspace = corrupted
+            // git state + unpredictable outcomes.
+            if (MIGRATION_STATE.running) {
+                send(res, 409, 'workspace migration in progress — try again when it finishes');
+                return;
+            }
             await appendOutput(req);
             outputQueue.feedHermesOutput();
             broadcastQueueState();
@@ -1727,6 +1741,32 @@ const server = http.createServer(async (req, res) => {
                 send(res, 204, '');
             } else {
                 send(res, 500, 'unknown dispatch state');
+            }
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/workspace/cancel-migration') {
+            // Asks the runtime to stop the in-flight agent. The promise the
+            // runtime returned will reject when the child exits, the existing
+            // .catch handler captures the error, and the marker stays put —
+            // user lands back on the overlay with Try Again available.
+            if (!MIGRATION_STATE.running) {
+                send(res, 409, 'no migration to cancel');
+                return;
+            }
+            const debug = activeRuntime.currentDebug ? activeRuntime.currentDebug() : null;
+            const pid = debug && typeof debug.pid === 'number' ? debug.pid : null;
+            if (!pid) {
+                send(res, 409, 'agent pid unknown — cannot cancel');
+                return;
+            }
+            try {
+                process.kill(pid, 'SIGTERM');
+                logServer('migration', 'cancel requested', { pid });
+                send(res, 202, '');
+            } catch (error) {
+                logServer('migration', 'cancel failed', { pid, error: error.message });
+                send(res, 500, 'kill failed: ' + error.message);
             }
             return;
         }
