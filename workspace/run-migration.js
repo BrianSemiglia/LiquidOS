@@ -1,17 +1,13 @@
 // Workspace-fix runner.
 //
 // The runtime writes .liquidos/workspace-error when its startup detects a
-// workspace-level problem it can't load past (see collectWorkspaceErrors in
-// server.js). This module reads that workspace-error file, asks the active
-// runtime to repair the workspace, and trusts the agent to delete the file
-// when done.
-//
-// The workspace-error file is a JSON document with an `errors` array
-// describing what failed, plus optional context (e.g., the SHA of the most
-// recent skills sync). The agent uses both the file and the workspace's
-// current skills to decide how to fix things — and is explicitly allowed to
-// refuse if the problem is outside what skills + workspace state can
-// repair.
+// workspace-level problem (see collectWorkspaceErrors in server.js). This
+// module reads that workspace-error file and asks the active runtime to
+// repair the workspace. The runtime itself manages the file — it re-runs
+// the detector after the agent finishes and rewrites the file with the new
+// state — so the agent doesn't need to delete or rewrite the file. The
+// agent's job is to fix the workspace; the empirical re-check is the
+// validation.
 
 const fs = require('fs');
 const path = require('path');
@@ -64,15 +60,17 @@ const buildWorkspaceFixPrompt = ({ workspacePath, errorFile }) => {
         '       b. Run it. Fix and re-run if it fails partway.',
         '       c. Commit the resulting workspace changes (excluding .liquidos/)',
         '          with a message starting "workspace: migrated for skills".',
-        '       d. Delete <workspace>/.liquidos/workspace-error. That is the',
-        '          signal the runtime watches for to know the fix is done.',
         '  4. If the problem is OUTSIDE your authority — a runtime bug, an',
         '     environmental issue (permissions, disk), or anything that',
-        '     reading skills + editing workspace files can\'t address — leave',
-        '     the workspace-error file in place and explain in your final',
-        '     response why this is out of scope. The user will see your',
-        '     reasoning and can decide whether to retry or fix the underlying',
-        '     issue manually.',
+        '     reading skills + editing workspace files can\'t address — just',
+        '     explain in your final response why this is out of scope. The',
+        '     user will see your reasoning and can decide whether to retry or',
+        '     fix the underlying issue manually.',
+        '',
+        'You do NOT need to touch <workspace>/.liquidos/workspace-error.',
+        'The runtime owns that file; it re-runs its own detector after you',
+        'exit and rewrites the file with whatever errors remain (none means',
+        'we\'re done; remaining errors mean another attempt is warranted).',
         '',
         'Things you should NOT touch from here: individual canvas content or',
         'component content. Canvas and component issues have their own repair',
@@ -127,20 +125,12 @@ const runMigration = async ({
         error = e.message;
     }
 
-    const stillPresent = fs.existsSync(path.join(workspacePath, WORKSPACE_ERROR_FILE_REL));
-
     logServer('migration', error ? 'agent failed' : 'agent returned', {
-        errorFileCleared: !stillPresent,
         error,
         responsePreview: String(response || '').slice(0, 300)
     });
 
-    return {
-        ran: true,
-        errorFileCleared: !stillPresent,
-        error,
-        response
-    };
+    return { ran: true, error, response };
 };
 
 module.exports = { runMigration, buildWorkspaceFixPrompt, WORKSPACE_ERROR_FILE_REL };

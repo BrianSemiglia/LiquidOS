@@ -237,16 +237,17 @@ if (SKILLS_SYNC.error) {
     }
 }
 
-// Tracks the lifecycle of the current/last workspace-fix run. /input
-// exposes this so the client can show a loading state and the user can see
-// why the canvas is unresponsive. lastError persists across the run so a
-// user looking at the workspace after a failed startup knows what went
-// wrong.
+// Tracks the workspace-fix lifecycle. `errorCount` is the source of truth
+// for "does this workspace need fixing right now" — the on-disk
+// workspace-error file is a mirror that the agent reads, not the
+// authority. We keep the file in place across success/failure cycles so
+// its git history stays continuous (no delete-and-recreate gaps to walk
+// past with --follow).
 const MIGRATION_STATE = {
     running: false,
-    lastError: null
+    errorCount: 0
 };
-const isMigrationPending = () => fs.existsSync(path.join(WORKSPACE_PATH, WORKSPACE_ERROR_FILE_REL));
+const isMigrationPending = () => MIGRATION_STATE.errorCount > 0;
 
 // Catch-all detector for workspace-scope problems. Wraps each top-level
 // invariant in its own try/catch so a failure in one area doesn't suppress
@@ -288,27 +289,29 @@ const collectWorkspaceErrors = () => {
     return errors;
 };
 
+// Writes the workspace-error file to mirror MIGRATION_STATE.errorCount.
+// The file is never deleted — empty `errors` arrays are written in place
+// so git history follows a single file across success/failure cycles
+// without needing --follow. The leading "_readme" key explains the file
+// to anyone (or any agent) looking at it in isolation, so an empty
+// errors array isn't mistaken for "something's wrong here."
 const writeWorkspaceErrorFile = (errors, context = {}) => {
     const errorFilePath = path.join(WORKSPACE_PATH, WORKSPACE_ERROR_FILE_REL);
     fs.mkdirSync(path.dirname(errorFilePath), { recursive: true });
     const body = {
-        detectedAt: new Date().toISOString(),
+        _readme: 'Snapshot of the runtime\'s most recent workspace-level error check. ' +
+            'An empty `errors` array means the workspace passes its checks; presence of this file alone does not indicate a problem.',
         errors,
         ...context
     };
     fs.writeFileSync(errorFilePath, JSON.stringify(body, null, 2) + '\n');
 };
 
-// Agent runtimes that fail mid-run can return the entire captured stdout
-// (often a 5-10KB JSON stream) as the error string. Trim it down to
-// something a human can read in an overlay; the full output is still in
-// the agent runtime's own log.
-const summarizeMigrationError = raw => {
-    const text = String(raw || '').trim();
-    if (!text) return null;
-    const firstLine = text.split('\n').find(line => line.trim().length > 0) || text;
-    const cleaned = firstLine.replace(/\s+/g, ' ').trim();
-    return cleaned.length > 240 ? cleaned.slice(0, 237) + '...' : cleaned;
+const syncWorkspaceErrorFile = errors => {
+    writeWorkspaceErrorFile(errors, {
+        syncedSkillsSha: SKILLS_SYNC.sha || null,
+        syncedSkillsParentSha: SKILLS_SYNC.parentSha || null
+    });
 };
 
 // Single entry point for kicking off a migration. Idempotent: returns
@@ -317,10 +320,9 @@ const summarizeMigrationError = raw => {
 // auto-fire and the manual /workspace/retry-migration endpoint.
 const dispatchMigration = () => {
     if (MIGRATION_STATE.running) return { ok: false, reason: 'already-running' };
-    if (!isMigrationPending()) return { ok: false, reason: 'no-workspace-error-file' };
+    if (!isMigrationPending()) return { ok: false, reason: 'no-pending-errors' };
 
     MIGRATION_STATE.running = true;
-    MIGRATION_STATE.lastError = null;
     broadcast();
 
     setImmediate(() => {
@@ -330,21 +332,20 @@ const dispatchMigration = () => {
             logServer,
             systemPromptPath: AGENTS_RUNTIME_PATH
         })
-            .then(result => {
-                logServer('migration', 'run complete', result);
-                if (result?.error) {
-                    MIGRATION_STATE.lastError = summarizeMigrationError(result.error);
-                } else if (result?.errorFileCleared === false) {
-                    MIGRATION_STATE.lastError = 'The fix didn’t complete.';
-                } else {
-                    MIGRATION_STATE.lastError = null;
-                }
-            })
-            .catch(error => {
-                logServer('migration', 'run errored', { error: error.message });
-                MIGRATION_STATE.lastError = summarizeMigrationError(error.message);
-            })
+            .then(result => logServer('migration', 'run complete', result))
+            .catch(error => logServer('migration', 'run errored', { error: error.message }))
             .finally(() => {
+                // The agent doesn't manage the workspace-error file — we do.
+                // Re-run the detector now that the agent is done. The file
+                // is a snapshot of what the workspace actually looks like,
+                // not a flag the agent has to remember to clear. Whether
+                // empty or not, we write the new state so git history
+                // tracks the same file across success/failure cycles and
+                // the next attempt (auto-retry on next launch, or Try
+                // Again) sees fresh context.
+                const remainingErrors = collectWorkspaceErrors();
+                MIGRATION_STATE.errorCount = remainingErrors.length;
+                syncWorkspaceErrorFile(remainingErrors);
                 MIGRATION_STATE.running = false;
                 broadcast();
             });
@@ -1635,7 +1636,6 @@ const server = http.createServer(async (req, res) => {
             const workspace = {
                 migrationPending: isMigrationPending(),
                 migrationRunning: MIGRATION_STATE.running,
-                migrationLastError: MIGRATION_STATE.lastError,
                 lastSkillsSha: SKILLS_SYNC.sha || null,
                 lastSkillsParentSha: SKILLS_SYNC.parentSha || null
             };
@@ -1739,7 +1739,7 @@ const server = http.createServer(async (req, res) => {
                 send(res, 202, '');
             } else if (result.reason === 'already-running') {
                 send(res, 409, 'migration already running');
-            } else if (result.reason === 'no-workspace-error-file') {
+            } else if (result.reason === 'no-pending-errors') {
                 send(res, 204, '');
             } else {
                 send(res, 500, 'unknown dispatch state');
@@ -2021,21 +2021,22 @@ server.listen(PORT, '127.0.0.1', () => {
     console.log('Input: ' + INPUT_PATH);
     console.log('Output: ' + OUTPUT_PATH);
 
-    // Catch-all detection for workspace-level errors. If anything at the
-    // workspace's top-level state failed to load, write the workspace-error
-    // file with the captured errors so the next dispatchMigration() call
-    // fires the fix agent. Canvas- and component-level issues are
+    // Catch-all detection for workspace-level errors. Snapshot whatever the
+    // workspace looks like right now into the workspace-error file (empty
+    // errors array if everything's fine) and update MIGRATION_STATE so
+    // /input reflects whether we need to fix anything. dispatchMigration is
+    // a no-op when errorCount is 0. Canvas- and component-level issues are
     // intentionally not included here — those have their own repair flows.
-    // A workspace-error file that survived from a previous startup (agent
-    // failure or rejection) also stays in place; dispatchMigration() is a
-    // no-op when nothing is wrong.
     const workspaceErrors = collectWorkspaceErrors();
+    MIGRATION_STATE.errorCount = workspaceErrors.length;
+    if (workspaceErrors.length > 0 || fs.existsSync(path.join(WORKSPACE_PATH, WORKSPACE_ERROR_FILE_REL))) {
+        // Write the file when there's something to report OR the file
+        // already exists from a previous session (so we preserve a single
+        // continuous file in git rather than re-creating it).
+        syncWorkspaceErrorFile(workspaceErrors);
+    }
     if (workspaceErrors.length > 0) {
         logServer('workspace', 'errors detected at startup', { errors: workspaceErrors });
-        writeWorkspaceErrorFile(workspaceErrors, {
-            syncedSkillsSha: SKILLS_SYNC.sha || null,
-            syncedSkillsParentSha: SKILLS_SYNC.parentSha || null
-        });
     }
     dispatchMigration();
 });

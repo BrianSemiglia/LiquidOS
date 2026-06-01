@@ -90,17 +90,6 @@
         }
         .workspace-migration-title { font-weight: 600; font-size: 1rem; margin-bottom: 0.5rem; }
         .workspace-migration-detail { font-size: 0.85rem; line-height: 1.45; color: rgba(232, 232, 234, 0.75); }
-        .workspace-migration-error {
-            margin-top: 0.85rem;
-            padding: 0.6rem 0.75rem;
-            border-radius: 8px;
-            background: rgba(127, 29, 29, 0.45);
-            border: 1px solid rgba(252, 165, 165, 0.35);
-            color: #fecaca;
-            font-size: 0.78rem;
-            line-height: 1.4;
-            white-space: pre-wrap;
-        }
         .workspace-migration-actions { margin-top: 0.95rem; display: flex; justify-content: flex-end; gap: 0.6rem; }
         .workspace-migration-actions button {
             font: inherit;
@@ -759,9 +748,8 @@
          agent on the same workspace's git state. -->
     <div class="workspace-migration-overlay" id="workspace-migration-overlay" hidden>
         <div class="workspace-migration-card" role="status" aria-live="polite">
-            <div class="workspace-migration-title" id="workspace-migration-title">Fixing workspace</div>
+            <div class="workspace-migration-title" id="workspace-migration-title">Fixing this workspace</div>
             <div class="workspace-migration-detail" id="workspace-migration-detail"></div>
-            <div class="workspace-migration-error" id="workspace-migration-error" hidden></div>
             <div class="workspace-migration-actions" id="workspace-migration-actions" hidden>
                 <button type="button" id="workspace-migration-cancel" hidden>Cancel</button>
                 <button type="button" id="workspace-migration-retry" hidden>Try again</button>
@@ -789,7 +777,6 @@
         const workspaceMigrationOverlay = document.getElementById('workspace-migration-overlay');
         const workspaceMigrationTitle = document.getElementById('workspace-migration-title');
         const workspaceMigrationDetail = document.getElementById('workspace-migration-detail');
-        const workspaceMigrationError = document.getElementById('workspace-migration-error');
         const workspaceMigrationActions = document.getElementById('workspace-migration-actions');
         const workspaceMigrationRetry = document.getElementById('workspace-migration-retry');
         const workspaceMigrationCancel = document.getElementById('workspace-migration-cancel');
@@ -824,36 +811,31 @@
 
         // Dev-only URL override for the migration overlay so the visual can
         // be exercised without invoking the live agent runtime. Recognised
-        // values: "running", "error", "pending-error", "off". Anything else
-        // (or absent) falls through to the real workspace state from /input.
-        // Read once per call so reload toggles work.
+        // values: "running", "pending" (a.k.a. "couldn't fix"), "off".
+        // Anything else (or absent) falls through to the real workspace
+        // state from /input. Read once per call so reload toggles work.
         const migrationOverlayUrlOverride = () => {
             try {
                 const value = new URL(window.location.href).searchParams.get('mig');
                 if (!value) return null;
-                if (value === 'off') return { migrationRunning: false, migrationPending: false, migrationLastError: null };
-                if (value === 'running') return { migrationRunning: true, migrationPending: true, migrationLastError: null };
-                if (value === 'error' || value === 'pending-error') {
-                    return {
-                        migrationRunning: false,
-                        migrationPending: true,
-                        migrationLastError: 'Simulated migration error for visual test'
-                    };
+                if (value === 'off') return { migrationRunning: false, migrationPending: false };
+                if (value === 'running') return { migrationRunning: true, migrationPending: true };
+                if (value === 'pending' || value === 'error' || value === 'pending-error') {
+                    return { migrationRunning: false, migrationPending: true };
                 }
                 return null;
             } catch { return null; }
         };
 
-        // Mirrors data.workspace from /input. Shown when a migration is
-        // running so user input can't race the agent, and surfaces the last
-        // error (plus a Try Again button) if the most recent attempt failed
-        // so the user isn't stuck at a dead end.
+        // Mirrors data.workspace from /input. Shown when the workspace needs
+        // fixing or is currently being fixed. The technical artifact lives
+        // at <workspace>/.liquidos/workspace-error on disk; the UI keeps the
+        // user out of the way and offers Cancel / Try Again as appropriate.
         const updateWorkspaceMigrationOverlay = workspace => {
             const source = migrationOverlayUrlOverride() || workspace || {};
             const running = Boolean(source.migrationRunning);
             const pending = Boolean(source.migrationPending);
-            const error = source.migrationLastError || null;
-            const show = running || (pending && error);
+            const show = running || pending;
             workspaceMigrationOverlay.hidden = !show;
             if (!show) return;
 
@@ -864,15 +846,7 @@
             } else {
                 workspaceMigrationTitle.textContent = 'Couldn’t fix this workspace';
                 workspaceMigrationDetail.textContent =
-                    'We weren’t able to fix the problem. You can try again, or look at the details below.';
-            }
-
-            if (error) {
-                workspaceMigrationError.hidden = false;
-                workspaceMigrationError.textContent = error;
-            } else {
-                workspaceMigrationError.hidden = true;
-                workspaceMigrationError.textContent = '';
+                    'The workspace still has a problem we weren’t able to fix. You can try again.';
             }
 
             // Action visibility: Cancel while running (lets the user abort an
