@@ -134,6 +134,30 @@ const collect = async (stream) => {
     return Buffer.concat(chunks);
 };
 
+export const SHARING_STATE_FILE = 'sharing.json';
+
+// Default: sharing on. The state file is opt-out, so a fresh workspace
+// that has published bundles serves them immediately without any
+// explicit "enable sharing" step.
+export const isSharingEnabled = (sharePath) => {
+    try {
+        const file = path.join(sharePath, SHARING_STATE_FILE);
+        if (!fs.existsSync(file)) return true;
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+        return parsed.enabled !== false;
+    } catch {
+        return true;
+    }
+};
+
+export const setSharingEnabled = (sharePath, enabled) => {
+    fs.mkdirSync(sharePath, { recursive: true });
+    fs.writeFileSync(
+        path.join(sharePath, SHARING_STATE_FILE),
+        JSON.stringify({ enabled: !!enabled }, null, 2) + '\n'
+    );
+};
+
 export const registerShareProtocols = (node, sharePath) => {
     const feedPath = path.join(sharePath, 'feed.json');
     const bundleDir = path.join(sharePath, 'bundles');
@@ -143,11 +167,16 @@ export const registerShareProtocols = (node, sharePath) => {
         catch { return null; }
     };
 
+    // The sharing flag is checked on each request rather than at
+    // registration time — the toggle has immediate effect without
+    // restarting the harness.
+    const empty = () => Buffer.from('{"feedVersion":1,"bundles":[]}\n');
+
     node.handle(FEED_PROTOCOL, async (stream) => {
         try {
-            // Empty feed body for "no published bundles yet" — receiver
-            // parses cleanly either way.
-            const bytes = readBytes(feedPath) || Buffer.from('{"feedVersion":1,"bundles":[]}\n');
+            const bytes = isSharingEnabled(sharePath)
+                ? (readBytes(feedPath) || empty())
+                : empty();
             await sendAll(stream, bytes);
             await stream.close();
         } catch {
@@ -160,6 +189,13 @@ export const registerShareProtocols = (node, sharePath) => {
             // Read until client closes its write side. The client
             // sends "<hash>\n" and nothing else.
             const req = (await collect(stream)).toString('utf8').trim();
+            // When sharing is off, treat every request as "not found"
+            // — same code path as an unknown hash. Same empty-body
+            // signal, no leak about what we do have.
+            if (!isSharingEnabled(sharePath)) {
+                await stream.close();
+                return;
+            }
             // Basic sanitization: only serve our own bundle blobs.
             // Hash shape is "sha256-<hex>" — no slashes, no dots.
             if (!/^sha256-[0-9a-f]{64}$/.test(req)) {

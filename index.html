@@ -398,6 +398,55 @@
         .browse-install:disabled { opacity: 0.6; cursor: progress; }
         .browse-install:hover:not(:disabled) { background: rgba(59, 130, 246, 1); }
 
+        /* Sharing toggle — sits in the browse header between the search
+           input and the close button. Mirrors the iOS switch shape: pill
+           track + sliding thumb. ON = blue, OFF = neutral gray. */
+        .browse-share-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0 0.4rem;
+            user-select: none;
+        }
+        .browse-share-label {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: rgba(232, 232, 234, 0.72);
+            letter-spacing: -0.005em;
+        }
+        .share-switch {
+            position: relative;
+            width: 36px;
+            height: 20px;
+            background: rgba(120, 120, 130, 0.45);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 999px;
+            padding: 0;
+            cursor: pointer;
+            transition: background 0.18s ease, border-color 0.18s ease;
+            flex-shrink: 0;
+        }
+        .share-switch:hover { border-color: rgba(255, 255, 255, 0.14); }
+        .share-switch[aria-checked="true"] {
+            background: rgba(59, 130, 246, 0.85);
+            border-color: rgba(96, 165, 250, 0.5);
+        }
+        .share-switch-thumb {
+            position: absolute;
+            top: 1px;
+            left: 1px;
+            width: 16px;
+            height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+            transition: transform 0.18s ease;
+        }
+        .share-switch[aria-checked="true"] .share-switch-thumb {
+            transform: translateX(16px);
+        }
+        .share-switch[disabled] { opacity: 0.5; cursor: not-allowed; }
+
         .global-prompt {
             position: fixed;
             left: calc(var(--debug-rail-space) + (100vw - var(--debug-rail-space)) / 2);
@@ -1085,6 +1134,12 @@
         <div class="browse-card" role="dialog" aria-labelledby="browse-query">
             <div class="browse-header">
                 <input type="search" id="browse-query" class="browse-query" placeholder="Search for apps to install…" autocomplete="off" />
+                <div class="browse-share-toggle">
+                    <label for="browse-share-switch" class="browse-share-label">Sharing</label>
+                    <button type="button" id="browse-share-switch" class="share-switch" role="switch" aria-checked="true" aria-label="Toggle sharing on or off">
+                        <span class="share-switch-thumb"></span>
+                    </button>
+                </div>
                 <button type="button" id="browse-close" class="browse-close">Close</button>
             </div>
             <div class="browse-results" id="browse-results">
@@ -2706,10 +2761,56 @@
             }
         };
 
+        // --- Sharing toggle ---
+
+        const shareSwitch = document.getElementById('browse-share-switch');
+
+        const setShareSwitchUI = (enabled, disabled) => {
+            shareSwitch.setAttribute('aria-checked', enabled ? 'true' : 'false');
+            if (disabled) shareSwitch.setAttribute('disabled', '');
+            else shareSwitch.removeAttribute('disabled');
+        };
+
+        const loadShareState = async () => {
+            setShareSwitchUI(true, true); // optimistic neutral state while loading
+            try {
+                const response = await fetch('/share/sharing', { cache: 'no-store' });
+                if (response.ok) {
+                    const data = await response.json();
+                    setShareSwitchUI(data.enabled !== false, false);
+                    return;
+                }
+            } catch { /* fallthrough */ }
+            setShareSwitchUI(true, true);
+        };
+
+        const toggleShareState = async () => {
+            const current = shareSwitch.getAttribute('aria-checked') === 'true';
+            const next = !current;
+            // Optimistic flip — the request below confirms or reverts.
+            setShareSwitchUI(next, true);
+            try {
+                const response = await fetch('/share/sharing', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ enabled: next })
+                });
+                if (!response.ok) throw new Error('toggle failed: ' + response.status);
+                const data = await response.json();
+                setShareSwitchUI(data.enabled !== false, false);
+            } catch (error) {
+                console.error('share toggle failed:', error);
+                setShareSwitchUI(current, false); // revert
+            }
+        };
+
+        shareSwitch.addEventListener('click', () => { toggleShareState(); });
+
         const openBrowseOverlay = () => {
             browseOverlay.hidden = false;
             browseInput.value = '';
             renderBrowseEmpty('Type to search — results stream in as peers respond.');
+            loadShareState();
             // Defer focus until after the overlay is laid out.
             setTimeout(() => browseInput.focus(), 0);
         };

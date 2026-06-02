@@ -1621,6 +1621,39 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        if (req.method === 'GET' && url.pathname === '/share/sharing') {
+            const enabled = networkModule
+                ? networkModule.isSharingEnabled(path.join(WORKSPACE_PATH, '.share'))
+                : true;
+            send(res, 200, JSON.stringify({ enabled }), 'application/json; charset=utf-8');
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/share/sharing') {
+            let body;
+            try { body = JSON.parse(await readBody(req) || '{}'); }
+            catch (e) { send(res, 400, 'invalid json'); return; }
+            if (typeof body.enabled !== 'boolean') {
+                send(res, 400, 'expected { enabled: boolean }');
+                return;
+            }
+            if (!networkModule) {
+                send(res, 503, 'network not running');
+                return;
+            }
+            try {
+                networkModule.setSharingEnabled(
+                    path.join(WORKSPACE_PATH, '.share'),
+                    body.enabled
+                );
+            } catch (error) {
+                send(res, 500, 'failed to write sharing state: ' + error.message);
+                return;
+            }
+            send(res, 200, JSON.stringify({ enabled: body.enabled }), 'application/json; charset=utf-8');
+            return;
+        }
+
         if (req.method === 'GET' && url.pathname === '/network/status') {
             const status = networkModule && networkNode
                 ? networkModule.statusOf(networkNode)
