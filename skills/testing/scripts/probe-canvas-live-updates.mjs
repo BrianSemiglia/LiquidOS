@@ -269,6 +269,91 @@ await test('user switches canvas via dropdown → DOM shows other canvas', async
     return 'delta appeared after switch';
 });
 
+// The destination canvas must stay rendered even when the source canvas's
+// teardown POSTs to /workspace/writes mid-switch (the 3d canvas does this
+// for its camera state). The write fires a workspace-file SSE event and a
+// generic update after the switch is already in flight — if the harness
+// reacts to either of those in a way that races with loadCanvas, the
+// destination flashes on screen and then disappears until the user
+// switches away and back. This scenario mirrors the 3d canvas more
+// closely: EventSource open on mount, lazy per-component state fetches,
+// async write on teardown.
+await test('source canvas write-on-teardown → destination stays rendered', async () => {
+    agentWrite('home/canvas.js', `
+        export default (root, context) => {
+            // Mirror the 3d canvas: open SSE, lazy fetch component state,
+            // schedule a write-on-teardown.
+            const source = new EventSource('/events');
+            const componentStates = new Map();
+            const loadComponentState = async (componentPath) => {
+                const filePath = 'home/' + componentPath + '/state.json';
+                try {
+                    const response = await fetch('/workspace/file/' + filePath);
+                    componentStates.set(filePath, response.ok ? await response.json() : null);
+                } catch { componentStates.set(filePath, null); }
+            };
+            source.onmessage = (event) => {
+                let payload;
+                try { payload = JSON.parse(event.data); } catch { return; }
+                if (payload?.type !== 'workspace-file') return;
+                if (payload.path && payload.path.startsWith('home/components/')) {
+                    fetch('/workspace/file/' + payload.path).catch(() => {});
+                }
+            };
+            // Initial mount fetch like the 3d canvas does for camera state.
+            fetch('/workspace/file/home/state.json').catch(() => {});
+            return {
+                place(items, components) {
+                    components.forEach(c => {
+                        const key = 'home/' + c.componentPath + '/state.json';
+                        if (!componentStates.has(key)) loadComponentState(c.componentPath);
+                    });
+                    root.replaceChildren(...items);
+                },
+                teardown() {
+                    source.close();
+                    fetch('/workspace/writes', {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({
+                            writes: [{ path: 'home/state.json', content: { ts: Date.now() } }]
+                        })
+                    }).catch(() => {});
+                    root.innerHTML = '';
+                }
+            };
+        };
+    `);
+    // Let the new canvas.js mount in /home.
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('main .item'))
+        .some(item => item.dataset.componentPath?.endsWith('/alpha')), null, { timeout: 5000 });
+    // Switch to /other and check that delta is still on screen 1 second
+    // later (long enough for the write's broadcast to round-trip and any
+    // racing load() to potentially blank the destination).
+    await page.selectOption('#canvas-select', 'other');
+    await page.waitForFunction(
+        () => Array.from(document.querySelectorAll('main .item')).some(item =>
+            item.dataset.componentPath?.endsWith('/delta')),
+        null,
+        { timeout: 5000 }
+    );
+    await sleep(1500);
+    const stillThere = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('main .item'))
+            .some(item => item.dataset.componentPath?.endsWith('/delta')));
+    if (!stillThere) throw new Error('delta disappeared after source canvas teardown wrote');
+    // Restore home/canvas.js so the rest of the suite operates on a clean
+    // fixture (no write-on-teardown side effect lurking).
+    agentWrite('home/canvas.js', `
+        import { cssLayout } from '/lib/css-layout.js';
+        export default cssLayout('');
+    `);
+    await page.selectOption('#canvas-select', 'home');
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('main .item'))
+        .some(item => item.dataset.componentPath?.endsWith('/alpha')), null, { timeout: 5000 });
+    return 'delta survived the source teardown write';
+});
+
 // Agent creates a new canvas folder — the dropdown should grow to
 // include it.
 await test('agent creates canvas folder → dropdown lists it', async () => {
