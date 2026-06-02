@@ -114,6 +114,89 @@
             color: rgba(232, 232, 234, 0.95);
         }
 
+        /* Canvas-requirements editor — reuses the workspace-migration overlay
+           shell. The card is a bit wider since it holds a real textarea, and
+           the textarea gets its own styling so it doesn't look like a tiny
+           comment field. */
+        .canvas-requirements-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 15, 18, 0.78);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            color: rgba(232, 232, 234, 0.95);
+        }
+        .canvas-requirements-overlay[hidden] { display: none; }
+        .canvas-requirements-card {
+            width: min(36rem, calc(100vw - 2rem));
+            padding: 1.4rem 1.6rem;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 14px;
+            background: rgba(34, 34, 35, 0.92);
+            box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45);
+            display: flex;
+            flex-direction: column;
+            gap: 0.85rem;
+        }
+        .canvas-requirements-header {
+            display: flex;
+            flex-direction: column;
+            gap: 0.15rem;
+        }
+        .canvas-requirements-title { font-weight: 600; font-size: 1rem; }
+        .canvas-requirements-subtitle {
+            font-size: 0.78rem;
+            color: rgba(232, 232, 234, 0.6);
+        }
+        .canvas-requirements-textarea {
+            min-height: 12rem;
+            font: inherit;
+            font-size: 0.88rem;
+            line-height: 1.45;
+            color: rgba(232, 232, 234, 0.95);
+            background: rgba(15, 15, 18, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            padding: 0.7rem 0.85rem;
+            resize: vertical;
+            outline: none;
+        }
+        .canvas-requirements-textarea:focus {
+            border-color: rgba(96, 165, 250, 0.55);
+        }
+        .canvas-requirements-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.6rem;
+        }
+        .canvas-requirements-actions button {
+            font: inherit;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #fff;
+            background: rgba(59, 130, 246, 0.9);
+            border: 1px solid rgba(96, 165, 250, 0.65);
+            border-radius: 8px;
+            padding: 0.4rem 0.9rem;
+            cursor: pointer;
+        }
+        .canvas-requirements-actions button:disabled { opacity: 0.6; cursor: progress; }
+        .canvas-requirements-actions button:hover:not(:disabled) { background: rgba(59, 130, 246, 1); }
+        .canvas-requirements-actions button.is-secondary {
+            background: transparent;
+            color: rgba(232, 232, 234, 0.7);
+            border-color: rgba(255, 255, 255, 0.18);
+        }
+        .canvas-requirements-actions button.is-secondary:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.06);
+            color: rgba(232, 232, 234, 0.95);
+        }
+
         .global-prompt {
             position: fixed;
             left: calc(var(--debug-rail-space) + (100vw - var(--debug-rail-space)) / 2);
@@ -785,6 +868,7 @@
         <div class="canvas-nav" aria-label="Canvas selection">
             <select id="canvas-select" aria-label="Canvas"></select>
             <button type="button" id="new-canvas">New</button>
+            <button type="button" id="canvas-info" aria-label="Edit canvas requirements">Info</button>
         </div>
         <liquidos-callback class="prompt-send" id="global-submit-callback" on="submit" scope="" prompt-from="prompt">
             <form id="global-prompt">
@@ -793,6 +877,21 @@
                 <button type="submit">Send</button>
             </form>
         </liquidos-callback>
+    </div>
+
+    <div class="canvas-requirements-overlay" id="canvas-requirements-overlay" hidden>
+        <div class="canvas-requirements-card" role="dialog" aria-labelledby="canvas-requirements-title">
+            <div class="canvas-requirements-header">
+                <div class="canvas-requirements-title" id="canvas-requirements-title">Canvas Requirements</div>
+                <div class="canvas-requirements-subtitle" id="canvas-requirements-subtitle"></div>
+            </div>
+            <textarea class="canvas-requirements-textarea" id="canvas-requirements-textarea" spellcheck="true"
+                placeholder="Describe what this canvas is for. What kinds of cards should it hold? How should they feel together? Intent only — no implementation details."></textarea>
+            <div class="canvas-requirements-actions">
+                <button type="button" id="canvas-requirements-cancel" class="is-secondary">Cancel</button>
+                <button type="button" id="canvas-requirements-save">Save</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -2125,6 +2224,90 @@
                 event.preventDefault();
                 globalForm.requestSubmit();
             }
+        });
+
+        // --- Canvas requirements editor ------------------------------------
+
+        const canvasInfoButton = document.getElementById('canvas-info');
+        const canvasReqOverlay = document.getElementById('canvas-requirements-overlay');
+        const canvasReqSubtitle = document.getElementById('canvas-requirements-subtitle');
+        const canvasReqTextarea = document.getElementById('canvas-requirements-textarea');
+        const canvasReqSave = document.getElementById('canvas-requirements-save');
+        const canvasReqCancel = document.getElementById('canvas-requirements-cancel');
+        // The path of the canvas whose requirements the overlay is currently
+        // showing. We snapshot it on open so a canvas-switch mid-edit doesn't
+        // misroute the save.
+        let canvasReqEditingCanvas = '';
+
+        const closeCanvasRequirements = () => {
+            canvasReqOverlay.hidden = true;
+            canvasReqEditingCanvas = '';
+            canvasReqTextarea.value = '';
+            canvasReqSave.disabled = false;
+        };
+
+        const openCanvasRequirements = async () => {
+            const canvasName = canvasSelect.value;
+            if (!canvasName) return;
+            canvasReqEditingCanvas = canvasName;
+            canvasReqSubtitle.textContent = canvasName;
+            canvasReqTextarea.value = '';
+            canvasReqTextarea.disabled = true;
+            canvasReqSave.disabled = true;
+            canvasReqOverlay.hidden = false;
+            // Fetch via the workspace-file route; 404 means the file
+            // doesn't exist yet — treat as empty and let the user start
+            // writing.
+            try {
+                const response = await fetch(
+                    '/workspace/file/' + encodeURIComponent(canvasName) + '/canvas-requirements.txt',
+                    { cache: 'no-store' }
+                );
+                canvasReqTextarea.value = response.ok ? await response.text() : '';
+            } catch {
+                canvasReqTextarea.value = '';
+            }
+            // If the user switched canvases or closed the overlay before
+            // the fetch resolved, don't blow away their current edit.
+            if (canvasReqEditingCanvas !== canvasName || canvasReqOverlay.hidden) return;
+            canvasReqTextarea.disabled = false;
+            canvasReqSave.disabled = false;
+            canvasReqTextarea.focus();
+        };
+
+        const saveCanvasRequirements = async () => {
+            if (!canvasReqEditingCanvas) return;
+            canvasReqSave.disabled = true;
+            try {
+                const response = await fetch('/workspace/writes', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({
+                        writes: [{
+                            path: canvasReqEditingCanvas + '/canvas-requirements.txt',
+                            content: canvasReqTextarea.value
+                        }]
+                    })
+                });
+                if (!response.ok) throw new Error('save failed: ' + response.status);
+                closeCanvasRequirements();
+            } catch (error) {
+                canvasReqSave.disabled = false;
+                console.error('canvas requirements save failed:', error);
+            }
+        };
+
+        canvasInfoButton.addEventListener('click', () => { openCanvasRequirements(); });
+        canvasReqSave.addEventListener('click', () => { saveCanvasRequirements(); });
+        canvasReqCancel.addEventListener('click', () => { closeCanvasRequirements(); });
+        canvasReqOverlay.addEventListener('click', event => {
+            // Click on the dim backdrop (but not the card itself) closes.
+            if (event.target === canvasReqOverlay) closeCanvasRequirements();
+        });
+        document.addEventListener('keydown', event => {
+            if (canvasReqOverlay.hidden) return;
+            if (event.key === 'Escape') closeCanvasRequirements();
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) saveCanvasRequirements();
         });
 
 

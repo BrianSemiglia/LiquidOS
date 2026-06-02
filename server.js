@@ -1924,7 +1924,15 @@ const server = http.createServer(async (req, res) => {
                 for (const write of planned) {
                     fs.mkdirSync(path.dirname(write.toAbs), { recursive: true });
                     if (write.kind === 'inline') {
-                        fs.writeFileSync(write.toAbs, JSON.stringify(write.content, null, 2) + '\n');
+                        // String content writes raw (for plain-text files like
+                        // canvas-requirements.txt, feature-requirements.txt).
+                        // Anything else is JSON-encodable structured data and
+                        // gets pretty-printed (canvas/component state.json,
+                        // view.json, input.json, etc.).
+                        const body = typeof write.content === 'string'
+                            ? write.content
+                            : JSON.stringify(write.content, null, 2) + '\n';
+                        fs.writeFileSync(write.toAbs, body);
                     } else {
                         fs.copyFileSync(write.fromAbs, write.toAbs);
                     }
