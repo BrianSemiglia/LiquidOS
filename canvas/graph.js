@@ -247,29 +247,9 @@ const createCanvasGraph = ({
             ])
         );
 
-    // A component's HTML can contain <iframe> tags pointing at arbitrary
-    // sites. Without `sandbox`, an iframe can call top.location.replace(...)
-    // and navigate the whole app away — one careless or hostile component
-    // can wipe the entire canvas. The harness defensively adds a sandbox
-    // attribute to every iframe in component HTML that doesn't already
-    // have one. The chosen flags let normal embeds work (scripts, same-
-    // origin requests, forms, fullscreen video, popups, modal dialogs) but
-    // crucially DO NOT include allow-top-navigation in any form, so the
-    // iframe can never replace the parent page.
-    //
-    // If a component author needs different sandbox flags (e.g., to grant
-    // top-nav for an unusual case), they can write their own sandbox=""
-    // attribute and the harness will leave it alone.
-    const defensiveIframeSandbox = (html) => String(html).replace(
-        /<iframe\b((?:[^>'"]|"[^"]*"|'[^']*')*)>/gi,
-        (match, attrs) => /\bsandbox\s*=/i.test(attrs)
-            ? match
-            : '<iframe' + attrs + ' sandbox="allow-scripts allow-same-origin allow-forms allow-presentation allow-popups allow-modals">'
-    );
-
     const renderedHtml = (componentPath, component) =>
         (component.css ? '<style>' + String(component.css) + '</style>' : '')
-        + defensiveIframeSandbox(component.html || '');
+        + String(component.html || '');
 
     const componentScope = componentPath =>
         componentFolderPath(componentPath);
