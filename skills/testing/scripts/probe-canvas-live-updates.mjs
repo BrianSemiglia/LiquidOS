@@ -202,6 +202,55 @@ await test('agent writes canvas.js → browser re-imports and re-renders', async
     return '#app[data-canvas-probe] = ' + probe;
 });
 
+// canvas.js self-observes a workspace file. The probe writes a canvas.js
+// that subscribes to /events, filters for workspace-file events naming
+// home/state.json, fetches it, and reflects the parsed value to a data
+// attribute. Then the agent writes home/state.json and we assert the
+// DOM picked it up. This is the path that replaces the old "harness
+// passes state to place()" — canvas.js owns observation end to end.
+await test('canvas.js observes state.json via /events + /workspace/file', async () => {
+    agentWrite('home/canvas.js', `
+        export default () => {
+            const source = new EventSource('/events');
+            const reflect = async () => {
+                const response = await fetch('/workspace/file/home/state.json');
+                if (!response.ok) return;
+                const json = await response.json();
+                const app = document.getElementById('app');
+                if (app) app.dataset.state = json.probe || '';
+            };
+            source.onmessage = event => {
+                let payload;
+                try { payload = JSON.parse(event.data); } catch { return; }
+                if (payload?.type === 'workspace-file' && payload.path === 'home/state.json') {
+                    reflect();
+                }
+            };
+            return {
+                place(items, components) {
+                    document.getElementById('app').replaceChildren(...items);
+                },
+                teardown() {
+                    source.close();
+                    const app = document.getElementById('app');
+                    if (app) delete app.dataset.state;
+                }
+            };
+        };
+    `);
+    // Give the new canvas.js a moment to mount and open its EventSource.
+    await sleep(800);
+    const marker = 'probe-state-' + Date.now();
+    agentWrite('home/state.json', { probe: marker });
+    const sawState = await page.waitForFunction(
+        value => document.getElementById('app')?.dataset?.state === value,
+        marker,
+        { timeout: 5000 }
+    ).then(() => true).catch(() => false);
+    if (!sawState) throw new Error('#app[data-state] never reflected ' + marker);
+    return '#app[data-state] = ' + marker;
+});
+
 // User switches canvas from the dropdown — DOM swaps to the other
 // canvas's components.
 await test('user switches canvas via dropdown → DOM shows other canvas', async () => {

@@ -1324,7 +1324,17 @@ const scheduleWatchRefresh = entry => {
     broadcast(componentChangePayload(entries, rendered));
 };
 
-const scheduleWorkspaceRefresh = () => {
+const broadcastWorkspaceFile = (watchedDir, filename) => {
+    if (watcherPaused) return;
+    if (!filename) return;
+    const abs = path.join(watchedDir, filename);
+    const rel = path.relative(WORKSPACE_PATH, abs);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return;
+    broadcast({ type: 'workspace-file', path: rel });
+};
+
+const scheduleWorkspaceRefresh = (eventType, filename) => {
+    broadcastWorkspaceFile(WORKSPACE_PATH, filename);
     try {
         watchWorkspace();
     } catch (error) {
@@ -1382,18 +1392,23 @@ const refreshGraphWatchers = () => {
     entries.forEach(entry => {
         try {
             watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, (eventType, filename) => {
+                // Every fs.watch event broadcasts a workspace-file SSE event
+                // so external listeners (canvas.js subscribers, component
+                // services) can re-fetch whatever they care about. The
+                // harness's own kind-specific routing happens after, on top.
+                broadcastWorkspaceFile(entry.path, filename);
+
                 // Component watches are opt-in by path: only events under
-                // presented/ (the live state) trigger refresh. Anything
-                // else — data/, diagnostics/, .presented/, state.json, future
-                // siblings — is implicitly ignored. state.json is canvas.js's
-                // own concern; if it cares it observes the file itself.
+                // presented/ (the live state) trigger the harness's render
+                // refresh. Anything else — data/, diagnostics/, .presented/,
+                // state.json, future siblings — is implicitly ignored by the
+                // harness, even though the workspace-file event still fires
+                // above so canvas.js can observe it if it wants.
                 if (entry.kind === 'component' && filename) {
                     const isPresented = filename === 'presented' || filename.startsWith('presented/');
                     if (!isPresented) return;
                 }
                 // The canvas-root watch covers canvas.js (presentation reload).
-                // state.json edits are ignored at this layer for the same
-                // reason: the harness doesn't own canvas state.
                 if (entry.kind === 'canvas-root' && filename) {
                     if (filename === 'canvas.js') {
                         scheduleWatchRefresh({ ...entry, kind: 'canvas-js' });
@@ -1549,6 +1564,21 @@ const streamFile = (req, res, file, type = 'application/octet-stream') => {
     });
     fs.createReadStream(file, { start, end }).pipe(res);
 };
+
+const workspaceFileType = file => ({
+    '.json': 'application/json; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8',
+    '.html': 'text/html; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.txt': 'text/plain; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp'
+})[path.extname(file).toLowerCase()] || 'application/octet-stream';
 
 const staticPath = pathname => {
     const file = path.resolve(ROOT, pathname === '/' ? 'index.html' : '.' + decodeURIComponent(pathname));
@@ -1772,6 +1802,37 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        const workspaceFile = url.pathname.match(/^\/workspace\/file\/(.+)$/);
+
+        if (req.method === 'GET' && workspaceFile) {
+            // Generic read access to anything under WORKSPACE_PATH. canvas.js
+            // and component code use this to fetch files the harness doesn't
+            // hand them directly (state.json, custom presets, anything). A
+            // directory path returns a JSON listing so callers can discover
+            // children. The harness stays agnostic about what's inside.
+            const rel = decodeURIComponent(workspaceFile[1]);
+            const file = path.resolve(WORKSPACE_PATH, rel);
+            if (!file.startsWith(WORKSPACE_PATH + path.sep) && file !== WORKSPACE_PATH) {
+                send(res, 403, 'path escapes workspace');
+                return;
+            }
+            if (!fs.existsSync(file)) {
+                send(res, 404, 'not found');
+                return;
+            }
+            if (fs.statSync(file).isDirectory()) {
+                const entries = fs.readdirSync(file, { withFileTypes: true })
+                    .map(entry => ({
+                        name: entry.name,
+                        type: entry.isDirectory() ? 'directory' : 'file'
+                    }));
+                send(res, 200, JSON.stringify({ path: rel, entries }), 'application/json; charset=utf-8');
+                return;
+            }
+            streamFile(req, res, file, workspaceFileType(file));
+            return;
+        }
+
         if (req.method === 'POST' && url.pathname === '/workspace/writes') {
             // One endpoint for any workspace write — inline content
             // (browser persisting state) or files copied from a sandbox
@@ -1880,6 +1941,10 @@ const server = http.createServer(async (req, res) => {
             } catch (error) {
                 logHermesError('writes', error, { message: 'post-writes refresh failed' });
             }
+            // External listeners (canvas.js, services) see one workspace-file
+            // event per applied path so they can re-fetch a coherent end-of-
+            // batch state instead of intermediate writes mid-flight.
+            applied.forEach(rel => broadcast({ type: 'workspace-file', path: rel }));
             broadcast();
             logServer('workspace', 'writes complete', { files: applied });
             send(res, 200, JSON.stringify({ applied }), 'application/json; charset=utf-8');
