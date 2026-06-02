@@ -555,6 +555,40 @@ const createServiceDispatchId = folder => [
     crypto.randomUUID().slice(0, 8)
 ].join('-');
 
+// Hash every regular file in the services directory by content. This
+// is what we sign a running service against so a same-content
+// atomic-swap (the agent's `.presented/ → presented/` idiom) doesn't
+// look like a change — only an actual byte-level edit to start.sh,
+// render.js, etc. should cause a restart. mtime-based signatures
+// were wrong: the atomic swap brings in new inodes with new mtimes
+// but identical content, so the service was killed and restarted on
+// every iteration the agent did, leaving multi-minute windows where
+// view.html → view.json was broken.
+const computeServiceSignature = folder => {
+    const hash = crypto.createHash('sha256');
+    const walk = (dir, rel) => {
+        let entries;
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+        catch { return; }
+        entries.sort((a, b) => a.name.localeCompare(b.name));
+        for (const entry of entries) {
+            const full = path.join(dir, entry.name);
+            const sub = rel ? rel + '/' + entry.name : entry.name;
+            if (entry.isDirectory()) {
+                walk(full, sub);
+            } else if (entry.isFile()) {
+                let buf;
+                try { buf = fs.readFileSync(full); } catch { continue; }
+                hash.update(sub);
+                hash.update(Buffer.from([0]));
+                hash.update(buf);
+            }
+        }
+    };
+    walk(folder, '');
+    return hash.digest('hex');
+};
+
 const startComponentService = folder => {
     const startPath = path.join(folder, 'start.sh');
 
@@ -562,10 +596,7 @@ const startComponentService = folder => {
         return;
     }
 
-    const signature = JSON.stringify({
-        mtimeMs: fs.statSync(startPath).mtimeMs,
-        size: fs.statSync(startPath).size
-    });
+    const signature = computeServiceSignature(folder);
     const current = componentServices.get(folder);
 
     if (current && current.signature === signature) {

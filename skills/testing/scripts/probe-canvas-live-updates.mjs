@@ -380,6 +380,219 @@ await test('POST /canvas emits canvases-changed for other listeners', async () =
     return 'canvases-changed fired';
 });
 
+
+// reconcileComponentServices uses mtime+size to decide whether a
+// service's start.sh has changed. An atomic .presented/ swap brings
+// in a freshly-named start.sh whose CONTENT is identical to the
+// previous one — but its mtime is new, so the signature changes and
+// the service is killed and restarted. During the kill→restart
+// window, view.html edits go untranslated to view.json. This is the
+// pattern behind "agent wrote files, UI never updated, restart fixed
+// it" — the user's session showed render.js being restarted on
+// every atomic swap, with multi-minute gaps where the service was
+// dead and view.html → view.json was broken.
+await test('atomic swap with unchanged service content does not restart the service', async () => {
+    const name = 'probe-reconcile-' + Date.now();
+    const rel = 'home/components/' + name;
+    const compAbs = path.join(sandbox.workspace, rel);
+
+    const renderJs = `
+        import fs from 'node:fs';
+        import path from 'node:path';
+        import http from 'node:http';
+        const here = path.dirname(new URL(import.meta.url).pathname);
+        const viewHtml = path.join(here, '..', 'view.html');
+        const viewJson = path.join(here, '..', 'view.json');
+        const rebuild = () => {
+            try {
+                const html = fs.readFileSync(viewHtml, 'utf8');
+                fs.writeFileSync(viewJson, JSON.stringify({ title: 'Reconcile', html }) + '\\n');
+            } catch {}
+        };
+        rebuild();
+        fs.watch(viewHtml, { persistent: false }, () => rebuild());
+        http.createServer(() => {}).listen(0);
+    `;
+    const startSh = '#!/usr/bin/env bash\nset -e\ncd "$(dirname "$0")"\nexec node render.js\n';
+
+    agentWrite(rel + '/presented/feature-requirements.txt', '- Reconcile test.\n');
+    agentWrite(rel + '/presented/view.html', '<p data-r="seed">seed</p>');
+    agentWrite(rel + '/presented/view.json', { title: 'Reconcile', html: '<p data-r="seed">seed</p>' });
+    agentWrite(rel + '/presented/services/start.sh', startSh);
+    agentWrite(rel + '/presented/services/render.js', renderJs);
+    fs.chmodSync(path.join(compAbs, 'presented/services/start.sh'), 0o755);
+
+    const input = JSON.parse(agentRead('home/input.json'));
+    input.components.push('components/' + name);
+    agentWrite('home/input.json', input);
+
+    await page.waitForFunction(probe =>
+        Array.from(document.querySelectorAll('main .item'))
+            .some(item => item.dataset.componentPath?.endsWith('/' + probe)),
+        name, { timeout: 5000 });
+
+    // Let the service start and write its initial status.json so we
+    // have a dispatchId baseline.
+    await sleep(800);
+    const readDispatchId = () => {
+        const statusFile = path.join(compAbs, 'diagnostics/status.json');
+        if (!fs.existsSync(statusFile)) return null;
+        try { return JSON.parse(fs.readFileSync(statusFile, 'utf8'))?.service?.dispatchId || null; }
+        catch { return null; }
+    };
+    const before = readDispatchId();
+    if (!before) throw new Error('service did not start within budget (no dispatchId)');
+
+    // Now do an atomic .presented/ swap with IDENTICAL content for
+    // services/start.sh and services/render.js — only view.html
+    // differs. The service should NOT be restarted: its content
+    // didn't change, only the file's mtime did.
+    const marker = 'reconcile-' + Date.now();
+    const stagingDir = path.join(compAbs, '.presented');
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+    fs.mkdirSync(path.join(stagingDir, 'services'), { recursive: true });
+    fs.writeFileSync(path.join(stagingDir, 'feature-requirements.txt'), '- Reconcile test.\n');
+    fs.writeFileSync(path.join(stagingDir, 'view.html'), '<p data-r="' + marker + '">edited</p>');
+    fs.writeFileSync(path.join(stagingDir, 'view.json'), JSON.stringify({ title: 'Reconcile', html: '<p data-r="' + marker + '">edited</p>' }) + '\n');
+    fs.writeFileSync(path.join(stagingDir, 'services/start.sh'), startSh);
+    fs.writeFileSync(path.join(stagingDir, 'services/render.js'), renderJs);
+    fs.chmodSync(path.join(stagingDir, 'services/start.sh'), 0o755);
+    fs.rmSync(path.join(compAbs, 'presented'), { recursive: true, force: true });
+    fs.renameSync(stagingDir, path.join(compAbs, 'presented'));
+
+    // Wait long enough for any restart to have completed (and for the
+    // diagnostics to have been written by the new dispatch).
+    await sleep(2500);
+    const after = readDispatchId();
+    if (after !== before) {
+        throw new Error('service was restarted (dispatchId changed: ' + before + ' → ' + after + '); start.sh content was identical');
+    }
+    return 'service kept running (dispatchId unchanged)';
+});
+
+// The agent's multi-file-change idiom: stage new files in .presented/,
+// then `rm -rf presented && mv .presented presented`. The destination
+// directory's inode changes. fs.watch on the component folder is
+// recursive, but on macOS recursive doesn't follow directories added
+// after watch() — so the freshly-renamed presented/ subtree may not
+// be watched, and subsequent writes inside it get lost. This is the
+// pattern most likely to produce "agent worked, UI never updated."
+await test('atomic presented/ swap: writes to new presented/ reach DOM', async () => {
+    const name = 'probe-swap-' + Date.now();
+    const rel = 'home/components/' + name;
+    const abs = path.join(sandbox.workspace, rel);
+
+    // Initial component — bare view.json, no services.
+    agentWrite(rel + '/presented/feature-requirements.txt', '- Swap test.\n');
+    agentWrite(rel + '/presented/view.json', { title: 'Swap', html: '<p data-swap="seed">seed</p>' });
+    const input = JSON.parse(agentRead('home/input.json'));
+    input.components.push('components/' + name);
+    agentWrite('home/input.json', input);
+
+    await page.waitForFunction(probe =>
+        Array.from(document.querySelectorAll('main .item'))
+            .some(item => item.dataset.componentPath?.endsWith('/' + probe)),
+        name, { timeout: 5000 });
+
+    // Atomic swap: build .presented/ with new view.json, then
+    // rm -rf presented && mv .presented presented.
+    const marker = 'swap-edit-' + Date.now();
+    fs.mkdirSync(path.join(abs, '.presented'), { recursive: true });
+    fs.writeFileSync(path.join(abs, '.presented/feature-requirements.txt'), '- Swap test (updated).\n');
+    fs.writeFileSync(path.join(abs, '.presented/view.json'),
+        JSON.stringify({ title: 'Swap', html: '<p data-swap="' + marker + '">edited via swap</p>' }) + '\n');
+    fs.rmSync(path.join(abs, 'presented'), { recursive: true, force: true });
+    fs.renameSync(path.join(abs, '.presented'), path.join(abs, 'presented'));
+
+    const sawSwap = await page.waitForFunction(m =>
+        Array.from(document.querySelectorAll('main .item'))
+            .some(item => item.querySelector('.surface')?.innerHTML?.includes(m)),
+        marker, { timeout: 5000 }
+    ).then(() => true).catch(() => false);
+    if (!sawSwap) throw new Error('atomic-swap write to presented/ never reached the DOM');
+
+    // Now: a SECOND write into the new presented/ (which was added
+    // after watch() was set up). If macOS fs.watch's recursive flag
+    // doesn't follow the renamed-in directory, this write is the one
+    // that's lost.
+    const marker2 = 'swap-edit-2-' + Date.now();
+    agentWrite(rel + '/presented/view.json', {
+        title: 'Swap',
+        html: '<p data-swap="' + marker2 + '">second edit after swap</p>'
+    });
+    const sawSecond = await page.waitForFunction(m =>
+        Array.from(document.querySelectorAll('main .item'))
+            .some(item => item.querySelector('.surface')?.innerHTML?.includes(m)),
+        marker2, { timeout: 5000 }
+    ).then(() => true).catch(() => false);
+    if (!sawSecond) throw new Error('second write to NEW presented/ after atomic swap never reached the DOM');
+    return 'both atomic-swap + post-swap writes reached the surface';
+});
+
+// View pipeline test: a component whose view.html is compiled to
+// view.json by a render.js service. Probes whether the agent's edits
+// to view.html actually propagate through the running service to the
+// DOM. All earlier scenarios wrote view.json directly, which skips
+// the service entirely. The user's "agent worked, UI didn't update"
+// symptom most likely lives in this pipeline.
+await test('view.html edit propagates through render.js service to DOM', async () => {
+    const name = 'probe-service-' + Date.now();
+    const rel = 'home/components/' + name;
+    const presentedAbs = path.join(sandbox.workspace, rel, 'presented');
+
+    // Component files. render.js watches view.html, writes view.json,
+    // and stays alive (the harness terminates the process group when
+    // it wants the service to stop).
+    agentWrite(rel + '/presented/feature-requirements.txt', '- Service-driven test component.\n');
+    agentWrite(rel + '/presented/view.html', '<p data-probe="seed">seed</p>');
+    agentWrite(rel + '/presented/view.json', { title: 'Service Probe', html: '<p data-probe="seed">seed</p>' });
+    agentWrite(rel + '/presented/services/start.sh',
+        '#!/usr/bin/env bash\nset -e\ncd "$(dirname "$0")"\nexec node render.js\n');
+    agentWrite(rel + '/presented/services/render.js', `
+        import fs from 'node:fs';
+        import path from 'node:path';
+        import http from 'node:http';
+        const here = path.dirname(new URL(import.meta.url).pathname);
+        const viewHtml = path.join(here, '..', 'view.html');
+        const viewJson = path.join(here, '..', 'view.json');
+        const rebuild = () => {
+            try {
+                const html = fs.readFileSync(viewHtml, 'utf8');
+                fs.writeFileSync(viewJson, JSON.stringify({ title: 'Service Probe', html }) + '\\n');
+            } catch {}
+        };
+        rebuild();
+        fs.watch(viewHtml, { persistent: false }, () => rebuild());
+        // Keep process alive — harness terminates the process group.
+        http.createServer(() => {}).listen(0);
+    `);
+    fs.chmodSync(path.join(presentedAbs, 'services', 'start.sh'), 0o755);
+
+    // Add to input.json so the canvas picks it up. The harness will
+    // launch start.sh as it spins up the component's services.
+    const input = JSON.parse(agentRead('home/input.json'));
+    input.components.push('components/' + name);
+    agentWrite('home/input.json', input);
+
+    // Wait for the component to be on screen.
+    await page.waitForFunction(probe =>
+        Array.from(document.querySelectorAll('main .item'))
+            .some(item => item.dataset.componentPath?.endsWith('/' + probe)),
+        name, { timeout: 5000 });
+
+    // Edit view.html — render.js should regenerate view.json, the
+    // harness should pick it up, the surface should update.
+    const marker = 'service-edit-' + Date.now();
+    agentWrite(rel + '/presented/view.html', '<p data-probe="' + marker + '">edited via view.html</p>');
+    const sawEdit = await page.waitForFunction(m =>
+        Array.from(document.querySelectorAll('main .item'))
+            .some(item => item.querySelector('.surface')?.innerHTML?.includes(m)),
+        marker, { timeout: 7000 }
+    ).then(() => true).catch(() => false);
+    if (!sawEdit) throw new Error('view.html edit never reached the DOM via the render.js service');
+    return 'view.html edit propagated through service to DOM';
+});
+
 // User switches canvas from the dropdown — DOM swaps to the other
 // canvas's components.
 await test('user switches canvas via dropdown → DOM shows other canvas', async () => {
