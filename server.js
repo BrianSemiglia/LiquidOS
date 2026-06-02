@@ -421,8 +421,6 @@ const emitDebugEvent = payload => {
 };
 let watchers = [];
 let workspaceWatcher = null;
-let watchTimer;
-let graphWatchTimer;
 let dirtyWatchEntries = [];
 let graphWatchStarted = false;
 let graphWatchKey = '';
@@ -776,10 +774,6 @@ const createCanvasRuntime = canvasPath => {
                 return this;
             }
 
-            clearTimeout(watchTimer);
-            watchTimer = null;
-            clearTimeout(graphWatchTimer);
-            graphWatchTimer = null;
             dirtyWatchEntries = [];
 if (workspaceWatcher) {
     workspaceWatcher.close();
@@ -1313,40 +1307,34 @@ const scheduleWatchRefresh = entry => {
         dirtyWatchEntries.push(entry);
     }
 
-    clearTimeout(graphWatchTimer);
-    graphWatchTimer = setTimeout(() => {
-        const entries = dirtyWatchEntries;
-        dirtyWatchEntries = [];
+    const entries = dirtyWatchEntries;
+    dirtyWatchEntries = [];
 
-        let rendered;
+    let rendered;
 
-        try {
-            rendered = canvasGraph.renderedInput();
-            refreshGraphWatchers();
-            reconcileComponentServices();
-        } catch (error) {
-            logHermesError('watch', error, { message: 'watch error' });
-            broadcast();
-            return;
-        }
+    try {
+        rendered = canvasGraph.renderedInput();
+        refreshGraphWatchers();
+        reconcileComponentServices();
+    } catch (error) {
+        logHermesError('watch', error, { message: 'watch error' });
+        broadcast();
+        return;
+    }
 
-        broadcast(componentChangePayload(entries, rendered));
-    }, 50);
+    broadcast(componentChangePayload(entries, rendered));
 };
 
 const scheduleWorkspaceRefresh = () => {
-    clearTimeout(watchTimer);
-    watchTimer = setTimeout(() => {
-        try {
-            watchWorkspace();
-        } catch (error) {
-            logHermesError('watch', error, { message: 'workspace path watch error' });
-            broadcast({ type: 'canvases-changed' });
-            return;
-        }
-
+    try {
+        watchWorkspace();
+    } catch (error) {
+        logHermesError('watch', error, { message: 'workspace path watch error' });
         broadcast({ type: 'canvases-changed' });
-    }, 50);
+        return;
+    }
+
+    broadcast({ type: 'canvases-changed' });
 };
 
 const watchWorkspace = () => {
