@@ -1459,17 +1459,9 @@
                 const scope = item.__component?.componentPath || '';
                 recoverCallback.setAttribute('scope', scope);
                 recoverCallback.setAttribute('prompt',
-                    'This component\'s presented/feature-requirements.txt is empty or ' +
-                    'missing. The workspace is git-tracked, so first try to find and ' +
-                    'restore an earlier version of this file (check both the current ' +
-                    '.txt path and the older .md path; use `git log --all --diff-filter=AMD ' +
-                    '-- <path>` and `git show <sha>:<path>` to pull prior content). If you ' +
-                    'find prior content, save it as plain text at the .txt path with no ' +
-                    'leading title or markdown headings (the component title lives in ' +
-                    'view.json). Only if no prior version exists anywhere in history, ' +
-                    'fall back to reading the component\'s presented/ folder (view.html, ' +
-                    'view.json, functions.js, services/) and recreating the requirements ' +
-                    'from what the implementation actually does, as plain-text bullets.');
+                    'Recover this component\'s requirements. Find and restore a prior ' +
+                    'version from git history if one exists; recreate from the ' +
+                    'implementation otherwise.');
             }
             item.querySelector('[data-feature-save]').disabled = true;
         };
