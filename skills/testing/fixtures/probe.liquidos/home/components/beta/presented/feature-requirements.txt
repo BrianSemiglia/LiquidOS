@@ -1,1 +1,0 @@
-- Beta exercises the view.html → render.js → view.json live-update pipeline.

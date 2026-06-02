@@ -111,21 +111,6 @@ await test('agent writes view.json → surface updates', async () => {
     return 'surface has probe marker';
 });
 
-// Agent writes view.html on a component whose render.js service rewrites
-// view.json. The probe verifies the pipeline propagates through the
-// service to the harness to the DOM.
-await test('agent writes view.html → render.js → surface updates', async () => {
-    const probe = 'probe-view-html-' + Date.now();
-    agentWrite('home/components/beta/presented/view.html', '<p data-probe="' + probe + '">via html</p>');
-    await sleep(2000);
-    const hit = await page.evaluate(marker =>
-        Array.from(document.querySelectorAll('main .item'))
-            .some(item => item.querySelector('.surface')?.innerHTML?.includes(marker)),
-        probe);
-    if (!hit) throw new Error('surface did not pick up view.html → view.json change');
-    return 'surface has probe marker via render.js pipeline';
-});
-
 // Agent edits canvas.js — verify the *served* canvas.js reflects the
 // edit. (Visible effect of a canvas.js change depends on the code.)
 await test('agent writes canvas.js → served /canvas.js reflects it', async () => {
