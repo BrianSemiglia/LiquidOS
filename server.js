@@ -1629,6 +1629,50 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        const networkFeed = url.pathname.match(/^\/network\/feed\/(.+)$/);
+
+        if (req.method === 'GET' && networkFeed) {
+            if (!networkNode || !networkModule) {
+                send(res, 503, 'network not running');
+                return;
+            }
+            const target = decodeURIComponent(networkFeed[1]);
+            try {
+                const bytes = await networkModule.fetchFeed(networkNode, target);
+                send(res, 200, bytes.toString('utf8'), 'application/json; charset=utf-8');
+            } catch (error) {
+                send(res, 502, 'feed fetch failed: ' + (error?.message || error));
+            }
+            return;
+        }
+
+        const networkBundle = url.pathname.match(/^\/network\/bundle\/(.+?)\/(sha256-[0-9a-f]{64})$/);
+
+        if (req.method === 'GET' && networkBundle) {
+            if (!networkNode || !networkModule) {
+                send(res, 503, 'network not running');
+                return;
+            }
+            const target = decodeURIComponent(networkBundle[1]);
+            const hash = networkBundle[2];
+            try {
+                const bytes = await networkModule.fetchBundle(networkNode, target, hash);
+                if (!bytes || bytes.length === 0) {
+                    send(res, 404, 'bundle not found');
+                    return;
+                }
+                res.writeHead(200, {
+                    'Content-Type': 'application/x-tar',
+                    'Content-Length': bytes.length,
+                    'Cache-Control': 'no-cache'
+                });
+                res.end(bytes);
+            } catch (error) {
+                send(res, 502, 'bundle fetch failed: ' + (error?.message || error));
+            }
+            return;
+        }
+
         if (req.method === 'POST' && url.pathname === '/agent/select') {
             const body = JSON.parse(await readBody(req));
 
@@ -2196,6 +2240,10 @@ const startNetwork = async () => {
         networkNode = await networkModule.createNetworkNode({
             identityPath: path.join(WORKSPACE_PATH, '.network', 'identity.bin')
         });
+        networkModule.registerShareProtocols(
+            networkNode,
+            path.join(WORKSPACE_PATH, '.share')
+        );
         console.log('Network: peer ID', networkNode.peerId.toString());
         for (const addr of networkNode.getMultiaddrs()) {
             console.log('Network: listening on', addr.toString());

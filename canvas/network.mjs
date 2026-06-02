@@ -20,8 +20,15 @@ import { ping } from '@libp2p/ping';
 import { bootstrap } from '@libp2p/bootstrap';
 import { kadDHT } from '@libp2p/kad-dht';
 import { generateKeyPair, privateKeyFromProtobuf, privateKeyToProtobuf } from '@libp2p/crypto/keys';
+import { multiaddr } from '@multiformats/multiaddr';
+import { peerIdFromString } from '@libp2p/peer-id';
 import fs from 'node:fs';
 import path from 'node:path';
+
+// Protocol identifiers. Versioned so we can iterate on the wire format
+// without breaking peers that still speak the old one.
+export const FEED_PROTOCOL = '/liquidos/share/feed/1.0.0';
+export const BUNDLE_PROTOCOL = '/liquidos/share/bundle/1.0.0';
 
 // Public IPFS bootstrap peers — used to enter the DHT. These same peers
 // bootstrap IPFS, Filecoin, and other libp2p networks; piggybacking on
@@ -69,6 +76,141 @@ export const createNetworkNode = async ({ identityPath }) => {
     });
     return node;
 };
+
+// Register the share protocols on a running node. sharePath is the
+// directory where the local feed and bundle blobs live (typically
+// <workspace>/.share/). The protocols are intentionally minimal:
+//
+//   Feed protocol: client opens stream, server writes the bytes of
+//   feed.json and closes. No request body — the feed is a per-peer
+//   singleton.
+//
+//   Bundle protocol: client writes "<hash>\n" on the stream and
+//   closes its write side. Server reads the hash, looks up
+//   <sharePath>/bundles/<hash>.tar, and writes the bundle bytes
+//   followed by close. If the hash is unknown, the server writes
+//   nothing and closes — the client sees EOF immediately, which is
+//   "not found." Integrity is the receiver's responsibility: re-hash
+//   the unpacked bundle and verify against the requested hash.
+//
+// Send data through the libp2p v3 MessageStream API, splitting large
+// payloads at the muxer's max-message boundary and waiting for the
+// drain event when send() reports back-pressure. The send() call
+// returns false when the underlying transport's write buffer is full,
+// and the next call will throw if we don't wait for the drain event
+// first.
+const sendAll = async (stream, bytes) => {
+    if (!bytes || bytes.length === 0) return;
+    // Yamux default max message size is ~262144 bytes (256KB). Stay
+    // safely below that.
+    const CHUNK = 64 * 1024;
+    let offset = 0;
+    while (offset < bytes.length) {
+        const slice = bytes.subarray(offset, Math.min(offset + CHUNK, bytes.length));
+        const ok = stream.send(new Uint8Array(slice));
+        offset += slice.length;
+        if (!ok) {
+            await new Promise((resolve, reject) => {
+                const onDrain = () => { cleanup(); resolve(); };
+                const onClose = () => { cleanup(); reject(new Error('stream closed before drain')); };
+                const cleanup = () => {
+                    stream.removeEventListener('drain', onDrain);
+                    stream.removeEventListener('close', onClose);
+                };
+                stream.addEventListener('drain', onDrain);
+                stream.addEventListener('close', onClose);
+            });
+        }
+    }
+};
+
+// Read every byte the peer sends until they half-close their write
+// side (or the stream closes). Returns one Buffer.
+const collect = async (stream) => {
+    const chunks = [];
+    for await (const chunk of stream) {
+        chunks.push(Buffer.from(chunk.subarray ? chunk.subarray() : chunk));
+    }
+    return Buffer.concat(chunks);
+};
+
+export const registerShareProtocols = (node, sharePath) => {
+    const feedPath = path.join(sharePath, 'feed.json');
+    const bundleDir = path.join(sharePath, 'bundles');
+
+    const readBytes = (file) => {
+        try { return fs.existsSync(file) ? fs.readFileSync(file) : null; }
+        catch { return null; }
+    };
+
+    node.handle(FEED_PROTOCOL, async (stream) => {
+        try {
+            // Empty feed body for "no published bundles yet" — receiver
+            // parses cleanly either way.
+            const bytes = readBytes(feedPath) || Buffer.from('{"feedVersion":1,"bundles":[]}\n');
+            await sendAll(stream, bytes);
+            await stream.close();
+        } catch {
+            try { await stream.close(); } catch {}
+        }
+    });
+
+    node.handle(BUNDLE_PROTOCOL, async (stream) => {
+        try {
+            // Read until client closes its write side. The client
+            // sends "<hash>\n" and nothing else.
+            const req = (await collect(stream)).toString('utf8').trim();
+            // Basic sanitization: only serve our own bundle blobs.
+            // Hash shape is "sha256-<hex>" — no slashes, no dots.
+            if (!/^sha256-[0-9a-f]{64}$/.test(req)) {
+                await stream.close();
+                return;
+            }
+            const file = path.join(bundleDir, req + '.tar');
+            const data = readBytes(file);
+            if (data) await sendAll(stream, data);
+            await stream.close();
+        } catch {
+            try { await stream.close(); } catch {}
+        }
+    });
+};
+
+// Open a stream to a peer (given either a peerId string or a full
+// multiaddr) and collect all bytes the peer sends.
+const dialAndCollect = async (node, target, protocol, requestBytes) => {
+    let dialTarget;
+    if (target.startsWith('/')) {
+        dialTarget = multiaddr(target);
+    } else {
+        dialTarget = peerIdFromString(target);
+    }
+    const stream = await node.dialProtocol(dialTarget, protocol);
+    try {
+        // Start collecting IMMEDIATELY (before we send or close), so we
+        // register the message + remoteCloseWrite listeners before the
+        // server's quick response can arrive and fire those events.
+        // libp2p's async iterator implementation only buffers messages
+        // received AFTER the iterator's listeners are attached.
+        const collectPromise = collect(stream);
+        if (requestBytes && requestBytes.length > 0) {
+            await sendAll(stream, requestBytes);
+        }
+        // Close our write side so the server knows we're done sending
+        // and can start replying.
+        await stream.close();
+        return await collectPromise;
+    } catch (error) {
+        try { await stream.close(); } catch {}
+        throw error;
+    }
+};
+
+export const fetchFeed = async (node, target) =>
+    dialAndCollect(node, target, FEED_PROTOCOL, null);
+
+export const fetchBundle = async (node, target, hash) =>
+    dialAndCollect(node, target, BUNDLE_PROTOCOL, Buffer.from(hash + '\n', 'utf8'));
 
 export const statusOf = (node) => {
     if (!node) return { running: false };
