@@ -154,15 +154,17 @@ When requirements and implementation disagree, resolve the mismatch instead of p
 
    Do not duplicate any of those steps by hand. Do not create the folder, write any of the scaffolded files, or edit `input.json` separately — the script has already done it.
 
-2. Write `feature-requirements.txt` describing what the user asked for, in plain language.
+2. Read `<canvas>/canvas-requirements.txt` if it exists. It describes the canvas's intent (what it's for, how its cards should feel together). Use it as context — your component should fit the canvas, not pull against it.
 
-3. Write `view.html` with a placeholder showing the next intended action. Disable any inputs that would mutate the same data the agent is about to change.
+3. Write `feature-requirements.txt` describing what the user asked for, in plain language.
 
-4. Do the work. Between each meaningful step, write `view.html` with the partial output and the current next-intended-action. Keep the inputs disabled the whole time. See "Progressive view updates" below for the locking convention.
+4. Write `view.html` with a placeholder showing the next intended action. Disable any inputs that would mutate the same data the agent is about to change.
 
-5. Write `view.html` with the final output. Re-enable the inputs.
+5. Do the work. Between each meaningful step, write `view.html` with the partial output and the current next-intended-action. Keep the inputs disabled the whole time. See "Progressive view updates" below for the locking convention.
 
-6. Update `feature-requirements.txt` if anything was learned about the requirements during the work.
+6. Write `view.html` with the final output. Re-enable the inputs.
+
+7. Update `feature-requirements.txt` if anything was learned about the requirements during the work.
 
 The scaffolded files are starting clay. Each has a comment header explaining what's safe to change. Restructure as needed — rename files, delete `IO.swift` if not needed, replace `render.js` — whatever fits the component.
 
@@ -172,13 +174,15 @@ Do not touch any component other than the one being created.
 
 1. Read `<canvas>/components/<component_name>/presented/feature-requirements.txt` to confirm the component's purpose. If the user is reporting a problem, also check the `diagnostics/` folder.
 
-2. Write `view.html` with a placeholder showing the next intended action. Disable any inputs that would mutate the same data the agent is about to change.
+2. Read `<canvas>/canvas-requirements.txt` if it exists. The canvas's intent is the context your changes need to fit; don't drift away from it without reason.
 
-3. Do the work. Between each meaningful step, write `view.html` with the partial output and the current next-intended-action. Keep the inputs disabled the whole time. See "Progressive view updates" below for the locking convention.
+3. Write `view.html` with a placeholder showing the next intended action. Disable any inputs that would mutate the same data the agent is about to change.
 
-4. Write `view.html` with the final output. Re-enable the inputs.
+4. Do the work. Between each meaningful step, write `view.html` with the partial output and the current next-intended-action. Keep the inputs disabled the whole time. See "Progressive view updates" below for the locking convention.
 
-5. Update `feature-requirements.txt` if anything was learned about the requirements during the work.
+5. Write `view.html` with the final output. Re-enable the inputs.
+
+6. Update `feature-requirements.txt` if anything was learned about the requirements during the work.
 
 Do not touch any component other than the one being updated.
 

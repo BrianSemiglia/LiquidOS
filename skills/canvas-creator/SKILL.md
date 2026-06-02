@@ -21,17 +21,19 @@ The `.liquidos` folder is the workspace root and the canvas root. A canvas is a 
 Workspace.liquidos/
   selected-canvas.json
   home/
-    input.json        — component manifest
-    output.json       — agent job queue
-    canvas.js         — presentation, input controls, anything canvas-scoped
-    state.json        — canvas.js's persisted state (optional)
-    components/       — component folders
+    input.json                — component manifest
+    output.json               — agent job queue
+    canvas.js                 — presentation, input controls, anything canvas-scoped
+    canvas-requirements.txt   — plain-text description of what this canvas is for
+    state.json                — canvas.js's persisted state (optional)
+    components/               — component folders
       foo/
-        state.json    — per-component canvas state (optional)
+        state.json            — per-component canvas state (optional)
   <canvas-name>/
     input.json
     output.json
     canvas.js
+    canvas-requirements.txt
     state.json
     components/
 ```
@@ -54,6 +56,28 @@ Workspace.liquidos/<canvas-name>/output.json
 Workspace.liquidos/<canvas-name>/canvas.js
 Workspace.liquidos/<canvas-name>/components/
 ```
+
+## canvas-requirements.txt
+
+A plain-text file at the canvas root describing what this canvas is for —
+what kinds of cards it should hold, how they should be arranged, how the
+user wants to feel using it. Parallel to a component's
+`feature-requirements.txt`, but one layer up.
+
+- **Optional.** Canvases work without it; an empty file is fine.
+- **Read it first** when working on a canvas. If the user asks you to add
+  or modify components, consult this file to understand the canvas's
+  intent and keep your work aligned with it.
+- **Write to it** when the user describes the canvas in a new way, or
+  when you learn something about the canvas's purpose that ought to be
+  recorded. Keep it concise and plain-language.
+- **Don't put implementation details in it.** That's what `canvas.js`,
+  `input.json`, and the component files are for. This file is intent
+  only — the description should still make sense if you rebuilt every
+  component from scratch.
+- It is also the natural unit for "share this app" later: the canvas's
+  requirements plus each component's `feature-requirements.txt` together
+  describe the app completely without any code.
 
 ## Core Principle
 

@@ -73,4 +73,12 @@ if [ ! -f "$CANVAS_DIR/output.json" ]; then
     printf '[]\n' > "$CANVAS_DIR/output.json"
 fi
 
+# canvas-requirements.txt is a plain-text description of what the canvas
+# is for — what cards it should hold, how the user wants to feel using
+# it. Optional, but the natural anchor for "share this app" and for the
+# agent when generating components for the canvas.
+if [ ! -f "$CANVAS_DIR/canvas-requirements.txt" ]; then
+    : > "$CANVAS_DIR/canvas-requirements.txt"
+fi
+
 printf '{"canvas":"%s","path":"%s"}\n' "$SAFE_NAME" "$CANVAS_DIR"
