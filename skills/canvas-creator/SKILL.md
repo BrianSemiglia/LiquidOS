@@ -97,13 +97,11 @@ export default (root, context) => {
     // and again on every change. teardown() runs before the next load.
 
     return {
-        place(items, components, state) {
+        place(items, components) {
             // items:      array of card DOM elements (already wired with
             //             surface, mount lifecycle, callbacks).
             // components: parallel array of metadata for each card —
             //             { componentPath, scope, html, resources, ... }.
-            // state:      { canvas, components: { scope: ... } } — current
-            //             state read from canvas/per-component state.json files.
             //
             // The harness clears items' inline styles before each call, so
             // every place() starts from clean cards.
@@ -118,12 +116,15 @@ export default (root, context) => {
 
 ### State
 
-State is JSON, lazy-created, hot-reloaded by the harness.
+State is canvas.js's own concern — the harness doesn't read or watch it.
+If your canvas wants persistent state (camera position, per-card layout,
+pin status), pick where to store it, fetch it yourself, and observe it
+yourself.
 
-- `<canvas>/state.json` — canvas-wide state (camera position, zoom, etc.). Arrives as `state.canvas`.
-- `<canvas>/components/<comp>/state.json` — per-component state for this canvas (per-card position, pin status, etc.). Arrives as `state.components[scope]`.
+The convention is JSON files in the canvas, e.g.:
 
-Both layers are optional. Either may be `null`.
+- `<canvas>/state.json` for canvas-wide state.
+- `<canvas>/components/<comp>/state.json` for per-component state.
 
 Write via POST to `/workspace/writes`:
 
@@ -141,12 +142,14 @@ fetch('/workspace/writes', {
 
 `path` is workspace-relative. `content` is any JSON-encodable value; the server writes it as pretty JSON. You can batch multiple writes in one call — the watcher pauses for the whole batch and emits one refresh.
 
+Read by fetching the file URL (`fetch('/<canvas>/state.json')`) — either on mount, on a timer, or by listening to the harness's SSE update stream and refetching when something changed. The harness emits update events but does not parse state for you.
+
 Debounce continuous inputs (camera scrolls, drags). The file is replaced verbatim — always send the full object you want stored.
 
 ### Hot reload
 
 - Edit `canvas.js` → harness re-imports the module, calls `teardown()` on the prior instance, runs the factory again, places fresh.
-- Edit a `state.json` file → harness re-aggregates and calls `place()` again with the new state. canvas.js stays mounted, just gets new data.
+- Edit a component (view.json, etc.) → harness re-runs `place()` with the new components. State is not re-passed; if you need it, fetch it.
 
 ### Editing canvas.js for anything non-trivial: use a sandbox
 

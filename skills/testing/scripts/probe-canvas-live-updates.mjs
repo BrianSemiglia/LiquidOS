@@ -111,6 +111,69 @@ await test('agent writes view.json → surface updates', async () => {
     return 'surface has probe marker';
 });
 
+// Agent writes view.json N times in rapid succession with each write
+// well-separated (>>50ms). The probe records every intermediate state
+// the DOM passes through and asserts each one actually shows up.
+// This is the progressive-update case: a real agent doing iterative
+// edits, the user wanting to watch the component grow.
+await test('agent writes view.json progressively → every step reaches the DOM', async () => {
+    const seen = new Set();
+    await page.exposeFunction('__recordSurface', (innerHtml) => {
+        const m = innerHtml.match(/data-progressive="([^"]+)"/);
+        if (m) seen.add(m[1]);
+    });
+    await page.evaluate(() => {
+        const observer = new MutationObserver(() => {
+            for (const item of document.querySelectorAll('main .item')) {
+                const surface = item.querySelector('.surface');
+                if (surface) window.__recordSurface(surface.innerHTML);
+            }
+        });
+        observer.observe(document.getElementById('app'), { subtree: true, childList: true, characterData: true });
+    });
+
+    const steps = ['one', 'two', 'three', 'four', 'five'];
+    for (const step of steps) {
+        agentWrite('home/components/alpha/presented/view.json', {
+            title: 'Alpha',
+            html: '<p data-progressive="' + step + '">' + step + '</p>'
+        });
+        await sleep(150);  // well above any reasonable debounce
+    }
+    await sleep(500);  // give the last update time to propagate
+
+    const missed = steps.filter(s => !seen.has(s));
+    if (missed.length > 0) {
+        throw new Error('missed progressive steps: ' + missed.join(', ') +
+            '   (saw: ' + Array.from(seen).join(', ') + ')');
+    }
+    return 'all ' + steps.length + ' steps observed';
+});
+
+// Same scenario but writes are spaced TIGHTER than the server debounce
+// (faster than human-perceptible). We expect to lose intermediate steps
+// — but the final one must always arrive.
+await test('agent writes view.json in a tight burst → final state arrives', async () => {
+    const finalProbe = 'tight-burst-final-' + Date.now();
+    for (let i = 0; i < 5; i++) {
+        agentWrite('home/components/alpha/presented/view.json', {
+            title: 'Alpha',
+            html: '<p data-burst="' + i + '">step ' + i + '</p>'
+        });
+        await sleep(10);
+    }
+    agentWrite('home/components/alpha/presented/view.json', {
+        title: 'Alpha',
+        html: '<p data-burst="final" data-final="' + finalProbe + '">final</p>'
+    });
+    await page.waitForFunction(marker =>
+        Array.from(document.querySelectorAll('main .item'))
+            .some(item => item.querySelector('.surface')?.innerHTML?.includes(marker)),
+        finalProbe,
+        { timeout: 3000 });
+    return 'final state landed';
+});
+
 // Agent rewrites canvas.js — verify the browser actually re-imports and
 // the new module's effect shows up in the DOM. The probe rewrites
 // canvas.js to set a known data attribute on #app during place(); then
@@ -119,7 +182,7 @@ await test('agent writes canvas.js → browser re-imports and re-renders', async
     const probe = 'probe-canvas-js-' + Date.now();
     agentWrite('home/canvas.js', `
         export default () => ({
-            place(items, components, state) {
+            place(items, components) {
                 const app = document.getElementById('app');
                 app.replaceChildren(...items);
                 app.dataset.canvasProbe = ${JSON.stringify(probe)};

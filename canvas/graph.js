@@ -254,42 +254,6 @@ const createCanvasGraph = ({
     const componentScope = componentPath =>
         componentFolderPath(componentPath);
 
-    // Presentation state lives in two layers of JSON files, both optional:
-    //   <canvas>/state.<presentation-base>.json           — global state
-    //   <canvas>/components/<name>/state.<presentation-base>.json — per-component
-    // Aggregated as { canvas, components: { componentPath: ... } } and passed
-    // to canvas.js via place(). Missing files become null entries.
-    const STATE_FILE = 'state.json';
-
-    const canvasStatePath = () =>
-        path.join(getCanvasPath(), STATE_FILE);
-
-    const componentStatePath = (componentPath) =>
-        path.join(componentFolderPath(componentPath), STATE_FILE);
-
-    const readJsonOrNull = (file) => {
-        try {
-            return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
-        } catch (error) {
-            return null;
-        }
-    };
-
-    const readCanvasState = (leaves) => {
-        const canvasState = readJsonOrNull(canvasStatePath());
-        const componentsState = {};
-        leaves.forEach(({ componentPath }) => {
-            // Key the state map by the same scope the components[] array
-            // exposes (componentScope, absolute path). canvas.js looks up
-            // state.components[components[i].scope]; if these differ the
-            // lookup misses and per-component placement silently falls back
-            // to the canvas default.
-            const scope = componentScope(componentPath);
-            componentsState[scope] = readJsonOrNull(componentStatePath(componentPath));
-        });
-        return { canvas: canvasState, components: componentsState };
-    };
-
     const canvasJsPath = () => path.join(getCanvasPath(), 'canvas.js');
 
     const canvasJsVersion = () => {
@@ -311,7 +275,6 @@ const createCanvasGraph = ({
                 canvasPath: getCanvasPath(),
                 ...input,
                 canvasJsVersion: canvasJsVersion(),
-                state: readCanvasState(leaves),
                 components: leaves.map(({ componentPath, component }) => ({
                     componentPath,
                     scope: componentScope(componentPath),
@@ -354,10 +317,10 @@ const createCanvasGraph = ({
 
         return [
             ...[getInputPath()].filter(Boolean).map(file => ({ path: file, recursive: false, kind: 'canvas' })),
-            // Non-recursive watch on the canvas root to catch edits to either
-            // canvas.js or state.json. The watch callback in server.js filters
-            // by filename so input.json (watched directly) and other top-level
-            // files (selected-canvas.json, etc.) don't double-fire.
+            // Non-recursive watch on the canvas root to catch edits to
+            // canvas.js. The watch callback in server.js filters by filename
+            // so input.json (watched directly) and other top-level files
+            // (selected-canvas.json, state.json, etc.) don't trigger.
             ...[getCanvasPath()].filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
                 .map(file => ({ path: file, recursive: false, kind: 'canvas-root' })),
             ...componentWatchPaths(componentPaths).map(file => ({ path: file, recursive: true, kind: 'component' }))
@@ -415,8 +378,6 @@ const createCanvasGraph = ({
         componentDiagnosticsPath,
         componentViewPath,
         componentStartPath,
-        canvasStatePath,
-        componentStatePath,
         canvasJsPath,
         canvasJsVersion,
         updateDiagnostics,

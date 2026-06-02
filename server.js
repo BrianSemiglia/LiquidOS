@@ -1287,10 +1287,9 @@ const componentChangePayload = (entries, rendered) => {
         return { type: 'components-changed', components };
     }
 
-    // Everything else (state.json, canvas.js, or any mix) emits a generic
-    // update; the client falls through to load() which is now cheap enough
-    // (existing DOM is reused; state changes flow through morph as no-ops)
-    // that a separate fast path isn't worth the API surface.
+    // Everything else (canvas.js, or any mix) emits a generic update;
+    // the client falls through to load() which is cheap enough (existing
+    // DOM is reused) that a separate fast path isn't worth the API surface.
     return null;
 };
 
@@ -1384,34 +1383,18 @@ const refreshGraphWatchers = () => {
         try {
             watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, (eventType, filename) => {
                 // Component watches are opt-in by path: only events under
-                // presented/ (the live state) and the per-component state
-                // file at the component root trigger refresh. Anything else —
-                // data/, diagnostics/, .presented/, future siblings — is
-                // implicitly ignored.
+                // presented/ (the live state) trigger refresh. Anything
+                // else — data/, diagnostics/, .presented/, state.json, future
+                // siblings — is implicitly ignored. state.json is canvas.js's
+                // own concern; if it cares it observes the file itself.
                 if (entry.kind === 'component' && filename) {
                     const isPresented = filename === 'presented' || filename.startsWith('presented/');
-                    const isState = filename === 'state.json';
-                    if (!isPresented && !isState) return;
-                    // Per-component state.json is state, not a component
-                    // update — route it through the same canvas-state path
-                    // as the canvas's own state.json so canvas.js's place()
-                    // re-runs with the new state and cards reposition. The
-                    // default component-kind path goes through applyComponent-
-                    // Updates which only swaps html, leaving stale transforms.
-                    if (isState && !isPresented) {
-                        scheduleWatchRefresh({ ...entry, kind: 'canvas-state' });
-                        return;
-                    }
+                    if (!isPresented) return;
                 }
-                // The canvas-root watch covers state.json (fast path: re-place
-                // without re-staging) and canvas.js (presentation reload).
-                // Synthesise a sub-kind so componentChangePayload can route
-                // each to the right path.
+                // The canvas-root watch covers canvas.js (presentation reload).
+                // state.json edits are ignored at this layer for the same
+                // reason: the harness doesn't own canvas state.
                 if (entry.kind === 'canvas-root' && filename) {
-                    if (filename === 'state.json') {
-                        scheduleWatchRefresh({ ...entry, kind: 'canvas-state' });
-                        return;
-                    }
                     if (filename === 'canvas.js') {
                         scheduleWatchRefresh({ ...entry, kind: 'canvas-js' });
                         return;

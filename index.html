@@ -931,7 +931,6 @@
         // Keep the open requirements editor tied to the component path so rerenders can restore it.
         let openRequirementsComponentPath = '';
         let lastCanvasSnapshot = '';
-        let latestCanvasState = null;
         instanceStyle.id = 'instance-style';
         document.head.append(instanceStyle);
         const scrollKey = canvasName => 'live-edit-scroll:' + (canvasName || 'default');
@@ -1235,9 +1234,11 @@
         // Every canvas has exactly one canvas.js at its root. The module
         // owns presentation, input handling, and anything else canvas-scoped.
         //
-        // Factory signature: (root, context) -> { place(items, components, state), teardown() }
+        // Factory signature: (root, context) -> { place(items, components), teardown() }
         // The harness still owns the cards (surface, flip-back, mount, callbacks);
         // canvas.js decides where they live and how the user navigates them.
+        // Anything else canvas.js needs (state files, external data) it
+        // fetches and observes itself — the harness is agnostic.
         let currentCanvas = null;
         let currentCanvasCacheKey = null;
         let currentCanvasLoad = null;
@@ -1851,7 +1852,7 @@
                 });
                 if (currentCanvas) {
                     try {
-                        currentCanvas.place(nextItems, latestComponents, latestCanvasState);
+                        currentCanvas.place(nextItems, latestComponents);
                     } catch (error) {
                         // A broken place() shouldn't freeze the canvas. Drop
                         // canvas.js back to "none" — the fallback below will
@@ -1945,7 +1946,6 @@
             }
 
             currentCanvasPath = typeof data.canvasPath === 'string' && data.canvasPath ? data.canvasPath : currentCanvasPath;
-            latestCanvasState = data.state || { canvas: null, components: {} };
             updateWorkspaceMigrationOverlay(data.workspace);
             globalSubmitCallback.setAttribute('scope', currentCanvasPath);
             latestComponents = data.components.map(component => ({
@@ -1977,8 +1977,7 @@
             // <section> for components we haven't seen before. Previously this
             // always called renderComponent for every component and let
             // commit() throw away duplicates, which allocated DOM that ended
-            // up unused. The reuse here is what makes load() cheap enough that
-            // we don't need a separate state-changed fast path.
+            // up unused.
             const items = latestComponents.map(component =>
                 renderedItemsByPath.get(component.scope) || renderComponent(component));
             instanceStyle.textContent = '';
