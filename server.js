@@ -1704,9 +1704,33 @@ const server = http.createServer(async (req, res) => {
             const lines = (result.stdout || '').trim().split(/\r?\n/).filter(Boolean);
             let summary;
             try { summary = JSON.parse(lines[lines.length - 1]); } catch { summary = {}; }
+            const newCanvasName = summary.canvas || targetName;
+            const newCanvasPath = summary.canvasPath || path.join(WORKSPACE_PATH, newCanvasName);
+
+            // Queue an agent dispatch scoped to the new canvas. The
+            // agent's existing skills know what to do with scaffolded
+            // components that have feature-requirements.txt and a
+            // Loading… placeholder; this just kicks off the build so
+            // the user doesn't have to type "build it" after install.
+            try {
+                await outputQueue.appendOutputJob({
+                    id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                    scope: newCanvasPath,
+                    status: 'pending',
+                    createdAt: new Date().toISOString(),
+                    componentKey: newCanvasPath,
+                    prompt: 'This canvas was just installed from a shared requirements bundle. Each component has a Loading… placeholder and its description in presented/feature-requirements.txt. Read canvas-requirements.txt for the canvas-level intent, then build the components following the component-creator skill. If canvas-requirements describes a non-default presentation (3d, grid, spatial), update canvas.js to match.'
+                });
+                outputQueue.feedHermesOutput();
+            } catch (error) {
+                logServer('network', 'install dispatch enqueue failed', {
+                    canvas: newCanvasName, error: error.message
+                });
+            }
+
             send(res, 200, JSON.stringify({
-                canvas: summary.canvas || targetName,
-                canvasPath: summary.canvasPath || null,
+                canvas: newCanvasName,
+                canvasPath: newCanvasPath,
                 components: summary.components || null
             }), 'application/json; charset=utf-8');
             return;

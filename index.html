@@ -2626,8 +2626,6 @@
 
         const installBrowseResult = async (result, button) => {
             button.disabled = true;
-            const originalText = button.textContent;
-            button.textContent = 'Installing…';
             try {
                 const response = await fetch('/network/install', {
                     method: 'POST',
@@ -2638,15 +2636,13 @@
                     throw new Error('install failed: ' + response.status);
                 }
                 const data = await response.json();
-                button.textContent = 'Installed';
+                closeBrowseOverlay();
                 if (data.canvas) {
                     await switchCanvas(data.canvas);
-                    closeBrowseOverlay();
                 }
             } catch (error) {
                 console.error('install failed:', error);
                 button.disabled = false;
-                button.textContent = originalText;
             }
         };
 
