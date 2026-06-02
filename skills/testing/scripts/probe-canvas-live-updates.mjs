@@ -111,15 +111,66 @@ await test('agent writes view.json → surface updates', async () => {
     return 'surface has probe marker';
 });
 
-// Agent edits canvas.js — verify the *served* canvas.js reflects the
-// edit. (Visible effect of a canvas.js change depends on the code.)
-await test('agent writes canvas.js → served /canvas.js reflects it', async () => {
+// Agent rewrites canvas.js — verify the browser actually re-imports and
+// the new module's effect shows up in the DOM. The probe rewrites
+// canvas.js to set a known data attribute on #app during place(); then
+// asserts that the attribute is there.
+await test('agent writes canvas.js → browser re-imports and re-renders', async () => {
     const probe = 'probe-canvas-js-' + Date.now();
-    agentWrite('home/canvas.js', '// ' + probe + '\n' + agentRead('home/canvas.js'));
-    await sleep(1000);
-    const served = await fetch(sandbox.url + '/canvas.js').then(r => r.text());
-    if (!served.includes(probe)) throw new Error('served /canvas.js missing probe');
-    return 'served canvas.js carries the probe';
+    agentWrite('home/canvas.js', `
+        export default () => ({
+            place(items, components, state) {
+                const app = document.getElementById('app');
+                app.replaceChildren(...items);
+                app.dataset.canvasProbe = ${JSON.stringify(probe)};
+            },
+            teardown() {
+                const app = document.getElementById('app');
+                if (app) delete app.dataset.canvasProbe;
+            }
+        });
+    `);
+    const sawProbe = await page.waitForFunction(
+        marker => document.getElementById('app')?.dataset?.canvasProbe === marker,
+        probe,
+        { timeout: 5000 }
+    ).then(() => true).catch(() => false);
+    if (!sawProbe) throw new Error('#app never picked up data-canvas-probe = ' + probe);
+    return '#app[data-canvas-probe] = ' + probe;
+});
+
+// User switches canvas from the dropdown — DOM swaps to the other
+// canvas's components.
+await test('user switches canvas via dropdown → DOM shows other canvas', async () => {
+    await page.selectOption('#canvas-select', 'other');
+    const switched = await page.waitForFunction(
+        () => Array.from(document.querySelectorAll('main .item')).some(item =>
+            item.dataset.componentPath?.endsWith('/delta')),
+        null,
+        { timeout: 5000 }
+    ).then(() => true).catch(() => false);
+    if (!switched) throw new Error('delta from /other canvas never appeared');
+    // Switch back so the rest of the suite operates on /home.
+    await page.selectOption('#canvas-select', 'home');
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('main .item'))
+        .some(item => item.dataset.componentPath?.endsWith('/alpha')), null, { timeout: 5000 });
+    return 'delta appeared after switch';
+});
+
+// Agent creates a new canvas folder — the dropdown should grow to
+// include it.
+await test('agent creates canvas folder → dropdown lists it', async () => {
+    const name = 'probe-canvas-' + Date.now();
+    agentWrite(name + '/input.json', { components: [] });
+    agentWrite(name + '/canvas.js', "import { cssLayout } from '/lib/css-layout.js'; export default cssLayout('');");
+    const present = await page.waitForFunction(
+        value => Array.from(document.querySelector('#canvas-select')?.options || [])
+            .some(opt => opt.value === value),
+        name,
+        { timeout: 5000 }
+    ).then(() => true).catch(() => false);
+    if (!present) throw new Error('canvas-select did not gain option ' + name);
+    return 'option present: ' + name;
 });
 
 // Agent adds a component to input.json — new card should appear.
