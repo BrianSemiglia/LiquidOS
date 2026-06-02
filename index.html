@@ -1419,6 +1419,8 @@
             textarea.value = String(data.text || '');
             textarea.dataset.savedValue = textarea.value;
             status.textContent = '';
+            const titleEl = item.querySelector('[data-feature-title]');
+            if (titleEl) titleEl.textContent = String(data.title || '');
             item.querySelector('[data-feature-save]').disabled = true;
         };
 
@@ -1571,7 +1573,10 @@
             back.className = 'component-face component-back';
             back.innerHTML = [
                 '<div class="component-back-header">',
-                '<div><h2>Requirements</h2></div>',
+                '<div>',
+                '<h2 data-feature-title></h2>',
+                '<p>Requirements</p>',
+                '</div>',
                 '</div>',
                 '<textarea data-feature-requirements spellcheck="true" placeholder="Describe what this component should do, what it may use, and any limits it should respect."></textarea>',
                 '<div class="component-back-actions">',

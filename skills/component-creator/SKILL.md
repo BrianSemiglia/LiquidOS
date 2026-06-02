@@ -18,7 +18,7 @@ The harness's actual contract is small: it reads `presented/view.json` and invok
 ```
 components/<name>/
 ├── presented/                ← what the harness reads and paints
-│   ├── feature-requirements.md   User-facing description of what the component does.
+│   ├── feature-requirements.txt   User-facing description of what the component does.
 │   ├── view.json                 Required. The harness paints this — it's the contract.
 │   ├── view.html                 Scaffold default: template render.js reads.
 │   ├── functions.js              Optional. ES module exporting mount(surface) for browser-side JS.
@@ -134,8 +134,11 @@ The harness watches the component folder recursively. Edits inside `presented/se
 
 ## Feature Requirements
 
-Components define a `feature-requirements.md` so they behave consistently.
+Components define a `feature-requirements.txt` so they behave consistently.
 This file is user-facing.
+
+**Format:** plain text. No title, no markdown headings, no `# Component Name` at the top. The component's name and label live in `view.json`'s `title` field; the requirements modal reads them from there and labels the file separately. The file body is just the requirements, one per line.
+
 Write requirements in plain language, not implementation jargon.
 Each requirement should be simple, specific, and non-redundant.
 Requirements must be faithful to the component: do not claim behavior, resources, permissions, or limits that the component does not actually provide or intend to provide.
@@ -151,7 +154,7 @@ When requirements and implementation disagree, resolve the mismatch instead of p
 
    Do not duplicate any of those steps by hand. Do not create the folder, write any of the scaffolded files, or edit `input.json` separately — the script has already done it.
 
-2. Write `feature-requirements.md` describing what the user asked for, in plain language.
+2. Write `feature-requirements.txt` describing what the user asked for, in plain language.
 
 3. Write `view.html` with a placeholder showing the next intended action. Disable any inputs that would mutate the same data the agent is about to change.
 
@@ -159,7 +162,7 @@ When requirements and implementation disagree, resolve the mismatch instead of p
 
 5. Write `view.html` with the final output. Re-enable the inputs.
 
-6. Update `feature-requirements.md` if anything was learned about the requirements during the work.
+6. Update `feature-requirements.txt` if anything was learned about the requirements during the work.
 
 The scaffolded files are starting clay. Each has a comment header explaining what's safe to change. Restructure as needed — rename files, delete `IO.swift` if not needed, replace `render.js` — whatever fits the component.
 
@@ -167,7 +170,7 @@ Do not touch any component other than the one being created.
 
 ## Updating an existing component
 
-1. Read `<canvas>/components/<component_name>/presented/feature-requirements.md` to confirm the component's purpose. If the user is reporting a problem, also check the `diagnostics/` folder.
+1. Read `<canvas>/components/<component_name>/presented/feature-requirements.txt` to confirm the component's purpose. If the user is reporting a problem, also check the `diagnostics/` folder.
 
 2. Write `view.html` with a placeholder showing the next intended action. Disable any inputs that would mutate the same data the agent is about to change.
 
@@ -175,7 +178,7 @@ Do not touch any component other than the one being created.
 
 4. Write `view.html` with the final output. Re-enable the inputs.
 
-5. Update `feature-requirements.md` if anything was learned about the requirements during the work.
+5. Update `feature-requirements.txt` if anything was learned about the requirements during the work.
 
 Do not touch any component other than the one being updated.
 

@@ -10,7 +10,7 @@ set -euo pipefail
 #
 # What it does:
 #   - Errors if the component folder already exists.
-#   - Writes feature-requirements.md, view.html (template), view.json
+#   - Writes feature-requirements.txt, view.html (template), view.json
 #     (loading placeholder), and functions.js (no-op mount stub).
 #   - Writes services/start.sh, services/render.js, services/IO.swift
 #     and an empty data/ directory.
@@ -82,23 +82,12 @@ mkdir -p "$presented_dir/services" "$component_dir/data" "$component_dir/diagnos
 # The agent reads this file as its first move when fixing a broken component.
 printf '{}\n' > "$component_dir/diagnostics/status.json"
 
-# feature-requirements.md ----------------------------------------------------
-cat > "$presented_dir/feature-requirements.md" <<MD
-# ${display_title}
-
-<!--
-This file describes what this component is supposed to do, in plain language,
-for the user. The agent reads it before working on the component and updates
-it when it has learned something new about the requirements.
-
-Keep it specific and faithful to what the component actually provides. Avoid
-implementation details (file paths, function names).
--->
-
-## Requirements
-
+# feature-requirements.txt ---------------------------------------------------
+# Plain text. No title — the title lives in view.json. Body is the requirements
+# the user cares about, one per line, in their words.
+cat > "$presented_dir/feature-requirements.txt" <<TXT
 - Describe the first thing this component should do.
-MD
+TXT
 
 # view.html (template) ------------------------------------------------------
 # The agent's editing surface during work. render.js watches this file and

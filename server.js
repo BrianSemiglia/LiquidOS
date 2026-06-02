@@ -1495,11 +1495,23 @@ const componentFolderPath = componentPath =>
         : path.dirname(componentPath);
 
 const componentFeatureFile = componentPath =>
-    path.join(componentFolderPath(componentPath), 'presented', 'feature-requirements.md');
+    path.join(componentFolderPath(componentPath), 'presented', 'feature-requirements.txt');
 
 const readComponentFeatureText = componentPath => {
     const file = componentFeatureFile(componentPath);
     return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+};
+
+const readComponentFeatureTitle = componentPath => {
+    const folder = componentFolderPath(componentPath);
+    try {
+        const view = JSON.parse(fs.readFileSync(path.join(folder, 'presented', 'view.json'), 'utf8'));
+        if (typeof view.title === 'string' && view.title.trim()) return view.title.trim();
+    } catch { /* fall through */ }
+    // Fallback: prettify the folder basename ("bitcoin-price-chart" → "Bitcoin Price Chart").
+    return path.basename(folder)
+        .replace(/[-_]+/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase());
 };
 
 const writeComponentFeatureText = (componentPath, text) => {
@@ -1533,7 +1545,7 @@ const componentFeaturePrompt = ({ componentScope, before, after }) => [
     after || '(none)',
     '',
     'Review the actual component before changing anything.',
-    'Keep feature-requirements.md user-facing, concise, plain-language, and faithful to what the component does or is meant to do.',
+    'Keep feature-requirements.txt user-facing, concise, plain-language, and faithful to what the component does or is meant to do. It is a plain text file with no title — the title comes from view.json.',
     "If the requirements and implementation disagree, resolve the mismatch by updating the implementation, the requirements, or both, based on the user's intent.",
     'Do not add unrelated capabilities or preserve inaccurate requirements.'
 ].join('\n');
@@ -1962,7 +1974,8 @@ const server = http.createServer(async (req, res) => {
 
             if (req.method === 'GET') {
                 send(res, 200, JSON.stringify({
-                    text: readComponentFeatureText(entry.componentPath)
+                    text: readComponentFeatureText(entry.componentPath),
+                    title: readComponentFeatureTitle(entry.componentPath)
                 }), 'application/json; charset=utf-8');
                 return;
             }
