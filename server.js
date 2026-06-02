@@ -1719,7 +1719,7 @@ const server = http.createServer(async (req, res) => {
                     status: 'pending',
                     createdAt: new Date().toISOString(),
                     componentKey: newCanvasPath,
-                    prompt: 'This canvas was just installed from a shared requirements bundle. Each component has a Loading… placeholder and its description in presented/feature-requirements.txt. Read canvas-requirements.txt for the canvas-level intent, then build the components following the component-creator skill. If canvas-requirements describes a non-default presentation (3d, grid, spatial), update canvas.js to match.'
+                    prompt: 'Build this canvas and its components.'
                 });
                 outputQueue.feedHermesOutput();
             } catch (error) {
