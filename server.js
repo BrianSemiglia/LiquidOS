@@ -1629,6 +1629,89 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        if (req.method === 'GET' && url.pathname === '/network/search') {
+            // First-cut stub: search only the local feed. The same
+            // endpoint shape will return remote matches once gossipsub
+            // is wired up — the UI doesn't have to change.
+            const query = (url.searchParams.get('q') || '').trim().toLowerCase();
+            const feedFile = path.join(WORKSPACE_PATH, '.share', 'feed.json');
+            let feed = { bundles: [] };
+            if (fs.existsSync(feedFile)) {
+                try { feed = JSON.parse(fs.readFileSync(feedFile, 'utf8')); }
+                catch { /* fallthrough — empty feed */ }
+            }
+            const results = (feed.bundles || []).filter(bundle => {
+                if (!query) return true;
+                const haystack = [
+                    bundle.name || '',
+                    bundle.subtitle || '',
+                    (bundle.tags || []).join(' '),
+                    bundle.canvasRequirements || '',
+                    (bundle.components || []).join(' ')
+                ].join(' ').toLowerCase();
+                return haystack.includes(query);
+            }).map(bundle => ({ ...bundle, peerId: null /* null === local */ }));
+            send(res, 200, JSON.stringify({ results }), 'application/json; charset=utf-8');
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/network/install') {
+            // First-cut stub: install only works for local bundles
+            // (peerId null). When peerId is set, we'll eventually
+            // libp2p-fetch the bundle. For now, return 501.
+            let body;
+            try { body = JSON.parse(await readBody(req) || '{}'); }
+            catch (e) { send(res, 400, 'invalid json'); return; }
+            const peerId = body.peerId || null;
+            const hash = body.hash || '';
+            if (!/^sha256-[0-9a-f]{64}$/.test(hash)) {
+                send(res, 400, 'invalid hash');
+                return;
+            }
+            if (peerId) {
+                send(res, 501, 'remote install not yet implemented');
+                return;
+            }
+            // Local install: find the bundle in .share/published/, run
+            // import.sh against the current workspace.
+            const publishedDir = path.join(WORKSPACE_PATH, '.share', 'published');
+            const feedFile = path.join(WORKSPACE_PATH, '.share', 'feed.json');
+            let feed = { bundles: [] };
+            try { feed = JSON.parse(fs.readFileSync(feedFile, 'utf8')); } catch {}
+            const entry = (feed.bundles || []).find(b => b.hash === hash);
+            if (!entry) {
+                send(res, 404, 'bundle not found in local feed');
+                return;
+            }
+            const bundleSrc = path.join(publishedDir, entry.name);
+            if (!fs.existsSync(bundleSrc)) {
+                send(res, 404, 'bundle directory missing on disk');
+                return;
+            }
+            const importScript = path.join(ROOT, 'skills', 'share-app', 'scripts', 'import.sh');
+            const { spawnSync } = require('node:child_process');
+            // Suffix the canvas name with a short hash slice so a
+            // re-install doesn't collide with the existing canvas.
+            const targetName = entry.name + '-' + hash.slice('sha256-'.length, 'sha256-'.length + 6);
+            const result = spawnSync('bash', [importScript, bundleSrc, WORKSPACE_PATH, targetName], {
+                encoding: 'utf8'
+            });
+            if (result.status !== 0) {
+                send(res, 500, 'install failed: ' + (result.stderr || result.stdout || 'unknown'));
+                return;
+            }
+            // Parse the last line of stdout — import.sh prints a JSON summary.
+            const lines = (result.stdout || '').trim().split(/\r?\n/).filter(Boolean);
+            let summary;
+            try { summary = JSON.parse(lines[lines.length - 1]); } catch { summary = {}; }
+            send(res, 200, JSON.stringify({
+                canvas: summary.canvas || targetName,
+                canvasPath: summary.canvasPath || null,
+                components: summary.components || null
+            }), 'application/json; charset=utf-8');
+            return;
+        }
+
         const networkFeed = url.pathname.match(/^\/network\/feed\/(.+)$/);
 
         if (req.method === 'GET' && networkFeed) {
