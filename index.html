@@ -259,6 +259,56 @@
             background: rgba(255, 255, 255, 0.06);
             color: rgba(232, 232, 234, 0.95);
         }
+        .browse-from-scratch {
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+            width: calc(100% - 1.2rem);
+            margin: 0.6rem 0.6rem 0.2rem;
+            padding: 0.7rem 0.9rem;
+            font: inherit;
+            color: rgba(232, 232, 234, 0.95);
+            text-align: left;
+            background: rgba(59, 130, 246, 0.12);
+            border: 1px solid rgba(96, 165, 250, 0.35);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.12s ease, border-color 0.12s ease;
+        }
+        .browse-from-scratch:hover {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: rgba(96, 165, 250, 0.55);
+        }
+        .browse-from-scratch-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: inline-grid;
+            place-items: center;
+            background: rgba(59, 130, 246, 0.6);
+            color: #fff;
+            font-weight: 700;
+            font-size: 1.1rem;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+        .browse-from-scratch-body {
+            display: flex;
+            flex-direction: column;
+            gap: 0.15rem;
+            min-width: 0;
+        }
+        .browse-from-scratch-title {
+            font-weight: 650;
+            font-size: 0.92rem;
+            color: rgba(232, 232, 234, 0.95);
+        }
+        .browse-from-scratch-subtitle {
+            font-size: 0.78rem;
+            color: rgba(232, 232, 234, 0.65);
+            line-height: 1.35;
+        }
+
         .browse-results {
             flex: 1;
             min-height: 8rem;
@@ -1117,9 +1167,8 @@
     <div class="global-prompt" id="global-prompt-bar">
         <div class="canvas-nav" aria-label="Canvas selection">
             <select id="canvas-select" aria-label="Canvas"></select>
-            <button type="button" id="new-canvas">New</button>
+            <button type="button" id="new-canvas" aria-label="Browse apps or start a new canvas from scratch">New</button>
             <button type="button" id="canvas-info" aria-label="Edit canvas requirements">Info</button>
-            <button type="button" id="browse-button" aria-label="Browse apps to install">Browse</button>
         </div>
         <liquidos-callback class="prompt-send" id="global-submit-callback" on="submit" scope="" prompt-from="prompt">
             <form id="global-prompt">
@@ -1142,6 +1191,13 @@
                 </div>
                 <button type="button" id="browse-close" class="browse-close">Close</button>
             </div>
+            <button type="button" id="browse-from-scratch" class="browse-from-scratch">
+                <span class="browse-from-scratch-icon">+</span>
+                <span class="browse-from-scratch-body">
+                    <span class="browse-from-scratch-title">Start from scratch</span>
+                    <span class="browse-from-scratch-subtitle">Create an empty canvas and build it with the agent.</span>
+                </span>
+            </button>
             <div class="browse-results" id="browse-results">
                 <div class="browse-empty" id="browse-empty">Type to search — results stream in as peers respond.</div>
             </div>
@@ -2581,7 +2637,6 @@
 
         // --- Browse / install ----------------------------------------------
 
-        const browseButton = document.getElementById('browse-button');
         const browseOverlay = document.getElementById('browse-overlay');
         const browseInput = document.getElementById('browse-query');
         const browseResults = document.getElementById('browse-results');
@@ -2821,7 +2876,15 @@
             browseQueryToken++;  // invalidate any in-flight search
         };
 
-        browseButton.addEventListener('click', () => { openBrowseOverlay(); });
+        const browseFromScratch = document.getElementById('browse-from-scratch');
+        browseFromScratch.addEventListener('click', () => {
+            // Defer to the existing create-name modal. When that finishes
+            // (either created or cancelled), we close ourselves so the
+            // user lands on the new canvas — or back where they were.
+            closeBrowseOverlay();
+            showNewCanvasModal();
+        });
+
         browseClose.addEventListener('click', () => { closeBrowseOverlay(); });
         browseOverlay.addEventListener('click', (event) => {
             if (event.target === browseOverlay) closeBrowseOverlay();
@@ -2867,7 +2930,10 @@
             newCanvas.focus();
         };
 
-        newCanvas.addEventListener('click', showNewCanvasModal);
+        // "New" is now the single entry point for both directions:
+        // browse the network for an app to install, or start from
+        // scratch via the affordance inside the browse modal.
+        newCanvas.addEventListener('click', () => { openBrowseOverlay(); });
 
         newCanvasCancel.addEventListener('click', hideNewCanvasModal);
 
