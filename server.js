@@ -1334,15 +1334,14 @@ const broadcastWorkspaceFile = (watchedDir, filename) => {
 };
 
 const scheduleWorkspaceRefresh = (eventType, filename) => {
+    // Do not close-and-recreate the watcher here. fs.watch's earlier
+    // behavior (recreating on every event) caused the in-process writes
+    // from /canvas and similar endpoints to be dropped on macOS — the
+    // close/open cycle raced with FSEvents and ate same-process events.
+    // A single long-lived watcher on the workspace root is enough:
+    // FSEvents and inotify both observe the directory itself, so new
+    // canvases that appear under it still fire events.
     broadcastWorkspaceFile(WORKSPACE_PATH, filename);
-    try {
-        watchWorkspace();
-    } catch (error) {
-        logHermesError('watch', error, { message: 'workspace path watch error' });
-        broadcast({ type: 'canvases-changed' });
-        return;
-    }
-
     broadcast({ type: 'canvases-changed' });
 };
 
@@ -1689,6 +1688,12 @@ const server = http.createServer(async (req, res) => {
             const body = JSON.parse(await readBody(req));
 
             canvasFiles.switchCanvas(String(body.name || ''));
+            // fs.watch on macOS doesn't reliably fire for the same process's
+            // own writes (writeActiveCanvasName just modified the workspace
+            // root) — so emit canvases-changed explicitly. Other browser
+            // sessions need this to refresh their canvas dropdowns; the
+            // generic update below drives the current session's load().
+            broadcast({ type: 'canvases-changed' });
             broadcast();
             send(res, 200, JSON.stringify({
                 current: canvasName(CANVAS_PATH),
@@ -1709,6 +1714,10 @@ const server = http.createServer(async (req, res) => {
                 agentResponse: 'none',
                 mode: 'done'
             });
+            // Same reasoning as /canvas above — fs.watch may miss the
+            // in-process directory mutation, so emit canvases-changed
+            // explicitly.
+            broadcast({ type: 'canvases-changed' });
             broadcast();
             send(res, 201, JSON.stringify({
                 current: canvasName(CANVAS_PATH),
@@ -2097,6 +2106,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 setCanvasPath(CANVAS_PATH);
+watchWorkspace();
 
 const commitShutdownState = reason => {
     if (shutdownCommitAttempted) {

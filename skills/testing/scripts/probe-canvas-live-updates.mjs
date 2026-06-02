@@ -337,6 +337,49 @@ await test('source canvas with async post-teardown work → destination renders'
     return 'destination rendered 10/10 switches';
 });
 
+// A second client (think: a second browser window) listening for
+// canvases-changed must see it fire when the canvas is switched via
+// the /canvas endpoint. fs.watch on macOS doesn't reliably fire for
+// the server's own writes, so /canvas has to emit canvases-changed
+// itself — this scenario catches a regression of that fact.
+await test('POST /canvas emits canvases-changed for other listeners', async () => {
+    const events = [];
+    await page.exposeFunction('__sse2', (data) => events.push(data));
+    await page.evaluate(() => {
+        const src = new EventSource('/events');
+        src.onmessage = e => window.__sse2(e.data);
+    });
+    await sleep(500);  // let the second EventSource subscribe
+    events.length = 0;  // drop any startup chatter
+    const resp = await page.evaluate(async () => {
+        const r = await fetch('/canvas', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: 'other' })
+        });
+        return { ok: r.ok, status: r.status };
+    });
+    if (!resp.ok) throw new Error('POST /canvas failed: ' + resp.status);
+    await sleep(1500);
+    const sawCanvasesChanged = events.some(d => {
+        try { return JSON.parse(d).type === 'canvases-changed'; } catch { return false; }
+    });
+    if (!sawCanvasesChanged) {
+        throw new Error('canvases-changed never fired; events: ' + events.slice(0, 10).join(' | '));
+    }
+    // Restore /home for downstream scenarios.
+    await page.evaluate(async () => {
+        await fetch('/canvas', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: 'home' })
+        });
+    });
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('main .item'))
+        .some(item => item.dataset.componentPath?.endsWith('/alpha')), null, { timeout: 5000 });
+    return 'canvases-changed fired';
+});
+
 // User switches canvas from the dropdown — DOM swaps to the other
 // canvas's components.
 await test('user switches canvas via dropdown → DOM shows other canvas', async () => {
