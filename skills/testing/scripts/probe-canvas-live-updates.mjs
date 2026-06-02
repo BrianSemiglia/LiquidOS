@@ -251,6 +251,49 @@ await test('canvas.js observes state.json via /events + /workspace/file', async 
     return '#app[data-state] = ' + marker;
 });
 
+// A component's HTML may contain a hostile or careless iframe that
+// would otherwise be able to navigate the whole page (top-location).
+// The harness defensively adds sandbox="…" without allow-top-navigation
+// to every iframe in component HTML that doesn't already have one. This
+// scenario confirms the rewrite happens — the served HTML for the
+// component must carry a sandbox attribute, and a hand-authored sandbox
+// must be preserved untouched.
+await test('component iframe is defensively sandboxed by the harness', async () => {
+    // Component A's HTML has a plain iframe — harness should add sandbox.
+    agentWrite('home/components/alpha/presented/view.json', {
+        title: 'Alpha',
+        html: '<iframe src="about:blank" data-probe="auto"></iframe>'
+    });
+    await sleep(500);
+    const auto = await page.evaluate(() => {
+        const item = Array.from(document.querySelectorAll('main .item'))
+            .find(i => i.dataset.componentPath?.endsWith('/alpha'));
+        const iframe = item?.querySelector('iframe[data-probe="auto"]');
+        return iframe ? iframe.getAttribute('sandbox') : null;
+    });
+    if (!auto || /allow-top-navigation/i.test(auto)) {
+        throw new Error('iframe not sandboxed or grants top-navigation: ' + auto);
+    }
+
+    // Hand-authored sandbox must be left untouched (author opted in
+    // explicitly; harness doesn't override).
+    agentWrite('home/components/alpha/presented/view.json', {
+        title: 'Alpha',
+        html: '<iframe src="about:blank" data-probe="manual" sandbox="allow-forms"></iframe>'
+    });
+    await sleep(500);
+    const manual = await page.evaluate(() => {
+        const item = Array.from(document.querySelectorAll('main .item'))
+            .find(i => i.dataset.componentPath?.endsWith('/alpha'));
+        const iframe = item?.querySelector('iframe[data-probe="manual"]');
+        return iframe ? iframe.getAttribute('sandbox') : null;
+    });
+    if (manual !== 'allow-forms') {
+        throw new Error('hand-authored sandbox was overridden: ' + manual);
+    }
+    return 'auto=' + auto + ' / manual preserved';
+});
+
 // User switches canvas from the dropdown — DOM swaps to the other
 // canvas's components.
 await test('user switches canvas via dropdown → DOM shows other canvas', async () => {
