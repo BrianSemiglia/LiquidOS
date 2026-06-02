@@ -1953,8 +1953,9 @@
                 repairLevel: component.repairLevel || (data.canvasError && component.scope === data.canvasPath ? 'canvas' : '')
             }));
             latestComponentByPath = new Map(latestComponents.map(component => [component.scope, component]));
+            let loaded;
             try {
-                await loadCanvas(data.canvasJsVersion, { canvasPath: currentCanvasPath });
+                loaded = await loadCanvas(data.canvasJsVersion, { canvasPath: currentCanvasPath });
             } catch (error) {
                 if (currentCanvas) {
                     try { currentCanvas.teardown(); } catch {}
@@ -1972,7 +1973,18 @@
                     })
                 }];
                 latestComponentByPath = new Map([[latestComponents[0].scope, latestComponents[0]]]);
+                loaded = currentCanvas; // not null — repair path renders below
             }
+            // If loadCanvas returned null, a newer load() call has already
+            // taken over (the import promise was superseded). Bail out
+            // instead of rendering with the still-stale currentCanvas —
+            // calling its place() with the new latestComponents would
+            // poison the canvas's closure (it would cache the new
+            // components as `lastItems`/`lastComponents`), and any of its
+            // pending state fetches would then yank the new items out of
+            // the DOM into the canvas's detached subtree when they
+            // resolve. Leave the rendering to the winning load().
+            if (loaded === null) return;
             // Reuse existing DOM items when possible — only create a new
             // <section> for components we haven't seen before. Previously this
             // always called renderComponent for every component and let

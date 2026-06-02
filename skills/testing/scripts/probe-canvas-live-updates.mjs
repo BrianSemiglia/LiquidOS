@@ -251,6 +251,92 @@ await test('canvas.js observes state.json via /events + /workspace/file', async 
     return '#app[data-state] = ' + marker;
 });
 
+// The destination canvas must render its components even when the source
+// canvas has async work (a pending fetch) that resolves AFTER teardown
+// and tries to manipulate items it captured in its closure during a
+// stale place() call from a superseded load(). This was the root cause
+// of "switch from gadgets to woof, woof never renders": LOAD-A
+// (superseded) would still call the old canvas's place(items, components)
+// with the NEW components after losing the loadCanvas race, the old
+// canvas would cache them in `lastItems`, and when the old canvas's
+// pending fetch resolved (post-teardown) it would call back into
+// applyPlacement which yanked the new items out of the DOM into a
+// detached subtree.
+await test('source canvas with async post-teardown work → destination renders', async () => {
+    // Install a "sticky" home canvas that defers a fetch from place()
+    // and, when it resolves, wraps each cached item in a div via
+    // appendChild — exactly the pattern that breaks. If the harness lets
+    // the superseded LOAD-A continue past the supersede signal, the
+    // stale place() call captures the destination's items and this
+    // post-teardown work moves them out of /other's DOM.
+    agentWrite('home/canvas.js', `
+        // Replicates gadgets's bug shape: a 'world' div lives inside the
+        // canvas root while the canvas is mounted, items are wrapped in
+        // children of world, and a pending fetch resolves post-teardown
+        // and runs the wrap-and-place logic again. While mounted, world
+        // is in app so items stay visible; after teardown world detaches
+        // and re-running the placement yanks the cached items into the
+        // detached subtree. Without the harness supersede-bail fix, a
+        // stale LOAD-A.place() captures the DESTINATION canvas's items
+        // into cachedItems, and the post-teardown callback then moves
+        // those items out of the destination's DOM.
+        export default (root, context) => {
+            let cachedItems = [];
+            const world = document.createElement('div');
+            root.appendChild(world);
+            const applyPlacement = () => {
+                for (const item of cachedItems) {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'sticky-wrap';
+                    world.appendChild(wrap);
+                    wrap.appendChild(item);
+                }
+            };
+            return {
+                place(items, components) {
+                    cachedItems = items.slice();
+                    applyPlacement();
+                    fetch('/workspace/file/home/state.json').finally(applyPlacement);
+                },
+                teardown() {
+                    world.remove();
+                }
+            };
+        };
+    `);
+    // The sticky canvas wraps each card in a div under a `world` div, so
+    // items are no longer direct children of <main> — find them with
+    // a deep query.
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('section.item'))
+        .some(item => item.dataset.componentPath?.endsWith('/alpha')), null, { timeout: 5000 });
+
+    // Switch to /other 10x; the destination must render every time.
+    let everFailed = false;
+    for (let i = 0; i < 10; i++) {
+        await page.selectOption('#canvas-select', 'other');
+        const rendered = await page.waitForFunction(() =>
+            Array.from(document.querySelectorAll('main .item'))
+                .some(item => item.dataset.componentPath?.endsWith('/delta')),
+            null, { timeout: 3000 }).then(() => true).catch(() => false);
+        if (!rendered) { everFailed = true; break; }
+        await page.selectOption('#canvas-select', 'home');
+        await page.waitForFunction(() =>
+            Array.from(document.querySelectorAll('main .item'))
+                .some(item => item.dataset.componentPath?.endsWith('/alpha')),
+            null, { timeout: 3000 });
+    }
+    if (everFailed) throw new Error('destination canvas failed to render across 10 switches');
+
+    // Restore a benign home canvas for subsequent scenarios.
+    agentWrite('home/canvas.js', `
+        import { cssLayout } from '/lib/css-layout.js';
+        export default cssLayout('');
+    `);
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('main .item'))
+        .some(item => item.dataset.componentPath?.endsWith('/alpha')), null, { timeout: 5000 });
+    return 'destination rendered 10/10 switches';
+});
+
 // User switches canvas from the dropdown — DOM swaps to the other
 // canvas's components.
 await test('user switches canvas via dropdown → DOM shows other canvas', async () => {
