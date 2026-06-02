@@ -348,6 +348,9 @@
             margin-top: 0.55rem;
             font-size: 0.78rem;
             color: rgba(232, 232, 234, 0.7);
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
         }
         .browse-result-components-label {
             color: rgba(232, 232, 234, 0.5);
@@ -355,6 +358,25 @@
             text-transform: uppercase;
             letter-spacing: 0.05em;
             margin-bottom: 0.2rem;
+        }
+        .browse-result-component {
+            padding: 0.45rem 0.6rem;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.18);
+        }
+        .browse-result-component-name {
+            font-size: 0.78rem;
+            font-weight: 650;
+            color: rgba(232, 232, 234, 0.9);
+            margin-bottom: 0.25rem;
+        }
+        .browse-result-component-requirements {
+            font-size: 0.74rem;
+            color: rgba(232, 232, 234, 0.68);
+            white-space: pre-wrap;
+            line-height: 1.4;
+            font-family: ui-monospace, Menlo, monospace;
         }
         .browse-result-actions {
             display: flex;
@@ -2588,9 +2610,24 @@
                 label.className = 'browse-result-components-label';
                 label.textContent = 'Components';
                 comps.appendChild(label);
-                const list = document.createElement('div');
-                list.textContent = result.components.join(', ');
-                comps.appendChild(list);
+                for (const c of result.components) {
+                    // Tolerate the older feed shape (array of strings)
+                    // by promoting bare names to {name} objects.
+                    const entry = typeof c === 'string' ? { name: c, requirements: '' } : c;
+                    const block = document.createElement('div');
+                    block.className = 'browse-result-component';
+                    const name = document.createElement('div');
+                    name.className = 'browse-result-component-name';
+                    name.textContent = entry.name;
+                    block.appendChild(name);
+                    if (entry.requirements && entry.requirements.trim()) {
+                        const text = document.createElement('div');
+                        text.className = 'browse-result-component-requirements';
+                        text.textContent = entry.requirements;
+                        block.appendChild(text);
+                    }
+                    comps.appendChild(block);
+                }
                 detail.appendChild(comps);
             }
             const actions = document.createElement('div');

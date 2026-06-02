@@ -109,8 +109,16 @@ const listComponents = (root) => {
     if (!fs.existsSync(compDir)) return [];
     return fs.readdirSync(compDir, { withFileTypes: true })
         .filter(e => e.isDirectory())
-        .map(e => e.name)
-        .sort();
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(e => {
+            // Each component ships its verbatim feature-requirements.txt
+            // inline so a browser can read what the bundle offers
+            // before downloading. Files are small (a few hundred bytes
+            // each, typically) so the feed stays cheap to fetch.
+            const reqFile = path.join(compDir, e.name, "feature-requirements.txt");
+            const requirements = readText(reqFile);
+            return { name: e.name, requirements };
+        });
 };
 
 const parseTags = (s) =>
