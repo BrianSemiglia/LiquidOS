@@ -345,6 +345,31 @@
             line-height: 1.35;
         }
 
+        .component-back-recover {
+            margin: 0 0 0.75rem;
+            padding: 0.85rem 1rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.04);
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.6rem;
+        }
+        .component-back-recover p { margin: 0; }
+        .component-back-recover button {
+            font: inherit;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #fff;
+            background: rgba(59, 130, 246, 0.9);
+            border: 1px solid rgba(96, 165, 250, 0.65);
+            border-radius: 8px;
+            padding: 0.4rem 0.9rem;
+            cursor: pointer;
+        }
+        .component-back-recover button:hover:not(:disabled) { background: rgba(59, 130, 246, 1); }
+
         .component-back textarea {
             width: 100%;
             min-height: 10rem;
@@ -1421,6 +1446,25 @@
             status.textContent = '';
             const titleEl = item.querySelector('[data-feature-title]');
             if (titleEl) titleEl.textContent = String(data.title || '');
+
+            // Empty requirements → offer the "Recover from implementation"
+            // prompt. The callback's scope and prompt are set per-component
+            // here because they depend on the component's path; the callback
+            // reads them at click time.
+            const recover = item.querySelector('[data-feature-recover]');
+            const recoverCallback = item.querySelector('[data-feature-recover-callback]');
+            const isEmpty = textarea.value.trim().length === 0;
+            if (recover) recover.hidden = !isEmpty;
+            if (recoverCallback) {
+                const scope = item.__component?.componentPath || '';
+                recoverCallback.setAttribute('scope', scope);
+                recoverCallback.setAttribute('prompt',
+                    'Read this component\'s presented/ folder (view.html, view.json, ' +
+                    'functions.js, services/) and write presented/feature-requirements.txt ' +
+                    'describing what it does, in plain language. Just bullet points, no ' +
+                    'title — the title lives in view.json. Keep each requirement specific ' +
+                    'and faithful to the actual implementation.');
+            }
             item.querySelector('[data-feature-save]').disabled = true;
         };
 
@@ -1577,6 +1621,12 @@
                 '<h2 data-feature-title></h2>',
                 '<p>Requirements</p>',
                 '</div>',
+                '</div>',
+                '<div class="component-back-recover" data-feature-recover hidden>',
+                '<p>This component has no requirements on file. The agent can read the implementation and write them.</p>',
+                '<liquidos-callback on="click" data-feature-recover-callback>',
+                '<button type="button">Recover from implementation</button>',
+                '</liquidos-callback>',
                 '</div>',
                 '<textarea data-feature-requirements spellcheck="true" placeholder="Describe what this component should do, what it may use, and any limits it should respect."></textarea>',
                 '<div class="component-back-actions">',
