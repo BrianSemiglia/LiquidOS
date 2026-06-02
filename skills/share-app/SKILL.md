@@ -24,7 +24,9 @@ The output is a **plain-folder bundle of requirements only**. No code, no view.h
 
 ```text
 <canvas-name>/
-  canvas-requirements.txt
+  canvas-requirements.txt        — canvas behavior (copied from the source)
+  canvas-subtitle.txt            — one-line pitch for feeds (added by agent post-export)
+  canvas-tags.txt                — one tag per line for feed filtering (added by agent post-export)
   components/
     <component-name>/
       feature-requirements.txt
@@ -32,7 +34,9 @@ The output is a **plain-folder bundle of requirements only**. No code, no view.h
       feature-requirements.txt
 ```
 
-That's the entire format. No JSON, no manifest, no signatures (yet). The folder structure mirrors the workspace structure, so an `import-app` skill (when it exists) can place it back into a workspace by copying.
+That's the entire format. No JSON, no manifest, no signatures (yet). The folder structure mirrors the workspace structure, so the import script can place it back into a workspace by copying.
+
+**Note about subtitle and tags:** these are *feed metadata*, not source for the canvas itself. They don't live in the workspace's canvas folder — only in the bundle. The export script doesn't generate them; the agent does, by reading the bundle's requirements after export. See "Generating subtitle and tags" below.
 
 ## When to use
 
@@ -66,6 +70,30 @@ The script:
 - Component scaffolding files (`.gitkeep`, etc.).
 
 The receiving instance's agent reads the requirements and builds the implementation from scratch. That's the whole point of sharing intent rather than code.
+
+## Generating subtitle and tags
+
+After `export.sh` runs, the bundle has `canvas-requirements.txt` and each component's `feature-requirements.txt` but NOT `canvas-subtitle.txt` or `canvas-tags.txt`. Those are the agent's job. Read the bundle, then write fresh versions of each:
+
+- **canvas-subtitle.txt** — a single line, ideally 6–12 words. What is this canvas for, said in one breath. Should be enough on its own for someone to decide whether they want a closer look. Examples:
+  - `A 3D diorama of small tools and ambient widgets`
+  - `Local restaurant picks and an evening movie player`
+  - `Dog research and farm visit planning around Boston`
+- **canvas-tags.txt** — one tag per line, lowercase, short, hyphens not spaces. Used for filtering feeds. Pick 3–8 tags that name what kind of thing this is — layout style, theme, intended user activity. Examples:
+  - `3d`, `spatial`, `tools`, `widgets`
+  - `local-discovery`, `evening`, `restaurants`, `entertainment`
+  - `dogs`, `farms`, `boston`, `outings`, `planning`
+
+Write these directly into the bundle directory after `export.sh` runs:
+
+```bash
+echo "A 3D diorama of small tools and ambient widgets" \
+  > <bundle>/canvas-subtitle.txt
+printf '3d\nspatial\ntools\nwidgets\n' \
+  > <bundle>/canvas-tags.txt
+```
+
+The two files travel with the bundle from there on — feed builders pick them up, the bundle is browseable in someone else's feed without downloading the requirements files.
 
 ## Reviewing before sending
 
@@ -110,6 +138,27 @@ The canvas exists with scaffolded components, each showing a `Loading…` placeh
 - The presentation (`canvas.js`) defaults to the standard stack layout; if the imported canvas's requirements describe a different presentation (3D, grid, etc.), the agent should rewrite `canvas.js` to match.
 
 Nothing in the bundle executes on import — every file laid down is either scaffolding from the standard create-component templates or a plain-text requirements file. All implementation is built fresh in the receiving workspace.
+
+## Building a feed
+
+A feed is a single JSON document listing every bundle this peer publishes, with just enough metadata for someone else to decide which bundles to download in full. It's what other peers will pull (cheap, frequent) before fetching any bundle content (expensive, occasional).
+
+```bash
+bash skills/share-app/scripts/feed.sh <bundles-dir> [output-path]
+```
+
+Walks every immediate subdirectory of `<bundles-dir>` that looks like a bundle (has `canvas-requirements.txt`) and emits a JSON manifest with these fields per bundle:
+
+- `name` — the bundle's folder name
+- `subtitle` — from `canvas-subtitle.txt`
+- `tags` — parsed list from `canvas-tags.txt`
+- `canvasRequirements` — the full text of `canvas-requirements.txt` (small enough to ship inline so feeds are browseable without download)
+- `components` — names of the component subfolders
+- `hash` — `sha256-…` over the bundle's contents (deterministic walk: sorted filenames, null-separated rel-path + bytes)
+- `size` — total bytes of the bundle's files
+- `createdAt` — bundle directory's birth time
+
+Once the network layer lands, the harness will serve this JSON at `/share/feed` and the bundles at `/share/bundle/<hash>`. Until then, the file is useful as the local manifest of "what I have published."
 
 ## Safety
 

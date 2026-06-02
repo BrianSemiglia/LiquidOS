@@ -98,6 +98,9 @@ if [ -z "$CANVAS_PATH" ] || [ ! -d "$CANVAS_PATH" ]; then
 fi
 
 # Replace the empty canvas-requirements.txt with the bundle's version.
+# (canvas-subtitle.txt and canvas-tags.txt from the bundle stay in the
+# bundle directory — they're discovery metadata, not source for the
+# canvas. The receiving canvas can generate its own when ready to share.)
 cp "$BUNDLE_DIR/canvas-requirements.txt" "$CANVAS_PATH/canvas-requirements.txt"
 
 CREATED_NAMES=()

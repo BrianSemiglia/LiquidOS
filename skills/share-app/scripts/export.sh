@@ -57,6 +57,12 @@ mkdir -p "$BUNDLE_DIR/components"
 
 # Canvas-level requirements: always include the file in the bundle, even
 # if empty, so the receiver knows whether the source had a description.
+# canvas-subtitle.txt and canvas-tags.txt are NOT copied here — those
+# are feed metadata and the agent generates them after export, by
+# reading the bundle's requirements and writing fresh subtitle.txt and
+# tags.txt into the bundle directory. Keeping them out of the canvas
+# itself keeps source clutter down for canvases that nobody ever
+# shares.
 CANVAS_REQ_SRC="$CANVAS_DIR/canvas-requirements.txt"
 CANVAS_REQ_DEST="$BUNDLE_DIR/canvas-requirements.txt"
 if [ -f "$CANVAS_REQ_SRC" ]; then
