@@ -1,0 +1,1 @@
+- Gamma is a static fixture component used by the app's live-update probe.
