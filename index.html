@@ -1459,9 +1459,9 @@
                 const scope = item.__component?.componentPath || '';
                 recoverCallback.setAttribute('scope', scope);
                 recoverCallback.setAttribute('prompt',
-                    'Recover this component\'s requirements. Find and restore a prior ' +
-                    'version from git history if one exists; recreate from the ' +
-                    'implementation otherwise.');
+                    'Find or restore this component\'s requirements. It might be a badly ' +
+                    'formatted file or sitting in the wrong place; if not, check git ' +
+                    'history; last resort, recreate from the code.');
             }
             item.querySelector('[data-feature-save]').disabled = true;
         };
