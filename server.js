@@ -1621,6 +1621,14 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        if (req.method === 'GET' && url.pathname === '/network/status') {
+            const status = networkModule && networkNode
+                ? networkModule.statusOf(networkNode)
+                : { running: false };
+            send(res, 200, JSON.stringify(status), 'application/json; charset=utf-8');
+            return;
+        }
+
         if (req.method === 'POST' && url.pathname === '/agent/select') {
             const body = JSON.parse(await readBody(req));
 
@@ -2138,6 +2146,13 @@ const shutdownCanvasRuntime = reason => {
     stopAllComponentServices(true);
     commitShutdownState(reason || 'application was shut down');
 
+    if (networkNode && networkModule) {
+        // Fire-and-forget — shutdown is synchronous from this caller's
+        // perspective and we don't want the libp2p stop hanging the exit.
+        networkModule.stopNetworkNode(networkNode).catch(() => {});
+        networkNode = null;
+    }
+
     if (activeCanvasRuntime) {
         activeCanvasRuntime.stop();
         activeCanvasRuntime = null;
@@ -2170,6 +2185,26 @@ process.on('unhandledRejection', reason => {
     process.exit(1);
 });
 
+// libp2p node — created on harness boot, exposed at /network/status. The
+// module is ESM so we load it via dynamic import. Stays null if startup
+// fails so the harness keeps running even when the network is broken.
+let networkNode = null;
+let networkModule = null;
+const startNetwork = async () => {
+    try {
+        networkModule = await import('./canvas/network.mjs');
+        networkNode = await networkModule.createNetworkNode({
+            identityPath: path.join(WORKSPACE_PATH, '.network', 'identity.bin')
+        });
+        console.log('Network: peer ID', networkNode.peerId.toString());
+        for (const addr of networkNode.getMultiaddrs()) {
+            console.log('Network: listening on', addr.toString());
+        }
+    } catch (error) {
+        console.error('Network: failed to start', error?.message || error);
+    }
+};
+
 server.listen(PORT, '127.0.0.1', () => {
     const address = server.address();
     const resolvedPort = address && typeof address === 'object' ? address.port : PORT;
@@ -2179,6 +2214,11 @@ server.listen(PORT, '127.0.0.1', () => {
     console.log('Canvas: ' + CANVAS_PATH);
     console.log('Input: ' + INPUT_PATH);
     console.log('Output: ' + OUTPUT_PATH);
+
+    // Kick off the libp2p node in the background. Don't await — the
+    // harness should serve HTTP immediately even if bootstrap to the
+    // DHT takes seconds (which it usually does).
+    startNetwork();
 
     // Catch-all detection for workspace-level errors. Snapshot whatever the
     // workspace looks like right now into the workspace-error file (empty
