@@ -2265,6 +2265,15 @@
                 return;
             }
 
+            // workspace-file events are for in-canvas listeners (canvas.js,
+            // component services) that observe their own files. The harness
+            // doesn't react: a state.json edit shouldn't trigger a full
+            // load(), and canvas.js's own writes shouldn't echo back as
+            // harness work.
+            if (payload && payload.type === 'workspace-file') {
+                return;
+            }
+
             load().catch(showCanvasDamaged);
         };
 
