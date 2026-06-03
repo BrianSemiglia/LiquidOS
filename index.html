@@ -464,22 +464,9 @@
         .browse-install:disabled { opacity: 0.6; cursor: progress; }
         .browse-install:hover:not(:disabled) { background: rgba(59, 130, 246, 1); }
 
-        /* Sharing toggle — sits in the browse header between the search
-           input and the close button. Mirrors the iOS switch shape: pill
-           track + sliding thumb. ON = blue, OFF = neutral gray. */
-        .browse-share-toggle {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0 0.4rem;
-            user-select: none;
-        }
-        .browse-share-label {
-            font-size: 0.78rem;
-            font-weight: 600;
-            color: rgba(232, 232, 234, 0.72);
-            letter-spacing: -0.005em;
-        }
+        /* iOS-style switch shared by the per-instance Shared toggles
+           in the canvas requirements modal and component flip-backs.
+           Pill track + sliding thumb; ON = blue, OFF = neutral gray. */
         .share-switch {
             position: relative;
             width: 36px;
