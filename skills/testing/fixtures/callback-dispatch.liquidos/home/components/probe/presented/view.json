@@ -1,0 +1,4 @@
+{
+  "title": "Probe",
+  "html": "<liquidos-callback on=\"click\" scope=\"components/probe\" prompt=\"PROBE_DISPATCH_MARKER\"><button data-probe-btn type=\"button\">Ping</button></liquidos-callback>"
+}

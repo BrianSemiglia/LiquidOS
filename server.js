@@ -19,7 +19,7 @@ const WORKSPACE_ERROR_FILE_REL = path.join('.liquidos', 'workspace-error');
 const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
 
-const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none']);
+const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none', 'callback-dispatch-test']);
 
 const failStartup = message => {
     console.error(message);

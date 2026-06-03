@@ -5,6 +5,10 @@ const { HermesAgent } = require('./(skillsPath+runtimePath)->hermes-runtime');
 const { PiAgent } = require('./(skillsPath+runtimePath)->pi-runtime');
 const { CodexAgent } = require('./(skillsPath+runtimePath)->codex-runtime');
 const { ClaudeCodeAgent } = require('./(skillsPath+runtimePath)->claude-runtime');
+// Test agents — one per probe scenario, each with its own kind name.
+// First-class runtimes from the dispatch loop's perspective; the only
+// difference is they record into a known file instead of calling an LLM.
+const { CallbackDispatchTestAgent } = require('./test/callback-dispatch-agent');
 
 // NoneAgent is for runs that should not have a working agent — sandbox boots
 // for smoke tests, recursion guards, anything where callbacks should fail
@@ -43,7 +47,8 @@ const createRuntimes = ({
         PiAgent(),
         CodexAgent(),
         ClaudeCodeAgent(),
-        NoneAgent()
+        NoneAgent(),
+        CallbackDispatchTestAgent()
     ];
 
     const materializeRuntime = () => {

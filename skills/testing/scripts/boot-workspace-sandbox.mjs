@@ -14,14 +14,20 @@ const parseArguments = argv => argv.reduce((result, value, index) => {
   if (value === '--workspace') return { ...result, workspace: argv[index + 1] };
   if (value === '--app') return { ...result, app: argv[index + 1] };
   if (value === '--timeout-ms') return { ...result, timeoutMs: Number.parseInt(argv[index + 1], 10) };
+  if (value === '--agent') return { ...result, agent: argv[index + 1] };
   return result;
 }, {});
 
-const { workspace, app, timeoutMs } = parseArguments(process.argv.slice(2));
+const { workspace, app, timeoutMs, agent } = parseArguments(process.argv.slice(2));
 const bootTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 30000;
+// Default to --agent none so the existing smoke-test workflow (callbacks
+// must fail loudly, agent can't recurse) stays unchanged. Probes that want
+// a specific runtime (e.g., the per-scenario test agents under agent/test/)
+// pass --agent <kind> and we forward it through.
+const agentKind = typeof agent === 'string' && agent.trim() ? agent.trim() : 'none';
 
 if (!workspace || !app) {
-  fail('usage: node scripts/boot-workspace-sandbox.mjs --workspace /path/to/Workspace.liquidos --app /path/to/app [--timeout-ms 30000]');
+  fail('usage: node scripts/boot-workspace-sandbox.mjs --workspace /path/to/Workspace.liquidos --app /path/to/app [--agent <kind>] [--timeout-ms 30000]');
 }
 
 const sourceWorkspace = path.resolve(workspace);
@@ -78,13 +84,16 @@ const sandboxWorkspace = path.join(sandboxRoot, path.basename(sourceWorkspace));
 
 fs.cpSync(sourceWorkspace, sandboxWorkspace, { recursive: true });
 
-// --agent none: sandbox runs the harness but not an agent runtime, so callbacks
-// fail loudly and the testing skill can't trigger itself recursively.
-// Per-component diagnostics/service.log captures service output; we only inherit
-// stderr so server-level boot errors land on the launcher's own stderr.
+// Default --agent none: sandbox runs the harness but not an agent runtime,
+// so callbacks fail loudly and the testing skill can't trigger itself
+// recursively. Probes that need a working dispatch loop pass their own
+// per-scenario --agent (the test agents live in agent/test/).
+// Per-component diagnostics/service.log captures service output; we only
+// inherit stderr so server-level boot errors land on the launcher's own
+// stderr.
 const serverArgs = [
   '--workspace', sandboxWorkspace,
-  '--agent', 'none',
+  '--agent', agentKind,
   '--port', String(port)
 ];
 
