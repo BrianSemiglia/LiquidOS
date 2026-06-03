@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#
+# create-relationship.sh — scaffolds a relationship inside a canvas.
+#
+# Usage:
+#   bash skills/relationships/scripts/create-relationship.sh \
+#     <canvas-path> <from> <to> [--name <custom>]
+#
+# A relationship wires <from>'s output into <to>'s input. By default the
+# folder is named <from>-to-<to>; pass --name to override.
+#
+# What it does:
+#   - Verifies <from> and <to> exist under the canvas's components/.
+#   - Errors if the relationship folder already exists.
+#   - Writes feature-requirements.txt, a hidden view.html / view.json pair,
+#     functions.js with a connect() stub naming the two peers, a test.js
+#     behavior stub, and diagnostics/status.json.
+#   - Does NOT touch input.json. The server discovers relationships by
+#     scanning <canvas>/relationships/.
+#
+# Bridges don't get a services/ folder by default — they're pure
+# client-side coordinators. If a relationship later needs services,
+# add them by hand following skills/component-creator.
+#
+# Output: one-line JSON describing the new relationship.
+#
+
+positional=()
+custom_name=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --help|-h)
+            echo "Usage: $0 <canvas-path> <from> <to> [--name <custom>]"
+            exit 0
+            ;;
+        --name)
+            shift
+            custom_name="${1:-}"
+            if [ -z "$custom_name" ]; then
+                echo "Error: --name requires a value" >&2
+                exit 1
+            fi
+            shift
+            ;;
+        *)
+            positional+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [ "${#positional[@]}" -lt 3 ]; then
+    echo "Usage: $0 <canvas-path> <from> <to> [--name <custom>]" >&2
+    exit 1
+fi
+
+canvas_dir="${positional[0]}"
+from_raw="${positional[1]}"
+to_raw="${positional[2]}"
+
+if [ ! -d "$canvas_dir" ]; then
+    echo "Error: canvas folder does not exist: $canvas_dir" >&2
+    exit 1
+fi
+
+if [ ! -f "$canvas_dir/input.json" ]; then
+    echo "Error: $canvas_dir/input.json not found (is this a canvas?)" >&2
+    exit 1
+fi
+
+canvas_dir="$(cd "$canvas_dir" && pwd)"
+
+sanitize() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//'
+}
+
+from_name="$(sanitize "$from_raw")"
+to_name="$(sanitize "$to_raw")"
+
+if [ -z "$from_name" ] || [ -z "$to_name" ]; then
+    echo "Error: <from> and <to> are required (got: $from_raw, $to_raw)" >&2
+    exit 1
+fi
+
+if [ ! -d "$canvas_dir/components/$from_name" ]; then
+    echo "Error: <from> component not found: components/$from_name" >&2
+    exit 1
+fi
+if [ ! -d "$canvas_dir/components/$to_name" ]; then
+    echo "Error: <to> component not found: components/$to_name" >&2
+    exit 1
+fi
+
+if [ -n "$custom_name" ]; then
+    rel_name="$(sanitize "$custom_name")"
+    if [ -z "$rel_name" ]; then
+        echo "Error: --name produced empty after sanitize: $custom_name" >&2
+        exit 1
+    fi
+else
+    rel_name="${from_name}-to-${to_name}"
+fi
+
+rel_dir="$canvas_dir/relationships/$rel_name"
+presented_dir="$rel_dir/presented"
+
+if [ -e "$rel_dir" ]; then
+    echo "Error: relationship already exists: $rel_dir" >&2
+    exit 1
+fi
+
+mkdir -p "$presented_dir" "$rel_dir/data" "$rel_dir/diagnostics"
+
+printf '{}\n' > "$rel_dir/diagnostics/status.json"
+
+# feature-requirements.txt — plain text, user-facing, describes the wiring.
+cat > "$presented_dir/feature-requirements.txt" <<TXT
+- Forwards data from ${from_name} to ${to_name}. Edit this line to describe what the wire actually does.
+TXT
+
+# view.html — hidden by default. Relationships have no UI of their own.
+cat > "$presented_dir/view.html" <<HTML
+<!--
+view.html — relationship view, hidden by default.
+
+A relationship has no UI; its value is the wiring it sets up in
+functions.js. Leave this hidden unless you want a visualizer or controls.
+
+If you give this relationship UI later, follow skills/component-creator
+for the visual side and keep functions.js's connect() intact.
+-->
+<div hidden data-relationship="${from_name} → ${to_name}"></div>
+HTML
+
+# view.json — matches view.html. No render.js scaffold here, so the agent
+# keeps these two in sync by hand (or adds a render.js later if needed).
+node -e '
+const fs = require("fs");
+const [viewPath, htmlPath, relName] = process.argv.slice(1);
+const html = fs.readFileSync(htmlPath, "utf8");
+fs.writeFileSync(viewPath, JSON.stringify({
+    html,
+    resources: {
+        functions: {
+            path: `relationships/${relName}/presented/functions.js`,
+            mime: "text/javascript",
+        },
+    },
+}, null, 2) + "\n");
+' "$presented_dir/view.json" "$presented_dir/view.html" "$rel_name"
+
+# functions.js — connect() stub. The agent fills in channel names and the
+# transform function. Naming the two peers via interpolation makes the
+# starting point grep-able from the relationship name.
+cat > "$presented_dir/functions.js" <<FUNCTIONSJS
+//
+// ${rel_name} — relationship.
+//
+// Wires ${from_name} -> ${to_name}. The harness calls connect(peers) once
+// with the I/O handles of every sibling, keyed by local name. This
+// relationship subscribes to ${from_name} and writes to ${to_name}.
+//
+// CONTRACT
+// - mount() returns a cleanup function that runs whenever this relationship
+//   is re-mounted (live file edit) or removed. It MUST call the
+//   unsubscribe returned by on().
+// - connect() must be robust to missing peers — return early if either
+//   endpoint isn't in the canvas.
+//
+// AGENT FREEDOM
+// Fill in:
+//   - the channel name the from-peer publishes on (in from.on('<channel>', ...))
+//   - the channel name the to-peer accepts (in to.send('<channel>', ...))
+//   - the transform function (or remove it for a passthrough)
+// Replace anything else as needed. For fanout or fan-in, restructure
+// connect() — the contract only requires that surface.__io.connect exists.
+//
+
+export const mount = (surface) => {
+    let off = null;
+
+    surface.__io = {
+        on() { return () => {}; },
+        send() {},
+        connect(peers) {
+            const from = peers['${from_name}'];
+            const to = peers['${to_name}'];
+            if (!from || !to) return;
+
+            // TODO: replace '<channel>' on both sides, and the transform.
+            off = from.on('<channel>', payload => {
+                to.send('<channel>', payload);
+            });
+        },
+    };
+
+    return () => {
+        if (off) { try { off(); } catch {} ; off = null; }
+    };
+};
+FUNCTIONSJS
+
+# test.js — behavior test that lives with the relationship. The test
+# describes what a user observes when interacting with ${from_name} and
+# what changes in ${to_name}. It does NOT reference relationship
+# internals (no surface.__io, no connect, no peers).
+cat > "$rel_dir/test.js" <<TESTJS
+// Behavior test.
+//
+// Describe what a user sees: interact with the ${from_name} component,
+// observe a change in the ${to_name} component. Do not reference any
+// relationship plumbing — if the implementation changed tomorrow, this
+// test should still pass.
+//
+// Run:
+//   node test.js <port-of-running-server>
+
+const assert = require('node:assert/strict');
+const { chromium } = require('~/Documents/LiquidOS/node_modules/playwright');
+
+const PORT = process.argv[2];
+if (!PORT) {
+    console.error('Usage: node test.js <port>');
+    process.exit(2);
+}
+
+(async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.goto(\`http://127.0.0.1:\${PORT}\`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await new Promise(r => setTimeout(r, 2500));
+
+    // TODO: replace with selectors and interactions specific to ${from_name}
+    // and ${to_name}. Read user-visible state before and after; assert it
+    // changed in the way a user would describe.
+    //
+    // Example shape:
+    //   const before = await page.locator('<selector for ${to_name} readout>').textContent();
+    //   await page.locator('<selector for ${from_name} control>').dispatchEvent('click');
+    //   const after = await page.locator('<selector for ${to_name} readout>').textContent();
+    //   assert.notStrictEqual(after, before);
+
+    console.log('OK');
+    await browser.close();
+})().catch(e => { console.error('FAIL:', e.message); process.exit(1); });
+TESTJS
+
+printf '{"relationship":"%s","from":"%s","to":"%s","path":"%s"}\n' \
+    "$rel_name" "$from_name" "$to_name" "$rel_dir"
