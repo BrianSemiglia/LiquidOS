@@ -291,3 +291,99 @@ export const stopNetworkNode = async (node) => {
     try { await node.stop(); }
     catch { /* best-effort shutdown */ }
 };
+
+// --- Discovery via FEED protocol polling -----------------------------------
+//
+// Whenever libp2p tells us a new peer is connected (DHT introduction,
+// direct dial, anything), we try to fetchFeed against them. Peers that
+// speak our protocol respond with their feed.json; everyone else fails
+// silently. The successful responses populate an in-memory cache; the
+// /network/search endpoint reads only from that cache so query text
+// never leaves the local process (privacy by construction).
+//
+// We also re-poll known LiquidOS peers on a low-frequency timer so a
+// peer's share-toggle is reflected in our search results without them
+// having to reconnect.
+//
+// This used to be modeled with gossipsub, but @chainsafe/libp2p-gossipsub@14
+// depends on @libp2p/interface@2 and our libp2p stack is on @libp2p/interface@3
+// — major version mismatch on the PubSub interface, mesh formation never
+// completes. Polling sidesteps the version issue entirely; same cache
+// shape so the rest of the system doesn't notice the swap.
+
+const PEER_FEED_REPOLL_INTERVAL_MS = 30_000;
+const PEER_FEED_FETCH_TIMEOUT_MS = 5_000;
+
+// Set up the peer discovery loop. Returned object exposes:
+//   - cache: Map<peerIdString, { peerId, multiaddrs, feed, refreshedAt }>
+//   - broadcast(): re-poll every known peer (call after our share toggle)
+//   - stop(): tear down timers (server shutdown)
+//
+// The "broadcast" name is kept for symmetry with the server-side
+// rebroadcastFeed call sites; under the hood it's a re-poll, not a push.
+export const subscribeFeedTopic = async (node, sharePath, workspacePath) => {
+    const cache = new Map();
+    const ourPeerId = node.peerId.toString();
+    // Peers we've successfully fetched a feed from at least once.
+    // Re-polled on the timer; non-LiquidOS peers stay out so we don't
+    // hammer random DHT neighbors that already rejected the protocol.
+    const knownPeers = new Set();
+
+    const withTimeout = (promise, ms) => new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('timeout')), ms);
+        promise.then(value => { clearTimeout(timer); resolve(value); },
+                     error => { clearTimeout(timer); reject(error); });
+    });
+
+    const tryFetchFromPeer = async (peerId) => {
+        const peerIdString = String(peerId);
+        if (peerIdString === ourPeerId) return;
+        try {
+            const bytes = await withTimeout(fetchFeed(node, peerIdString), PEER_FEED_FETCH_TIMEOUT_MS);
+            if (!bytes || bytes.length === 0) return;
+            const feed = JSON.parse(bytes.toString('utf8'));
+            cache.set(peerIdString, {
+                peerId: peerIdString,
+                multiaddrs: [],
+                feed: feed && typeof feed === 'object' ? feed : { bundles: [] },
+                refreshedAt: new Date().toISOString()
+            });
+            knownPeers.add(peerIdString);
+        } catch {
+            // Peer doesn't speak the protocol, is offline, or timed out.
+            // Silent — non-LiquidOS peers in the DHT are the common case.
+        }
+    };
+
+    // Hook every new peer connection. libp2p emits 'peer:connect' when
+    // a new connection is established to a peer; the dial we do for the
+    // /network/dial endpoint also fires this.
+    node.addEventListener('peer:connect', (event) => {
+        const peerId = event.detail;
+        if (!peerId) return;
+        tryFetchFromPeer(peerId);
+    });
+
+    // Also try every peer that's already connected at startup, in case
+    // the libp2p node had connections (via bootstrap) before we wired
+    // the listener up.
+    for (const conn of node.getConnections()) {
+        tryFetchFromPeer(conn.remotePeer);
+    }
+
+    // Periodic re-poll. Keeps cached feeds fresh after a peer toggles
+    // share on/off without our side needing any push channel.
+    const refresh = async () => {
+        for (const peerId of knownPeers) {
+            await tryFetchFromPeer(peerId);
+        }
+    };
+    const timer = setInterval(refresh, PEER_FEED_REPOLL_INTERVAL_MS);
+    timer.unref && timer.unref();
+
+    return {
+        cache,
+        broadcast: refresh,
+        stop: () => { clearInterval(timer); }
+    };
+};
