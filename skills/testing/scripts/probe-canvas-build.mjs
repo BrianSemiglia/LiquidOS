@@ -1,14 +1,12 @@
 #!/usr/bin/env node
 //
-// probe-callback-dispatch.mjs
+// probe-canvas-build.mjs
 //
-// User clicks a <liquidos-callback>-wrapped button → harness dispatches
-// the agent → agent rewrites the component's view.json with a PONG
-// marker → harness file watcher picks up the change and re-renders →
-// probe observes the new DOM.
-//
-// Verification is purely UI: we read the DOM after the dispatch round-
-// trip and assert the span content. No filesystem inspection.
+// User edits canvas-requirements.txt + clicks Build → /canvas/requirements
+// writes the file and dispatches the agent → test agent adds the
+// pre-staged probe-built component to input.json → harness re-renders
+// with the new card → probe observes the [data-canvas-build-marker]
+// element in the DOM.
 
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -17,12 +15,13 @@ import { chromium } from 'playwright';
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(scriptsDir, '../../..');
-const fixture = path.join(scriptsDir, '..', 'fixtures', 'callback-dispatch.liquidos');
+const fixture = path.join(scriptsDir, '..', 'fixtures', 'canvas-build.liquidos');
+const MARKER = 'PROBE_CANVAS_BUILD';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const launcher = spawn('node', [
     path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
-    '--workspace', fixture, '--app', appRoot, '--agent', 'callback-dispatch-test'
+    '--workspace', fixture, '--app', appRoot, '--agent', 'canvas-build-test'
 ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
 const sandbox = await new Promise((resolve, reject) => {
@@ -50,30 +49,33 @@ try {
     const page = await browser.newPage();
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('[data-probe-btn]', { timeout: 20000 });
     await sleep(1500);
 
-    // Pre-condition: the PONG span doesn't exist yet.
-    const pongBefore = await page.locator('[data-pong]').count();
-    if (pongBefore !== 0) {
-        console.error('FAIL: probe-pong span existed before the callback fired');
+    // Pre-condition: no probe-built marker visible yet.
+    if (await page.locator('[data-canvas-build-marker]').count() !== 0) {
+        console.error('FAIL: marker existed before Build');
         exitCode = 1;
     }
 
-    await page.locator('[data-probe-btn]').dispatchEvent('click');
+    // Open the canvas requirements modal.
+    await page.locator('#canvas-info').dispatchEvent('click');
+    await page.waitForSelector('#canvas-requirements-textarea', { state: 'visible', timeout: 5000 });
+    await page.waitForFunction(() => !document.getElementById('canvas-requirements-textarea').disabled, { timeout: 5000 });
+    await page.locator('#canvas-requirements-textarea').fill('- ' + MARKER + '\n');
+    await page.locator('#canvas-requirements-save').dispatchEvent('click');
 
-    // The harness's file watcher reflects view.json edits in the DOM;
-    // wait for the PONG span the agent wrote to materialize.
+    // The harness's input watcher re-renders the canvas after the agent
+    // writes input.json; wait for the new card's marker to appear.
     try {
-        await page.waitForSelector('[data-pong]', { timeout: 8000 });
-        const pongText = (await page.locator('[data-pong]').textContent() || '').trim();
-        console.log('observed pong text:', pongText);
-        if (pongText !== 'PONG') {
-            console.error('FAIL: pong span did not contain PONG');
+        await page.waitForSelector('[data-canvas-build-marker]', { timeout: 10000 });
+        const markerText = (await page.locator('[data-canvas-build-marker]').textContent() || '').trim();
+        console.log('observed marker:', markerText);
+        if (markerText !== 'BUILT') {
+            console.error('FAIL: marker text was not "BUILT"');
             exitCode = 1;
         }
     } catch (e) {
-        console.error('FAIL: pong span never surfaced — dispatch did not complete the round trip');
+        console.error('FAIL: probe-built card never surfaced in the DOM');
         exitCode = 1;
     }
 

@@ -1,14 +1,10 @@
 #!/usr/bin/env node
 //
-// probe-callback-dispatch.mjs
+// probe-flip-button-toggle.mjs
 //
-// User clicks a <liquidos-callback>-wrapped button → harness dispatches
-// the agent → agent rewrites the component's view.json with a PONG
-// marker → harness file watcher picks up the change and re-renders →
-// probe observes the new DOM.
+// Verifies the component flip-button text toggles between 'Requirements'
+// (front, click to open the back) and 'Close' (back, click to return).
 //
-// Verification is purely UI: we read the DOM after the dispatch round-
-// trip and assert the span content. No filesystem inspection.
 
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -17,12 +13,12 @@ import { chromium } from 'playwright';
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(scriptsDir, '../../..');
-const fixture = path.join(scriptsDir, '..', 'fixtures', 'callback-dispatch.liquidos');
+const fixture = path.join(scriptsDir, '..', 'fixtures', 'component-repair.liquidos');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const launcher = spawn('node', [
     path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
-    '--workspace', fixture, '--app', appRoot, '--agent', 'callback-dispatch-test'
+    '--workspace', fixture, '--app', appRoot
 ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
 const sandbox = await new Promise((resolve, reject) => {
@@ -50,34 +46,33 @@ try {
     const page = await browser.newPage();
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('[data-probe-btn]', { timeout: 20000 });
+    await page.waitForSelector('[data-probe]', { timeout: 20000 });
     await sleep(1500);
 
-    // Pre-condition: the PONG span doesn't exist yet.
-    const pongBefore = await page.locator('[data-pong]').count();
-    if (pongBefore !== 0) {
-        console.error('FAIL: probe-pong span existed before the callback fired');
+    const flip = page.locator('[data-component-flip]').first();
+    const front = await flip.textContent();
+    if ((front || '').trim() !== 'Requirements') {
+        console.error('FAIL: front state should read "Requirements", got:', front);
         exitCode = 1;
     }
-
-    await page.locator('[data-probe-btn]').dispatchEvent('click');
-
-    // The harness's file watcher reflects view.json edits in the DOM;
-    // wait for the PONG span the agent wrote to materialize.
-    try {
-        await page.waitForSelector('[data-pong]', { timeout: 8000 });
-        const pongText = (await page.locator('[data-pong]').textContent() || '').trim();
-        console.log('observed pong text:', pongText);
-        if (pongText !== 'PONG') {
-            console.error('FAIL: pong span did not contain PONG');
-            exitCode = 1;
-        }
-    } catch (e) {
-        console.error('FAIL: pong span never surfaced — dispatch did not complete the round trip');
+    await flip.dispatchEvent('click');
+    await sleep(400);
+    const back = await flip.textContent();
+    if ((back || '').trim() !== 'Close') {
+        console.error('FAIL: back state should read "Close", got:', back);
         exitCode = 1;
     }
-
-    if (!exitCode) console.log('PASS');
+    await flip.dispatchEvent('click');
+    await sleep(400);
+    const frontAgain = await flip.textContent();
+    if ((frontAgain || '').trim() !== 'Requirements') {
+        console.error('FAIL: after closing, button should read "Requirements" again, got:', frontAgain);
+        exitCode = 1;
+    }
+    if (!exitCode) {
+        console.log('front:', front, '→ back:', back, '→ front again:', frontAgain);
+        console.log('PASS');
+    }
     await browser.close();
 } catch (e) {
     console.error('FAIL:', e.message);

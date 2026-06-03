@@ -2222,16 +2222,12 @@
                 closeRequirementsOverlay(item);
             }
 
-            if (side === 'back' && item.querySelector('[data-feature-requirements]')?.dataset.loaded !== 'true') {
-                loadComponentFeatures(item).then(() => {
-                    const textarea = item.querySelector('[data-feature-requirements]');
-
-                    if (textarea) {
-                        textarea.dataset.loaded = 'true';
-                    }
-                }).catch(error => {
+            if (side === 'back') {
+                // Always re-fetch on open — a Repair dispatch (or any other
+                // agent that wrote feature-requirements.txt) needs to surface
+                // here, and a per-open HTTP call is negligible.
+                loadComponentFeatures(item).catch(error => {
                     const status = item.querySelector('[data-feature-status]');
-
                     if (status) {
                         status.textContent = 'Could not load requirements: ' + error.message;
                     }
@@ -2368,7 +2364,10 @@
                 toggleComponentShareState(item);
             });
 
-            surface.addEventListener('liquidos:callback', event => {
+            // Listen on the frame, not just .surface — Repair lives on the
+            // back panel (sibling of front, both inside frame), and its
+            // liquidos:callback event would otherwise never reach a handler.
+            frame.addEventListener('liquidos:callback', event => {
                 const detail = event.detail && typeof event.detail === 'object'
                     ? event.detail
                     : {};
@@ -2981,6 +2980,20 @@
         canvasReqOverlay.addEventListener('click', event => {
             // Click on the dim backdrop (but not the card itself) closes.
             if (event.target === canvasReqOverlay) closeCanvasRequirements();
+        });
+        // Catch the Repair callback inside the modal — its liquidos:callback
+        // event would otherwise have no listener up the tree.
+        canvasReqOverlay.addEventListener('liquidos:callback', event => {
+            const detail = event.detail && typeof event.detail === 'object' ? event.detail : {};
+            const prompt = String(detail.prompt || '').trim();
+            const scope = String(detail.scope || '').trim();
+            if (!prompt || !scope) return;
+            event.preventDefault();
+            markScopeBusy(scope);
+            submitPrompt(scope, prompt).catch(error => {
+                clearScopeBusy(scope);
+                console.error('canvas requirements repair failed:', error);
+            });
         });
         document.addEventListener('keydown', event => {
             if (canvasReqOverlay.hidden) return;

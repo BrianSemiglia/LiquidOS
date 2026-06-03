@@ -9,6 +9,9 @@ const { ClaudeCodeAgent } = require('./(skillsPath+runtimePath)->claude-runtime'
 // First-class runtimes from the dispatch loop's perspective; the only
 // difference is they record into a known file instead of calling an LLM.
 const { CallbackDispatchTestAgent } = require('./test/callback-dispatch-agent');
+const { CanvasBuildTestAgent } = require('./test/canvas-build-test-agent');
+const { ComponentRepairTestAgent } = require('./test/component-repair-test-agent');
+const { CanvasRepairTestAgent } = require('./test/canvas-repair-test-agent');
 
 // NoneAgent is for runs that should not have a working agent — sandbox boots
 // for smoke tests, recursion guards, anything where callbacks should fail
@@ -48,7 +51,10 @@ const createRuntimes = ({
         CodexAgent(),
         ClaudeCodeAgent(),
         NoneAgent(),
-        CallbackDispatchTestAgent()
+        CallbackDispatchTestAgent(),
+        CanvasBuildTestAgent(),
+        ComponentRepairTestAgent(),
+        CanvasRepairTestAgent()
     ];
 
     const materializeRuntime = () => {
