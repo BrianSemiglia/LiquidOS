@@ -141,8 +141,6 @@ if (!fs.existsSync(WORKSPACE_PATH) || !fs.statSync(WORKSPACE_PATH).isDirectory()
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'skills', 'canvas-creator', 'templates');
 const ACTIVE_CANVAS_FILE = path.join(WORKSPACE_PATH, 'active-canvas.json');
 const ACTIVE_AGENT_FILE = path.join(WORKSPACE_PATH, 'active-agent.json');
-const LEGACY_SELECTED_CANVAS_FILE = path.join(WORKSPACE_PATH, 'selected-canvas.json');
-const LEGACY_SELECTED_AGENT_FILE = path.join(WORKSPACE_PATH, 'selected-agent.json');
 const DEFAULT_CANVAS_NAME = 'home';
 const DEFAULT_CANVAS_PATH = path.join(WORKSPACE_PATH, DEFAULT_CANVAS_NAME);
 
@@ -155,16 +153,10 @@ const validCanvasName = value =>
 
 const activeCanvasNameFromFile = () => {
     try {
-        const file = fs.existsSync(ACTIVE_CANVAS_FILE) ? ACTIVE_CANVAS_FILE : LEGACY_SELECTED_CANVAS_FILE;
-
-        if (!fs.existsSync(file)) {
-            return DEFAULT_CANVAS_NAME;
-        }
-
-        const value = JSON.parse(fs.readFileSync(file, 'utf8'));
-        const name = typeof value === 'string' ? value : value.canvas;
-        return validCanvasName(name) ? name : DEFAULT_CANVAS_NAME;
-    } catch (error) {
+        if (!fs.existsSync(ACTIVE_CANVAS_FILE)) return DEFAULT_CANVAS_NAME;
+        const value = JSON.parse(fs.readFileSync(ACTIVE_CANVAS_FILE, 'utf8'));
+        return validCanvasName(value?.canvas) ? value.canvas : DEFAULT_CANVAS_NAME;
+    } catch {
         return DEFAULT_CANVAS_NAME;
     }
 };
@@ -182,19 +174,10 @@ const validAgentKind = value =>
 
 const activeAgentKindFromFile = () => {
     try {
-        const file = fs.existsSync(ACTIVE_AGENT_FILE) ? ACTIVE_AGENT_FILE : LEGACY_SELECTED_AGENT_FILE;
-
-        if (!fs.existsSync(file)) {
-            return DEFAULT_AGENT_KIND;
-        }
-
-        const value = JSON.parse(fs.readFileSync(file, 'utf8'));
-        const candidate = typeof value === 'string'
-            ? value
-            : value?.agent ?? value?.kind ?? value?.selectedAgentKind;
-
-        return validAgentKind(candidate) ? candidate.trim().toLowerCase() : DEFAULT_AGENT_KIND;
-    } catch (error) {
+        if (!fs.existsSync(ACTIVE_AGENT_FILE)) return DEFAULT_AGENT_KIND;
+        const value = JSON.parse(fs.readFileSync(ACTIVE_AGENT_FILE, 'utf8'));
+        return validAgentKind(value?.agent) ? value.agent.trim().toLowerCase() : DEFAULT_AGENT_KIND;
+    } catch {
         return DEFAULT_AGENT_KIND;
     }
 };
@@ -879,10 +862,7 @@ const activityPersistence = createActivityPersistence({
 
 const promptBuilder = createPromptBuilder({
     getCanvasPath: () => CANVAS_PATH,
-    outputJobKey: job => outputQueue.outputJobKey(job),
-    callbackPromptText,
-    componentScopePath: canvasGraph.componentScopePath,
-    resolveCanvasReference
+    callbackPromptText
 });
 
 
@@ -944,8 +924,7 @@ const processOutputJob = async job => {
             inputPath: INPUT_PATH,
             outputPath: OUTPUT_PATH,
             workingDirectory: WORKSPACE_PATH,
-            systemPromptPath: AGENTS_RUNTIME_PATH,
-            canvasPath: CANVAS_PATH
+            systemPromptPath: AGENTS_RUNTIME_PATH
         });
 
         const activityRecord = activityPersistence.persistActivity({
@@ -1505,13 +1484,8 @@ const appendOutput = async req => {
 };
 
 
-const componentFolderPath = componentPath =>
-    fs.existsSync(componentPath) && fs.statSync(componentPath).isDirectory()
-        ? componentPath
-        : path.dirname(componentPath);
-
 const componentFeatureFile = componentPath =>
-    path.join(componentFolderPath(componentPath), 'presented', 'feature-requirements.txt');
+    path.join(canvasGraph.componentFolderPath(componentPath), 'presented', 'feature-requirements.txt');
 
 const readComponentFeatureText = componentPath => {
     const file = componentFeatureFile(componentPath);
@@ -1519,7 +1493,7 @@ const readComponentFeatureText = componentPath => {
 };
 
 const readComponentFeatureTitle = componentPath => {
-    const folder = componentFolderPath(componentPath);
+    const folder = canvasGraph.componentFolderPath(componentPath);
     try {
         const view = JSON.parse(fs.readFileSync(path.join(folder, 'presented', 'view.json'), 'utf8'));
         if (typeof view.title === 'string' && view.title.trim()) return view.title.trim();

@@ -1242,8 +1242,15 @@
                     </button>
                 </div>
             </div>
-            <textarea class="canvas-requirements-textarea" id="canvas-requirements-textarea" spellcheck="true"
-                placeholder="Describe what this canvas is for. What kinds of cards should it hold? How should they feel together? Intent only — no implementation details."></textarea>
+            <div class="requirements-region">
+                <textarea class="canvas-requirements-textarea" id="canvas-requirements-textarea" spellcheck="true"
+                    placeholder="Describe what this canvas is for. What kinds of cards should it hold? How should they feel together? Intent only — no implementation details."></textarea>
+                <div class="requirements-region-overlay">
+                    <liquidos-callback on="click" id="canvas-requirements-recover-callback" hidden>
+                        <button type="button" class="requirements-repair">Repair</button>
+                    </liquidos-callback>
+                </div>
+            </div>
             <div class="canvas-requirements-actions">
                 <button type="button" id="canvas-requirements-cancel" class="is-secondary">Cancel</button>
                 <button type="button" id="canvas-requirements-save">Build</button>
@@ -1364,16 +1371,10 @@
         const debugOutput = document.getElementById('debug-output');
         const debugCopy = document.getElementById('debug-copy');
         const debugResizer = document.getElementById('debug-resizer');
-        const instanceStyle = document.createElement('style');
-        // (Presentation styles are now owned by each presentation module — it
-        // creates and manages its own <style> elements via the cssLayout helper
-        // or whatever else it imports.)
         let latestComponents = [];
         let currentCanvasName = '';
         let currentCanvasPath = '';
-        let statusTimer;
         let scrollSaveTimer;
-        let currentLayout = null;
         let debugResizePointerId = null;
         let debugResizeFrame = null;
         let debugLines = [];
@@ -1402,8 +1403,6 @@
         // Keep the open requirements editor tied to the component path so rerenders can restore it.
         let openRequirementsComponentPath = '';
         let lastCanvasSnapshot = '';
-        instanceStyle.id = 'instance-style';
-        document.head.append(instanceStyle);
         const scrollKey = canvasName => 'live-edit-scroll:' + (canvasName || 'default');
         const debugRailWidthKey = 'live-edit-debug-rail-width';
 
@@ -1942,6 +1941,13 @@
                 wireIOTimer = setTimeout(wireIO, 50);
                 return;
             }
+            if (pending > 0) {
+                // Out of retries with some peers still missing __io. The
+                // ones present will still get connect()'d, but a bridge
+                // expecting a missing peer will see an incomplete map.
+                // Surface this so it isn't a silent failure during dev.
+                console.warn('wireIO: timed out with', pending, 'component(s) missing surface.__io after', wireIOAttempts, 'retries; connecting with partial peer map');
+            }
             Object.values(peers).forEach(io => {
                 if (typeof io.connect === 'function' && !io.__connected) {
                     try { io.connect(peers); } catch (error) { console.error('relationship connect threw:', error); }
@@ -2040,11 +2046,18 @@
         const loadComponentShareState = async item => {
             const button = item.querySelector('[data-component-share-switch]');
             if (!button || !item.__component?.componentPath) return;
+            // Token guards against canvas-switch (or component swap) mid-fetch:
+            // a stale response would otherwise paint the previous canvas's
+            // share state onto whatever component lives at this DOM node now.
+            const token = {};
+            item.__shareLoadToken = token;
             setShareSwitchUI(button, false, true);
             try {
                 const response = await fetch(componentShareUrl(item.__component), { cache: 'no-store' });
+                if (item.__shareLoadToken !== token) return;
                 if (!response.ok) throw new Error('share GET failed: ' + response.status);
                 const data = await response.json();
+                if (item.__shareLoadToken !== token) return;
                 if (data.canvasShared) {
                     setShareSwitchUI(button, data.shared === true, false);
                     button.title = '';
@@ -2053,6 +2066,7 @@
                     button.title = 'Enable canvas sharing first to share this component.';
                 }
             } catch (error) {
+                if (item.__shareLoadToken !== token) return;
                 console.error('component share load failed:', error);
                 setShareSwitchUI(button, false, true);
             }
@@ -2182,7 +2196,7 @@
             document.body.append(overlay);
 
             item.dataset.side = 'back';
-            item.querySelector('[data-component-flip]').textContent = 'Requirements';
+            item.querySelector('[data-component-flip]').textContent = 'Close';
             openRequirementsComponentPath = item.dataset.componentPath || '';
         };
 
@@ -2242,22 +2256,24 @@
 
             button.disabled = true;
             status.textContent = 'Saving…';
-            const response = await fetch(componentFeatureUrl(item.__component), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ text: textarea.value })
-            });
-
-            if (!response.ok) {
+            try {
+                const response = await fetch(componentFeatureUrl(item.__component), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: textarea.value })
+                });
+                if (!response.ok) {
+                    throw new Error(await response.text() || ('/features returned ' + response.status));
+                }
+                const data = await response.json();
+                textarea.dataset.savedValue = textarea.value;
+                status.textContent = data.changed ? 'Saved.' : 'No changes.';
+            } catch (error) {
+                // Network or response failure: re-enable the button so the
+                // user can retry without closing the requirements view.
                 button.disabled = false;
-                throw new Error(await response.text() || ('/features returned ' + response.status));
+                throw error;
             }
-
-            const data = await response.json();
-            textarea.dataset.savedValue = textarea.value;
-            status.textContent = data.changed ? 'Saved.' : 'No changes.';
         };
 
         const renderComponent = component => {
@@ -2266,7 +2282,6 @@
             item.dataset.componentPath = component.scope || '';
             item.dataset.repairLevel = component.repairLevel || '';
             item.classList.toggle('canvas-repair-item', component.repairLevel === 'canvas');
-            item.dataset.layoutEnter = 'true';
             // __component is intentionally left unset here so the first
             // updateComponentItem(item, component) call sees prev=undefined,
             // populates the surface via morphInto, and runs mount() — keeping
@@ -2551,9 +2566,6 @@
                     app.replaceChildren(...nextItems);
                 }
                 restoreOpenRequirementsOverlay();
-                requestAnimationFrame(() => {
-                    nextItems.forEach(item => delete item.dataset.layoutEnter);
-                });
                 restoreScrollPosition();
                 syncCallbackState();
             };
@@ -2674,7 +2686,6 @@
             // up unused.
             const items = latestComponents.map(component =>
                 renderedItemsByPath.get(component.scope) || renderComponent(component));
-            instanceStyle.textContent = '';
             renderCanvas(items, null);
             lastCanvasSnapshot = snapshot;
         };
@@ -2827,6 +2838,8 @@
             canvasReqEditingCanvas = '';
             canvasReqTextarea.value = '';
             canvasReqSave.disabled = false;
+            const recover = document.getElementById('canvas-requirements-recover-callback');
+            if (recover) recover.hidden = true;
         };
 
         const canvasShareSwitch = document.getElementById('canvas-share-switch');
@@ -2871,6 +2884,42 @@
 
         canvasShareSwitch.addEventListener('click', () => { toggleCanvasShareState(); });
 
+        // Canvas-level Repair affordance: surfaces a Repair button centered
+        // over the empty textarea whenever canvas-requirements.txt couldn't
+        // be loaded or is empty. Same shape as the component flip-back's
+        // Repair, but the prompt is canvas-aware — the agent can't
+        // reverse-engineer canvas intent from "implementation," but it CAN
+        // restore from git history first, then fall back to writing a fresh
+        // intent from the canvas's current components + relationships.
+        const canvasReqRecover = document.getElementById('canvas-requirements-recover-callback');
+        const syncCanvasReqRepairCallback = () => {
+            if (!canvasReqRecover) return;
+            if (!canvasReqEditingCanvas) {
+                canvasReqRecover.hidden = true;
+                return;
+            }
+            // Scope is the canvas folder path — same form the canvas-level
+            // reconcile prompt uses.
+            const scope = currentCanvasPath
+                && currentCanvasName === canvasReqEditingCanvas
+                ? currentCanvasPath
+                : canvasReqEditingCanvas;
+            canvasReqRecover.setAttribute('scope', scope);
+            canvasReqRecover.setAttribute('prompt',
+                'Find or restore this canvas\'s requirements file (canvas-requirements.txt). ' +
+                'Check git history first for the last good version and restore it if found. ' +
+                'If no past version exists, write a fresh canvas-requirements.txt that describes ' +
+                'what this canvas is for in plain language, based on the components it currently ' +
+                'contains and the relationships under <canvas>/relationships/. ' +
+                'Keep it user-facing intent — no implementation detail.');
+            const isEmpty = canvasReqTextarea.value.trim().length === 0;
+            canvasReqRecover.hidden = !isEmpty;
+        };
+
+        canvasReqTextarea.addEventListener('input', () => {
+            syncCanvasReqRepairCallback();
+        });
+
         const openCanvasRequirements = async () => {
             const canvasName = canvasSelect.value;
             if (!canvasName) return;
@@ -2898,6 +2947,7 @@
             if (canvasReqEditingCanvas !== canvasName || canvasReqOverlay.hidden) return;
             canvasReqTextarea.disabled = false;
             canvasReqSave.disabled = false;
+            syncCanvasReqRepairCallback();
             canvasReqTextarea.focus();
         };
 

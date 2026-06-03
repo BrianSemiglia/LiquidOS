@@ -11,8 +11,6 @@ triggers:
 
 Use this skill when the user asks to create a new canvas inside an existing `.liquidos` workspace.
 
-Read `../workspace-model/SKILL.md` before creating canvases.
-
 ## Current Shape
 
 The `.liquidos` folder is the workspace root and the canvas root. A canvas is a direct child of that folder:

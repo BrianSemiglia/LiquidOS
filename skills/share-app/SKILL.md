@@ -160,6 +160,28 @@ Walks every immediate subdirectory of `<bundles-dir>` that looks like a bundle (
 
 Once the network layer lands, the harness will serve this JSON at `/share/feed` and the bundles at `/share/bundle/<hash>`. Until then, the file is useful as the local manifest of "what I have published."
 
+## Publishing a bundle into the workspace's `.share/` tree
+
+`feed.sh` only generates the manifest; it doesn't move anything. Once a bundle is reviewed and ready to be served by this peer's libp2p node, install it via `publish.sh`:
+
+```bash
+bash skills/share-app/scripts/publish.sh <bundle-dir> <workspace.liquidos>
+```
+
+What it does, in order:
+
+1. Validates `<bundle-dir>` looks like a bundle (has `canvas-requirements.txt`, plus non-empty `canvas-subtitle.txt` and `canvas-tags.txt` — the feed metadata other peers see before downloading).
+2. Copies the bundle into `<workspace>/.share/published/<name>/`. Republishing with the same name overwrites the previous version.
+3. Computes the bundle's `sha256-…` hash (same deterministic walk as `feed.sh`) and writes the tarball to `<workspace>/.share/bundles/<hash>.tar`.
+4. Regenerates `<workspace>/.share/feed.json` so the bundle appears in the peer's feed under its new hash.
+
+After publish:
+
+- The network protocol handlers in `canvas/network.mjs` serve the feed filtered by per-canvas `share.json` opt-in. A published bundle won't actually surface to peers until the canvas's `<workspace>/<canvas>/share.json` is `{ "shared": true }` (set via the per-instance toggle in the canvas requirements modal).
+- The bundle TAR is content-addressed; the same bytes always produce the same hash. Republishing identical content is a no-op for the hash, only `createdAt` shifts.
+
+A bundle on disk doesn't have to be published, and a published bundle doesn't have to be shared — the three states (exists / published / shared) are independent.
+
 ## Safety
 
 Bundles are intent only. They contain no JavaScript, no shell scripts, no view.html, no service code — only `*.txt` files with natural-language descriptions. There's nothing to execute on import. The only thing that runs is the agent itself when it reads the requirements and writes the implementation, and that happens under the user's review like any other agent task.

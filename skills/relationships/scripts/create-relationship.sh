@@ -216,10 +216,19 @@ cat > "$rel_dir/test.js" <<TESTJS
 // test should still pass.
 //
 // Run:
-//   node test.js <port-of-running-server>
+//   LIQUIDOS_APP_DIR=/path/to/liquidos-source node test.js <port>
+//
+// LIQUIDOS_APP_DIR points at the directory that has node_modules/playwright.
+// The Mac app exports this when launching tests; for manual runs, set it
+// yourself to the LiquidOS source checkout.
 
+const path = require('node:path');
 const assert = require('node:assert/strict');
-const { chromium } = require('~/Documents/LiquidOS/node_modules/playwright');
+if (!process.env.LIQUIDOS_APP_DIR) {
+    console.error('Missing LIQUIDOS_APP_DIR — set it to the LiquidOS source dir that has node_modules/playwright.');
+    process.exit(2);
+}
+const { chromium } = require(path.join(process.env.LIQUIDOS_APP_DIR, 'node_modules', 'playwright'));
 
 const PORT = process.argv[2];
 if (!PORT) {
