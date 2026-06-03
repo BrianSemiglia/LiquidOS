@@ -1566,6 +1566,26 @@ const componentFeaturePrompt = ({ componentScope, before, after }) => [
     'Do not add unrelated capabilities or preserve inaccurate requirements.'
 ].join('\n');
 
+const canvasRequirementsPrompt = ({ canvasName, canvasScope, before, after }) => [
+    'The user edited the requirements for this canvas.',
+    '',
+    'Canvas:',
+    canvasName,
+    '',
+    'Previous requirements:',
+    before || '(none)',
+    '',
+    'Updated requirements:',
+    after || '(none)',
+    '',
+    'Reconcile the canvas to match the updated requirements:',
+    '- Add, remove, or modify components in input.json as the prose dictates.',
+    '- Add, remove, or modify relationships under ' + canvasScope + '/relationships/ (see skills/relationships).',
+    '- Update individual components\' feature-requirements.txt files when canvas-level intent changes their roles.',
+    'Keep canvas-requirements.txt user-facing, plain-language, and faithful to what the canvas is for.',
+    "If the requirements and the actual canvas disagree, resolve the mismatch based on the user's intent."
+].join('\n');
+
 const streamFile = (req, res, file, type = 'application/octet-stream') => {
     const stat = fs.statSync(file);
     const range = req.headers.range;
@@ -1904,6 +1924,44 @@ const server = http.createServer(async (req, res) => {
             if (!workspaceWatcher) {
                 setImmediate(watchWorkspace);
             }
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/canvas/requirements') {
+            // Mirror of /component/<path>/features for the canvas-level
+            // requirements file. Writes the new content, and — only when it
+            // changed — dispatches the agent with a reconcile prompt so
+            // edits to canvas-requirements.txt build the canvas to match
+            // (add/remove components, materialize relationships, etc.).
+            const body = JSON.parse(await readBody(req));
+            const requestedCanvas = String(body.canvas || '');
+            if (!requestedCanvas) {
+                send(res, 400, 'canvas required');
+                return;
+            }
+            const canvasPath = path.join(WORKSPACE_PATH, requestedCanvas);
+            if (!pathIsInside(canvasPath, WORKSPACE_PATH) || !fs.existsSync(canvasPath) || !fs.statSync(canvasPath).isDirectory()) {
+                send(res, 404, 'canvas not found');
+                return;
+            }
+            const requirementsPath = path.join(canvasPath, 'canvas-requirements.txt');
+            let before = '';
+            try { before = fs.readFileSync(requirementsPath, 'utf8'); } catch { before = ''; }
+            const after = String(body.text || '');
+            const changed = before !== after;
+            if (changed) {
+                fs.writeFileSync(requirementsPath, after, 'utf8');
+                await appendInternalOutputJob({
+                    scope: canvasPath,
+                    prompt: canvasRequirementsPrompt({
+                        canvasName: requestedCanvas,
+                        canvasScope: canvasPath,
+                        before,
+                        after
+                    })
+                });
+            }
+            send(res, 200, JSON.stringify({ changed }), 'application/json; charset=utf-8');
             return;
         }
 

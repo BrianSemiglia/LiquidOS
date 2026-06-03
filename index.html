@@ -1214,7 +1214,7 @@
                 placeholder="Describe what this canvas is for. What kinds of cards should it hold? How should they feel together? Intent only — no implementation details."></textarea>
             <div class="canvas-requirements-actions">
                 <button type="button" id="canvas-requirements-cancel" class="is-secondary">Cancel</button>
-                <button type="button" id="canvas-requirements-save">Save</button>
+                <button type="button" id="canvas-requirements-save">Build</button>
             </div>
         </div>
     </div>
@@ -2760,21 +2760,23 @@
             if (!canvasReqEditingCanvas) return;
             canvasReqSave.disabled = true;
             try {
-                const response = await fetch('/workspace/writes', {
+                // /canvas/requirements writes the file AND dispatches the
+                // agent to reconcile the canvas when the text changed. The
+                // canvas name snapshotted in canvasReqEditingCanvas routes
+                // the write even if the active canvas changed mid-edit.
+                const response = await fetch('/canvas/requirements', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({
-                        writes: [{
-                            path: canvasReqEditingCanvas + '/canvas-requirements.txt',
-                            content: canvasReqTextarea.value
-                        }]
+                        canvas: canvasReqEditingCanvas,
+                        text: canvasReqTextarea.value
                     })
                 });
                 if (!response.ok) throw new Error('save failed: ' + response.status);
                 closeCanvasRequirements();
             } catch (error) {
                 canvasReqSave.disabled = false;
-                console.error('canvas requirements save failed:', error);
+                console.error('canvas requirements build failed:', error);
             }
         };
 
