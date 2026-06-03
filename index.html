@@ -1998,6 +1998,24 @@
         const componentFeatureUrl = component =>
             '/component/' + encodeURIComponent(String(component.componentPath || '')) + '/features';
 
+        // Wire up the Repair callback's scope + prompt, and show it whenever
+        // the textarea ends up empty — whether the file is missing, the file
+        // exists but is empty, the fetch errored, or the JSON was unparseable.
+        // The button stays hidden when the requirements file has real content.
+        const syncRepairCallback = item => {
+            const textarea = item.querySelector('[data-feature-requirements]');
+            const callback = item.querySelector('[data-feature-recover-callback]');
+            if (!callback) return;
+            const scope = item.__component?.componentPath || '';
+            callback.setAttribute('scope', scope);
+            callback.setAttribute('prompt',
+                'Find or restore this component\'s requirements. It might be a badly ' +
+                'formatted file or sitting in the wrong place; if not, check git ' +
+                'history; last resort, recreate from the code.');
+            const isEmpty = !textarea || textarea.value.trim().length === 0;
+            callback.hidden = !isEmpty;
+        };
+
         const loadComponentFeatures = async item => {
             const textarea = item.querySelector('[data-feature-requirements]');
             const status = item.querySelector('[data-feature-status]');
@@ -2007,36 +2025,27 @@
             }
 
             status.textContent = 'Loading…';
-            const response = await fetch(componentFeatureUrl(item.__component), { cache: 'no-store' });
+            try {
+                const response = await fetch(componentFeatureUrl(item.__component), { cache: 'no-store' });
 
-            if (!response.ok) {
-                throw new Error('/features returned ' + response.status);
+                if (!response.ok) {
+                    throw new Error('/features returned ' + response.status);
+                }
+
+                const data = await response.json();
+                textarea.value = String(data.text || '');
+                textarea.dataset.savedValue = textarea.value;
+                status.textContent = '';
+                const titleEl = item.querySelector('[data-feature-title]');
+                if (titleEl) titleEl.textContent = String(data.title || '');
+                item.querySelector('[data-feature-save]').disabled = true;
+            } finally {
+                // Always reconcile the Repair button — success leaves it
+                // visible only when the file was empty; failure leaves the
+                // textarea empty so the button surfaces, and the user can
+                // dispatch the agent to find or recreate the file.
+                syncRepairCallback(item);
             }
-
-            const data = await response.json();
-            textarea.value = String(data.text || '');
-            textarea.dataset.savedValue = textarea.value;
-            status.textContent = '';
-            const titleEl = item.querySelector('[data-feature-title]');
-            if (titleEl) titleEl.textContent = String(data.title || '');
-
-            // Empty requirements → offer the "Recover from implementation"
-            // prompt. The callback's scope and prompt are set per-component
-            // here because they depend on the component's path; the callback
-            // reads them at click time.
-            const recover = item.querySelector('[data-feature-recover]');
-            const recoverCallback = item.querySelector('[data-feature-recover-callback]');
-            const isEmpty = textarea.value.trim().length === 0;
-            if (recover) recover.hidden = !isEmpty;
-            if (recoverCallback) {
-                const scope = item.__component?.componentPath || '';
-                recoverCallback.setAttribute('scope', scope);
-                recoverCallback.setAttribute('prompt',
-                    'Find or restore this component\'s requirements. It might be a badly ' +
-                    'formatted file or sitting in the wrong place; if not, check git ' +
-                    'history; last resort, recreate from the code.');
-            }
-            item.querySelector('[data-feature-save]').disabled = true;
         };
 
         const clearRequirementsOverlayState = item => {
@@ -2193,15 +2202,12 @@
                 '<p>Requirements</p>',
                 '</div>',
                 '</div>',
-                '<div class="component-back-recover" data-feature-recover hidden>',
-                '<p>This component has no requirements on file. The agent can read the implementation and write them.</p>',
-                '<liquidos-callback on="click" data-feature-recover-callback>',
-                '<button type="button">Recover from implementation</button>',
-                '</liquidos-callback>',
-                '</div>',
                 '<textarea data-feature-requirements spellcheck="true" placeholder="Describe what this component should do, what it may use, and any limits it should respect."></textarea>',
                 '<div class="component-back-actions">',
                 '<button type="button" data-feature-cancel>Cancel</button>',
+                '<liquidos-callback on="click" data-feature-recover-callback hidden>',
+                '<button type="button" data-feature-recover>Repair</button>',
+                '</liquidos-callback>',
                 '<button type="button" class="component-save-button" data-feature-save disabled>Build</button>',
                 '</div>',
                 '<div class="component-requirements-status" data-feature-status aria-live="polite"></div>'
@@ -2226,6 +2232,7 @@
 
             back.querySelector('[data-feature-requirements]').addEventListener('input', event => {
                 back.querySelector('[data-feature-save]').disabled = event.currentTarget.value === (event.currentTarget.dataset.savedValue || '');
+                syncRepairCallback(item);
             });
 
             back.querySelector('[data-feature-cancel]').addEventListener('click', () => {

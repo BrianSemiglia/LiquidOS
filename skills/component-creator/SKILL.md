@@ -144,6 +144,16 @@ Each requirement should be simple, specific, and non-redundant.
 Requirements must be faithful to the component: do not claim behavior, resources, permissions, or limits that the component does not actually provide or intend to provide.
 When requirements and implementation disagree, resolve the mismatch instead of preserving inaccurate text.
 
+### Repair (missing, empty, or unreadable)
+
+When `feature-requirements.txt` is missing, empty, or fails to load, the harness surfaces a **Repair** button on the component's requirements flip-back. Clicking it dispatches the agent with a find-or-create prompt — and *find* comes first. Try in this order before writing anything new:
+
+1. **Find it.** The file may have been renamed, moved out of `presented/`, or left behind in `.presented/` after a botched swap. Check the component folder.
+2. **Restore it.** If the file is gone or unsalvageable, check git history (`git log -- '<path>/feature-requirements.txt'`) for the last good version and bring it back.
+3. **Create it.** Only as a last resort, read the component's implementation (`view.html`, `functions.js`, `services/*`) and write a faithful requirements file in plain language. Don't ask the user to write it from scratch — that's what the button just spared them.
+
+The same Repair affordance covers the empty case (file exists but has no content). Treat it identically: find existing requirements first, fall back to writing them from the code.
+
 ## Creating a component
 
 1. Run the scaffold script. It creates the folder, writes the loading-state files, drops a no-op `functions.js`, shells out `services/{start.sh, render.js, IO.swift}`, and registers the component in `input.json`:

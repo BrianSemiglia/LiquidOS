@@ -77,6 +77,29 @@ export const mount = (surface) => {
 
 The relationship **must** handle missing peers gracefully — if either endpoint isn't in the canvas, `connect()` should return without throwing, and the relationship stays inert.
 
+## Driven by `canvas-requirements.txt`
+
+Users don't open a separate UI to add wires. They describe wires in plain language inside `<canvas>/canvas-requirements.txt` — by convention, under a `## Relationships` heading — and the agent reconciles the actual folders under `<canvas>/relationships/` to match.
+
+```
+## Relationships
+
+- Pressing keys on the rainbow-keyboard sets the color of the color-picker;
+  multiple keys mix into one color.
+- The bitcoin-price-chart's "below threshold" alert sends a message to the
+  todo-list to add a "buy more BTC" item.
+```
+
+The heading is convention, not a parser requirement — natural prose elsewhere in the file is also fair game. When the agent reads a canvas's requirements and notices a sentence describing a wire that doesn't yet have a matching folder, it should:
+
+1. Run `skills/relationships/scripts/create-relationship.sh <canvas> <from> <to>` to scaffold the folder.
+2. Fill in `connect()` based on the sentence.
+3. Write the relationship's own `feature-requirements.txt` with the same sentence (verbatim or lightly normalized) so the relationship can be inspected on its own later.
+
+When the user removes a line from the heading, the agent removes the matching folder. When the user edits a line, the agent re-reads the new wording and updates `connect()` accordingly. The text in `canvas-requirements.txt` is the source of truth; `relationships/*/` is the materialized form.
+
+This keeps the wiring inspectable and editable through tooling users already have (the canvas requirements modal) without inventing new UI for it.
+
 ## Creating a relationship
 
 Run the scaffold script. It validates that `<from>` and `<to>` exist under the canvas's `components/`, then writes `relationships/<from>-to-<to>/presented/{view.html, view.json, functions.js, feature-requirements.txt}`, a `test.js` stub, and `diagnostics/status.json`.
