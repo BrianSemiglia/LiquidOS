@@ -1,0 +1,1 @@
+- Deliberately broken so the diagnostics probe can verify the harness surfaces the mount error.

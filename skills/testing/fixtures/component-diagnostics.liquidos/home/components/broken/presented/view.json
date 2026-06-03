@@ -1,0 +1,10 @@
+{
+  "title": "Broken",
+  "html": "<p data-broken>component with a deliberately broken functions.js</p>",
+  "resources": {
+    "functions": {
+      "path": "components/broken/presented/functions.js",
+      "mime": "text/javascript"
+    }
+  }
+}
