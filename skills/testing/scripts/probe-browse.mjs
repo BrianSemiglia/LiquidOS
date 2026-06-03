@@ -3,11 +3,16 @@
 // probe-browse.mjs
 //
 // Open the Browse overlay via the New button, type a query, observe a
-// result card with the bundle's name from .share/feed.json. The local
-// feed is the only search source we can drive deterministically without
-// a second peer; that covers the search-and-render path. The remote-
-// install path (peerId !== null in /network/install) returns 501 today,
-// so it's out of scope here.
+// result card from the local feed (.share/feed.json), then install that
+// bundle and assert the new canvas surfaces in the dropdown.
+//
+// "Local feed" is how self-peering reads to the UI: the client connects
+// to itself, so your own published bundles surface in the same search
+// surface as anything peers expose. The local-install code path runs
+// import.sh against the bundle directory and queues an agent build,
+// same as a remote install would after fetching the TAR — only the
+// transport differs. So this probe covers the full search + install
+// loop end-to-end without needing a second libp2p peer.
 
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -73,6 +78,29 @@ try {
     console.log('subtitle    :', subtitle);
     if (!names.some(n => n.trim() === 'probe-bundle')) {
         console.error('FAIL: probe-bundle did not appear in browse results');
+        exitCode = 1;
+    }
+
+    // --- Install the bundle (local / self-peer path) ----------------------
+    // The result card has a hidden detail section with an Install button;
+    // expand the card by clicking the row, then dispatch the install.
+    await page.locator('#browse-results .browse-result').first().dispatchEvent('click');
+    await page.locator('#browse-results .browse-result .browse-install').first().dispatchEvent('click');
+
+    // The install handler runs import.sh, creates a new canvas folder,
+    // broadcasts canvases-changed, and the dropdown picks it up. The
+    // canvas name is <bundle.name>-<first-6-of-hash> per the server
+    // (see /network/install in server.js).
+    const expectedCanvas = 'probe-bundle-000000';
+    await page.waitForFunction(
+        (target) => Array.from(document.querySelectorAll('#canvas-select option')).some(o => o.textContent.trim() === target),
+        expectedCanvas,
+        { timeout: 15000 }
+    );
+    const optionsAfter = await page.locator('#canvas-select option').allTextContents();
+    console.log('canvases after install:', optionsAfter);
+    if (!optionsAfter.map(s => s.trim()).includes(expectedCanvas)) {
+        console.error('FAIL: installed canvas did not surface in the dropdown');
         exitCode = 1;
     }
 
