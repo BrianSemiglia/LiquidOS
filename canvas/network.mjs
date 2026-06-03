@@ -134,31 +134,47 @@ const collect = async (stream) => {
     return Buffer.concat(chunks);
 };
 
-export const SHARING_STATE_FILE = 'sharing.json';
-
-// Default: sharing on. The state file is opt-out, so a fresh workspace
-// that has published bundles serves them immediately without any
-// explicit "enable sharing" step.
-export const isSharingEnabled = (sharePath) => {
+// Per-instance sharing: a canvas opts in via <workspace>/<canvas>/share.json
+// ({ "shared": true }); its components inherit unless their own share.json
+// explicitly opts out ({ "shared": false }). No workspace-level master toggle.
+const readShareFlag = (file) => {
     try {
-        const file = path.join(sharePath, SHARING_STATE_FILE);
-        if (!fs.existsSync(file)) return true;
+        if (!fs.existsSync(file)) return null;
         const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-        return parsed.enabled !== false;
-    } catch {
-        return true;
-    }
+        return typeof parsed.shared === 'boolean' ? parsed.shared : null;
+    } catch { return null; }
 };
 
-export const setSharingEnabled = (sharePath, enabled) => {
-    fs.mkdirSync(sharePath, { recursive: true });
-    fs.writeFileSync(
-        path.join(sharePath, SHARING_STATE_FILE),
-        JSON.stringify({ enabled: !!enabled }, null, 2) + '\n'
-    );
+const isCanvasShared = (workspacePath, canvasName) =>
+    readShareFlag(path.join(workspacePath, canvasName, 'share.json')) === true;
+
+const isComponentShared = (workspacePath, canvasName, componentName) => {
+    if (!isCanvasShared(workspacePath, canvasName)) return false;
+    const file = path.join(workspacePath, canvasName, 'components', componentName, 'share.json');
+    return readShareFlag(file) !== false;
 };
 
-export const registerShareProtocols = (node, sharePath) => {
+// Filter the feed to only the bundles (and components within them) that
+// the user has opted in. Returns a JSON buffer with the same shape.
+const filteredFeedBytes = (workspacePath, feedBytes) => {
+    let parsed;
+    try { parsed = JSON.parse(feedBytes.toString('utf8')); }
+    catch { return Buffer.from('{"feedVersion":1,"bundles":[]}\n'); }
+    const bundles = Array.isArray(parsed.bundles) ? parsed.bundles : [];
+    const kept = bundles
+        .filter(bundle => bundle && typeof bundle.name === 'string' && isCanvasShared(workspacePath, bundle.name))
+        .map(bundle => ({
+            ...bundle,
+            components: Array.isArray(bundle.components)
+                ? bundle.components.filter(component =>
+                    component && typeof component.name === 'string'
+                    && isComponentShared(workspacePath, bundle.name, component.name))
+                : []
+        }));
+    return Buffer.from(JSON.stringify({ ...parsed, bundles: kept }, null, 2) + '\n');
+};
+
+export const registerShareProtocols = (node, sharePath, workspacePath) => {
     const feedPath = path.join(sharePath, 'feed.json');
     const bundleDir = path.join(sharePath, 'bundles');
 
@@ -167,16 +183,27 @@ export const registerShareProtocols = (node, sharePath) => {
         catch { return null; }
     };
 
-    // The sharing flag is checked on each request rather than at
-    // registration time — the toggle has immediate effect without
-    // restarting the harness.
+    // Share state is read on each request so toggles take immediate effect
+    // without restarting the harness.
     const empty = () => Buffer.from('{"feedVersion":1,"bundles":[]}\n');
+
+    // Look up which canvas owns a bundle hash by scanning the local feed.
+    // A bundle is only servable if its canvas is shared.
+    const canvasForHash = (hash) => {
+        const bytes = readBytes(feedPath);
+        if (!bytes) return null;
+        let parsed;
+        try { parsed = JSON.parse(bytes.toString('utf8')); }
+        catch { return null; }
+        const bundles = Array.isArray(parsed.bundles) ? parsed.bundles : [];
+        const match = bundles.find(b => b && b.hash === hash);
+        return match ? match.name || null : null;
+    };
 
     node.handle(FEED_PROTOCOL, async (stream) => {
         try {
-            const bytes = isSharingEnabled(sharePath)
-                ? (readBytes(feedPath) || empty())
-                : empty();
+            const raw = readBytes(feedPath);
+            const bytes = raw ? filteredFeedBytes(workspacePath, raw) : empty();
             await sendAll(stream, bytes);
             await stream.close();
         } catch {
@@ -189,16 +216,16 @@ export const registerShareProtocols = (node, sharePath) => {
             // Read until client closes its write side. The client
             // sends "<hash>\n" and nothing else.
             const req = (await collect(stream)).toString('utf8').trim();
-            // When sharing is off, treat every request as "not found"
-            // — same code path as an unknown hash. Same empty-body
-            // signal, no leak about what we do have.
-            if (!isSharingEnabled(sharePath)) {
-                await stream.close();
-                return;
-            }
             // Basic sanitization: only serve our own bundle blobs.
             // Hash shape is "sha256-<hex>" — no slashes, no dots.
             if (!/^sha256-[0-9a-f]{64}$/.test(req)) {
+                await stream.close();
+                return;
+            }
+            // Gate per-canvas: a stale hash whose canvas was just toggled
+            // off looks like "not found", same as an unknown hash.
+            const canvasName = canvasForHash(req);
+            if (!canvasName || !isCanvasShared(workspacePath, canvasName)) {
                 await stream.close();
                 return;
             }

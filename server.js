@@ -1672,37 +1672,87 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        if (req.method === 'GET' && url.pathname === '/share/sharing') {
-            const enabled = networkModule
-                ? networkModule.isSharingEnabled(path.join(WORKSPACE_PATH, '.share'))
-                : true;
-            send(res, 200, JSON.stringify({ enabled }), 'application/json; charset=utf-8');
-            return;
+        // Sharing is now per-instance:
+        //   <canvas>/share.json                                — { shared: bool }
+        //   <canvas>/components/<name>/share.json              — { shared: bool } (opt-out)
+        // A canvas with shared=true publishes; all its components inherit that
+        // unless their own share.json explicitly says { shared: false }. There
+        // is no workspace-level master toggle any more; opting in is per-artifact.
+        const readShareFlag = (file) => {
+            try {
+                if (!fs.existsSync(file)) return null;
+                const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+                return typeof parsed.shared === 'boolean' ? parsed.shared : null;
+            } catch { return null; }
+        };
+        const writeShareFlag = (file, shared) => {
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.writeFileSync(file, JSON.stringify({ shared: Boolean(shared) }, null, 2) + '\n');
+        };
+        const canvasShareFile = (canvasName) =>
+            path.join(WORKSPACE_PATH, canvasName, 'share.json');
+        const componentShareFile = (componentAbsPath) =>
+            path.join(componentAbsPath, 'share.json');
+        const canvasOfComponent = (componentAbsPath) => {
+            // <workspace>/<canvas>/components/<name> → <canvas>
+            const rel = path.relative(WORKSPACE_PATH, componentAbsPath);
+            const parts = rel.split(path.sep).filter(Boolean);
+            return parts[0] || '';
+        };
+
+        if (url.pathname === '/canvas/share') {
+            if (req.method === 'GET') {
+                const canvasName = url.searchParams.get('canvas') || '';
+                if (!canvasName) { send(res, 400, 'canvas required'); return; }
+                const flag = readShareFlag(canvasShareFile(canvasName));
+                send(res, 200, JSON.stringify({ shared: flag === true }), 'application/json; charset=utf-8');
+                return;
+            }
+            if (req.method === 'POST') {
+                let body;
+                try { body = JSON.parse(await readBody(req) || '{}'); }
+                catch { send(res, 400, 'invalid json'); return; }
+                const canvasName = String(body.canvas || '');
+                if (!canvasName) { send(res, 400, 'canvas required'); return; }
+                const canvasPath = path.join(WORKSPACE_PATH, canvasName);
+                if (!pathIsInside(canvasPath, WORKSPACE_PATH) || !fs.existsSync(canvasPath) || !fs.statSync(canvasPath).isDirectory()) {
+                    send(res, 404, 'canvas not found');
+                    return;
+                }
+                writeShareFlag(canvasShareFile(canvasName), Boolean(body.shared));
+                send(res, 200, JSON.stringify({ shared: Boolean(body.shared) }), 'application/json; charset=utf-8');
+                return;
+            }
         }
 
-        if (req.method === 'POST' && url.pathname === '/share/sharing') {
-            let body;
-            try { body = JSON.parse(await readBody(req) || '{}'); }
-            catch (e) { send(res, 400, 'invalid json'); return; }
-            if (typeof body.enabled !== 'boolean') {
-                send(res, 400, 'expected { enabled: boolean }');
+        const componentShare = url.pathname.match(/^\/component\/(.+)\/share$/);
+        if (componentShare) {
+            const componentPath = decodeURIComponent(componentShare[1]);
+            const entry = canvasGraph.findAnyByPath(componentPath);
+            if (!entry) { send(res, 404, 'component not found'); return; }
+            const folder = canvasGraph.componentFolderPath(entry.componentPath);
+            if (req.method === 'GET') {
+                const canvasName = canvasOfComponent(folder);
+                const canvasFlag = readShareFlag(canvasShareFile(canvasName));
+                const compFlag = readShareFlag(componentShareFile(folder));
+                // Effective: canvas must be opted in. Within an opted-in
+                // canvas, components cascade unless explicitly opted out.
+                const effective = canvasFlag === true && compFlag !== false;
+                send(res, 200, JSON.stringify({
+                    shared: effective,
+                    canvasShared: canvasFlag === true,
+                    componentOverride: compFlag
+                }), 'application/json; charset=utf-8');
                 return;
             }
-            if (!networkModule) {
-                send(res, 503, 'network not running');
+            if (req.method === 'POST') {
+                let body;
+                try { body = JSON.parse(await readBody(req) || '{}'); }
+                catch { send(res, 400, 'invalid json'); return; }
+                writeShareFlag(componentShareFile(folder), Boolean(body.shared));
+                send(res, 200, JSON.stringify({ shared: Boolean(body.shared) }), 'application/json; charset=utf-8');
                 return;
             }
-            try {
-                networkModule.setSharingEnabled(
-                    path.join(WORKSPACE_PATH, '.share'),
-                    body.enabled
-                );
-            } catch (error) {
-                send(res, 500, 'failed to write sharing state: ' + error.message);
-                return;
-            }
-            send(res, 200, JSON.stringify({ enabled: body.enabled }), 'application/json; charset=utf-8');
-            return;
         }
 
         if (req.method === 'GET' && url.pathname === '/network/status') {
@@ -2471,7 +2521,8 @@ const startNetwork = async () => {
         });
         networkModule.registerShareProtocols(
             networkNode,
-            path.join(WORKSPACE_PATH, '.share')
+            path.join(WORKSPACE_PATH, '.share'),
+            WORKSPACE_PATH
         );
         console.log('Network: peer ID', networkNode.peerId.toString());
         for (const addr of networkNode.getMultiaddrs()) {

@@ -145,8 +145,24 @@
         }
         .canvas-requirements-header {
             display: flex;
-            flex-direction: column;
-            gap: 0.15rem;
+            flex-direction: row;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+        .canvas-requirements-header > div:first-child { display: flex; flex-direction: column; gap: 0.15rem; }
+        /* Generic share toggle for requirements modal headers (canvas + component). */
+        .share-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            user-select: none;
+        }
+        .share-toggle-label {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: rgba(232, 232, 234, 0.72);
+            letter-spacing: -0.005em;
         }
         .canvas-requirements-title { font-weight: 600; font-size: 1rem; }
         .canvas-requirements-subtitle {
@@ -1183,12 +1199,6 @@
         <div class="browse-card" role="dialog" aria-labelledby="browse-query">
             <div class="browse-header">
                 <input type="search" id="browse-query" class="browse-query" placeholder="Search for apps to install…" autocomplete="off" />
-                <div class="browse-share-toggle">
-                    <label for="browse-share-switch" class="browse-share-label">Sharing</label>
-                    <button type="button" id="browse-share-switch" class="share-switch" role="switch" aria-checked="true" aria-label="Toggle sharing on or off">
-                        <span class="share-switch-thumb"></span>
-                    </button>
-                </div>
                 <button type="button" id="browse-close" class="browse-close">Close</button>
             </div>
             <button type="button" id="browse-from-scratch" class="browse-from-scratch">
@@ -1207,8 +1217,16 @@
     <div class="canvas-requirements-overlay" id="canvas-requirements-overlay" hidden>
         <div class="canvas-requirements-card" role="dialog" aria-labelledby="canvas-requirements-title">
             <div class="canvas-requirements-header">
-                <div class="canvas-requirements-title" id="canvas-requirements-title">Canvas Requirements</div>
-                <div class="canvas-requirements-subtitle" id="canvas-requirements-subtitle"></div>
+                <div>
+                    <div class="canvas-requirements-title" id="canvas-requirements-title">Canvas Requirements</div>
+                    <div class="canvas-requirements-subtitle" id="canvas-requirements-subtitle"></div>
+                </div>
+                <div class="share-toggle">
+                    <label for="canvas-share-switch" class="share-toggle-label">Shared</label>
+                    <button type="button" id="canvas-share-switch" class="share-switch" role="switch" aria-checked="false" aria-label="Toggle sharing for this canvas">
+                        <span class="share-switch-thumb"></span>
+                    </button>
+                </div>
             </div>
             <textarea class="canvas-requirements-textarea" id="canvas-requirements-textarea" spellcheck="true"
                 placeholder="Describe what this canvas is for. What kinds of cards should it hold? How should they feel together? Intent only — no implementation details."></textarea>
@@ -1998,6 +2016,56 @@
         const componentFeatureUrl = component =>
             '/component/' + encodeURIComponent(String(component.componentPath || '')) + '/features';
 
+        const componentShareUrl = component =>
+            '/component/' + encodeURIComponent(String(component.componentPath || '')) + '/share';
+
+        // Reflect the per-component share state on the flip-back toggle. The
+        // endpoint returns the effective shared state plus the canvas-level
+        // gate; if the canvas isn't shared we disable the per-component
+        // toggle (the user has to enable canvas sharing first).
+        const loadComponentShareState = async item => {
+            const button = item.querySelector('[data-component-share-switch]');
+            if (!button || !item.__component?.componentPath) return;
+            setShareSwitchUI(button, false, true);
+            try {
+                const response = await fetch(componentShareUrl(item.__component), { cache: 'no-store' });
+                if (!response.ok) throw new Error('share GET failed: ' + response.status);
+                const data = await response.json();
+                if (data.canvasShared) {
+                    setShareSwitchUI(button, data.shared === true, false);
+                    button.title = '';
+                } else {
+                    setShareSwitchUI(button, false, true);
+                    button.title = 'Enable canvas sharing first to share this component.';
+                }
+            } catch (error) {
+                console.error('component share load failed:', error);
+                setShareSwitchUI(button, false, true);
+            }
+        };
+
+        const toggleComponentShareState = async item => {
+            const button = item.querySelector('[data-component-share-switch]');
+            if (!button || button.hasAttribute('disabled')) return;
+            if (!item.__component?.componentPath) return;
+            const current = button.getAttribute('aria-checked') === 'true';
+            const next = !current;
+            setShareSwitchUI(button, next, true);
+            try {
+                const response = await fetch(componentShareUrl(item.__component), {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ shared: next })
+                });
+                if (!response.ok) throw new Error('toggle failed: ' + response.status);
+                // Re-read effective state so cascade and canvas-gating stay accurate.
+                loadComponentShareState(item);
+            } catch (error) {
+                console.error('component share toggle failed:', error);
+                setShareSwitchUI(button, current, false);
+            }
+        };
+
         // Wire up the Repair callback's scope + prompt, and show it whenever
         // the textarea ends up empty — whether the file is missing, the file
         // exists but is empty, the fetch errored, or the JSON was unparseable.
@@ -2141,6 +2209,12 @@
                     }
                 });
             }
+            if (side === 'back') {
+                // Reload every time the back opens — the canvas-level share
+                // state (which gates the per-component toggle) may have
+                // changed in another tab since the last view.
+                loadComponentShareState(item);
+            }
         };
 
         const saveComponentFeatures = async item => {
@@ -2201,6 +2275,12 @@
                 '<h2 data-feature-title></h2>',
                 '<p>Requirements</p>',
                 '</div>',
+                '<div class="share-toggle">',
+                '<label class="share-toggle-label">Shared</label>',
+                '<button type="button" data-component-share-switch class="share-switch" role="switch" aria-checked="false" aria-label="Toggle sharing for this component">',
+                '<span class="share-switch-thumb"></span>',
+                '</button>',
+                '</div>',
                 '</div>',
                 '<textarea data-feature-requirements spellcheck="true" placeholder="Describe what this component should do, what it may use, and any limits it should respect."></textarea>',
                 '<div class="component-back-actions">',
@@ -2249,6 +2329,10 @@
                     .catch(error => {
                         back.querySelector('[data-feature-status]').textContent = 'Could not save: ' + error.message;
                     });
+            });
+
+            back.querySelector('[data-component-share-switch]').addEventListener('click', () => {
+                toggleComponentShareState(item);
             });
 
             surface.addEventListener('liquidos:callback', event => {
@@ -2727,6 +2811,48 @@
             canvasReqSave.disabled = false;
         };
 
+        const canvasShareSwitch = document.getElementById('canvas-share-switch');
+
+        const loadCanvasShareState = async (canvasName) => {
+            setShareSwitchUI(canvasShareSwitch, false, true);
+            try {
+                const response = await fetch(
+                    '/canvas/share?canvas=' + encodeURIComponent(canvasName),
+                    { cache: 'no-store' }
+                );
+                if (response.ok) {
+                    const data = await response.json();
+                    if (canvasReqEditingCanvas === canvasName) {
+                        setShareSwitchUI(canvasShareSwitch, data.shared === true, false);
+                    }
+                    return;
+                }
+            } catch { /* fallthrough */ }
+            setShareSwitchUI(canvasShareSwitch, false, true);
+        };
+
+        const toggleCanvasShareState = async () => {
+            if (!canvasReqEditingCanvas) return;
+            const current = canvasShareSwitch.getAttribute('aria-checked') === 'true';
+            const next = !current;
+            setShareSwitchUI(canvasShareSwitch, next, true);
+            try {
+                const response = await fetch('/canvas/share', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ canvas: canvasReqEditingCanvas, shared: next })
+                });
+                if (!response.ok) throw new Error('toggle failed: ' + response.status);
+                const data = await response.json();
+                setShareSwitchUI(canvasShareSwitch, data.shared === true, false);
+            } catch (error) {
+                console.error('canvas share toggle failed:', error);
+                setShareSwitchUI(canvasShareSwitch, current, false);
+            }
+        };
+
+        canvasShareSwitch.addEventListener('click', () => { toggleCanvasShareState(); });
+
         const openCanvasRequirements = async () => {
             const canvasName = canvasSelect.value;
             if (!canvasName) return;
@@ -2736,6 +2862,7 @@
             canvasReqTextarea.disabled = true;
             canvasReqSave.disabled = true;
             canvasReqOverlay.hidden = false;
+            loadCanvasShareState(canvasName);
             // Fetch via the workspace-file route; 404 means the file
             // doesn't exist yet — treat as empty and let the user start
             // writing.
@@ -2974,56 +3101,25 @@
             }
         };
 
-        // --- Sharing toggle ---
+        // --- Sharing (per-instance) ---
+        //
+        // Sharing is opt-in per canvas via <canvas>/share.json. Components
+        // inherit unless their own share.json explicitly opts out. The
+        // canvas requirements modal and the component flip-back each carry
+        // a toggle in the header. The Browse modal no longer has a master
+        // switch — opt in (or out) per artifact.
 
-        const shareSwitch = document.getElementById('browse-share-switch');
-
-        const setShareSwitchUI = (enabled, disabled) => {
-            shareSwitch.setAttribute('aria-checked', enabled ? 'true' : 'false');
-            if (disabled) shareSwitch.setAttribute('disabled', '');
-            else shareSwitch.removeAttribute('disabled');
+        const setShareSwitchUI = (button, enabled, disabled) => {
+            if (!button) return;
+            button.setAttribute('aria-checked', enabled ? 'true' : 'false');
+            if (disabled) button.setAttribute('disabled', '');
+            else button.removeAttribute('disabled');
         };
-
-        const loadShareState = async () => {
-            setShareSwitchUI(true, true); // optimistic neutral state while loading
-            try {
-                const response = await fetch('/share/sharing', { cache: 'no-store' });
-                if (response.ok) {
-                    const data = await response.json();
-                    setShareSwitchUI(data.enabled !== false, false);
-                    return;
-                }
-            } catch { /* fallthrough */ }
-            setShareSwitchUI(true, true);
-        };
-
-        const toggleShareState = async () => {
-            const current = shareSwitch.getAttribute('aria-checked') === 'true';
-            const next = !current;
-            // Optimistic flip — the request below confirms or reverts.
-            setShareSwitchUI(next, true);
-            try {
-                const response = await fetch('/share/sharing', {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({ enabled: next })
-                });
-                if (!response.ok) throw new Error('toggle failed: ' + response.status);
-                const data = await response.json();
-                setShareSwitchUI(data.enabled !== false, false);
-            } catch (error) {
-                console.error('share toggle failed:', error);
-                setShareSwitchUI(current, false); // revert
-            }
-        };
-
-        shareSwitch.addEventListener('click', () => { toggleShareState(); });
 
         const openBrowseOverlay = () => {
             browseOverlay.hidden = false;
             browseInput.value = '';
             renderBrowseEmpty('Type to search — results stream in as peers respond.');
-            loadShareState();
             // Defer focus until after the overlay is laid out.
             setTimeout(() => browseInput.focus(), 0);
         };
