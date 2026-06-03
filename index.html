@@ -796,6 +796,33 @@
             margin-top: 0.75rem;
         }
 
+        /* Repair callback floats centered over the requirements textarea —
+           visible only when the file is missing/empty/unreadable, so it
+           lands where the user's eye already is. pointer-events on the
+           overlay container is none so clicks pass through to the empty
+           textarea below; the button itself re-enables pointer events. */
+        .requirements-region { position: relative; }
+        .requirements-region-overlay {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            pointer-events: none;
+        }
+        .requirements-region-overlay liquidos-callback { pointer-events: auto; }
+        .requirements-repair {
+            padding: 0.55rem 1rem;
+            font: inherit;
+            font-weight: 600;
+            border-radius: 999px;
+            border: 1px solid rgba(96, 165, 250, 0.45);
+            background: rgba(30, 41, 59, 0.92);
+            color: rgba(232, 232, 234, 0.95);
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.45);
+        }
+        .requirements-repair:hover { background: rgba(59, 130, 246, 0.9); border-color: rgba(96, 165, 250, 0.85); }
+
         .component-back button,
         .component-flip-button {
             border: 1px solid rgba(255, 255, 255, 0.14);
@@ -2282,12 +2309,16 @@
                 '</button>',
                 '</div>',
                 '</div>',
+                '<div class="requirements-region">',
                 '<textarea data-feature-requirements spellcheck="true" placeholder="Describe what this component should do, what it may use, and any limits it should respect."></textarea>',
+                '<div class="requirements-region-overlay">',
+                '<liquidos-callback on="click" data-feature-recover-callback hidden>',
+                '<button type="button" data-feature-recover class="requirements-repair">Repair</button>',
+                '</liquidos-callback>',
+                '</div>',
+                '</div>',
                 '<div class="component-back-actions">',
                 '<button type="button" data-feature-cancel>Cancel</button>',
-                '<liquidos-callback on="click" data-feature-recover-callback hidden>',
-                '<button type="button" data-feature-recover>Repair</button>',
-                '</liquidos-callback>',
                 '<button type="button" class="component-save-button" data-feature-save disabled>Build</button>',
                 '</div>',
                 '<div class="component-requirements-status" data-feature-status aria-live="polite"></div>'
