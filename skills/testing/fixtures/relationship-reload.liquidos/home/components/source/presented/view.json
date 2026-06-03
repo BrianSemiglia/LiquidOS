@@ -1,0 +1,10 @@
+{
+  "title": "Source",
+  "html": "<button data-source-btn type=\"button\">Press</button>",
+  "resources": {
+    "functions": {
+      "path": "components/source/presented/functions.js",
+      "mime": "text/javascript"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "title": "Sink",
+  "html": "<span data-sink>nothing yet</span>",
+  "resources": {
+    "functions": {
+      "path": "components/sink/presented/functions.js",
+      "mime": "text/javascript"
+    }
+  }
+}

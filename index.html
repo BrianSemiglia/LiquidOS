@@ -1351,6 +1351,21 @@
         // Path is stable across input.json reorders; the array index is not.
         const renderedItemsByPath = new Map();
         const componentMountsByItem = new WeakMap();
+        // Relationships: hidden components under <canvas>/relationships/ that wire
+        // visible siblings together via the surface.__io contract. The server
+        // discovers them and ships them in /input's `relationships` array; the
+        // harness mounts each into a hidden host so canvas.js never sees them
+        // (they don't belong in place()).
+        const relationshipNodesByPath = new Map(); // scope -> { surface, cleanup, sig }
+        let relationshipsHost = null;
+        const ensureRelationshipsHost = () => {
+            if (relationshipsHost && relationshipsHost.isConnected) return relationshipsHost;
+            relationshipsHost = document.createElement('div');
+            relationshipsHost.dataset.harnessRelationships = '';
+            relationshipsHost.style.display = 'none';
+            document.body.appendChild(relationshipsHost);
+            return relationshipsHost;
+        };
         let latestComponentByPath = new Map();
         // Keep the open requirements editor tied to the component path so rerenders can restore it.
         let openRequirementsComponentPath = '';
@@ -1802,6 +1817,7 @@
                 if (surface) {
                     reportDiagnostic(component, 'mount', { ok: true, error: null, note: 'no functions.js' });
                 }
+                scheduleWireIO();
                 return;
             }
 
@@ -1843,9 +1859,141 @@
                 status.hidden = false;
                 status.className = 'status error';
                 status.textContent = 'Component functions error: ' + error.message;
+            }).finally(() => {
+                scheduleWireIO();
             });
         };
 
+        // --- I/O wiring (components ↔ relationships) -----------------------
+        //
+        // Universal contract: any component or relationship's mount() may attach
+        //   surface.__io = { on(channel, fn), send(channel, payload), connect(peers) }
+        // Publishers expose `on`. Acceptors expose `send`. Relationships
+        // typically only implement `connect`, where they look up the two (or
+        // more) peers they wire and subscribe/forward.
+        //
+        // mount() is async (dynamic import), so __io may be missing on the
+        // first pass. wireIO retries on a short backoff until everything that
+        // was expected to have a __io reports one, then calls connect() on
+        // anything that exposes it. The io.__connected flag guards against
+        // re-connecting on subsequent passes.
+        const ioPeerName = scope =>
+            String(scope || '').split('/').filter(Boolean).pop() || '';
+
+        let wireIOAttempts = 0;
+        const MAX_WIRE_IO_ATTEMPTS = 40;
+        let wireIOTimer = null;
+        const wireIO = () => {
+            wireIOTimer = null;
+            const peers = {};
+            let pending = 0;
+            // Expected components from the most recent /input. Wait for each
+            // to have both a rendered item AND a surface.__io before proceeding:
+            // a relationship's mount can race ahead of its peers being mounted,
+            // and if connect() runs against a partial peers map the bridge has
+            // no second chance (io.__connected guards re-runs).
+            latestComponents.forEach(component => {
+                const scope = component.scope || '';
+                if (!scope) return;
+                const item = renderedItemsByPath.get(scope);
+                const surface = item?.querySelector('.surface');
+                if (!surface || !surface.__io) { pending += 1; return; }
+                peers[ioPeerName(scope)] = surface.__io;
+            });
+            // Hidden relationships mounted by the harness:
+            relationshipNodesByPath.forEach((entry, path) => {
+                if (!entry.surface.__io) { pending += 1; return; }
+                peers[ioPeerName(path)] = entry.surface.__io;
+            });
+            if (pending > 0 && wireIOAttempts < MAX_WIRE_IO_ATTEMPTS) {
+                wireIOAttempts += 1;
+                wireIOTimer = setTimeout(wireIO, 50);
+                return;
+            }
+            Object.values(peers).forEach(io => {
+                if (typeof io.connect === 'function' && !io.__connected) {
+                    try { io.connect(peers); } catch (error) { console.error('relationship connect threw:', error); }
+                    io.__connected = true;
+                }
+            });
+        };
+        const scheduleWireIO = () => {
+            if (wireIOTimer) clearTimeout(wireIOTimer);
+            wireIOAttempts = 0;
+            wireIOTimer = setTimeout(wireIO, 0);
+        };
+
+        // --- Relationship lifecycle ---------------------------------------
+        const relationshipSig = relationship =>
+            (relationship?.html || '') + '|' + (relationship?.resources ? JSON.stringify(relationship.resources) : '');
+
+        const destroyRelationship = scope => {
+            const entry = relationshipNodesByPath.get(scope);
+            if (!entry) return;
+            try {
+                if (typeof entry.cleanup === 'function') entry.cleanup();
+                else if (entry.cleanup && typeof entry.cleanup.destroy === 'function') entry.cleanup.destroy();
+            } catch (error) {
+                console.error('relationship cleanup threw:', scope, error.message);
+            }
+            entry.surface.remove();
+            relationshipNodesByPath.delete(scope);
+        };
+
+        const mountRelationship = (relationship) => {
+            const scope = relationship.scope || relationship.componentPath || '';
+            if (!scope) return;
+            const sig = relationshipSig(relationship);
+            const existing = relationshipNodesByPath.get(scope);
+            if (existing && existing.sig === sig) return; // unchanged
+
+            destroyRelationship(scope);
+
+            const host = ensureRelationshipsHost();
+            const surface = document.createElement('div');
+            surface.className = 'surface';
+            surface.dataset.relationshipScope = scope;
+            surface.innerHTML = relationship.html || '';
+            host.appendChild(surface);
+
+            const entry = { surface, cleanup: null, sig };
+            relationshipNodesByPath.set(scope, entry);
+
+            const functionsUrl = relationship?.resources?.functions?.url;
+            if (!functionsUrl) {
+                scheduleWireIO();
+                return;
+            }
+            const cacheKey = relationship?.resources?.functions?.version || '';
+            import(functionsUrl + (cacheKey ? '?v=' + encodeURIComponent(cacheKey) : '')).then(module => {
+                if (relationshipNodesByPath.get(scope) !== entry) return;
+                if (typeof module.mount !== 'function') return;
+                try {
+                    entry.cleanup = module.mount(surface) || null;
+                } catch (error) {
+                    console.error('relationship mount threw:', scope, error.message);
+                }
+            }).catch(error => {
+                console.error('relationship import failed:', scope, error.message);
+            }).finally(() => {
+                scheduleWireIO();
+            });
+        };
+
+        const applyRelationships = relationships => {
+            const incoming = Array.isArray(relationships) ? relationships : [];
+            const present = new Set();
+            incoming.forEach(relationship => {
+                const scope = relationship.scope || relationship.componentPath || '';
+                if (!scope) return;
+                present.add(scope);
+                mountRelationship(relationship);
+            });
+            // Tear down any relationship no longer in /input.
+            Array.from(relationshipNodesByPath.keys()).forEach(scope => {
+                if (!present.has(scope)) destroyRelationship(scope);
+            });
+        };
 
         const componentFeatureUrl = component =>
             '/component/' + encodeURIComponent(String(component.componentPath || '')) + '/features';
@@ -2377,6 +2525,7 @@
                 repairLevel: component.repairLevel || (data.canvasError && component.scope === data.canvasPath ? 'canvas' : '')
             }));
             latestComponentByPath = new Map(latestComponents.map(component => [component.scope, component]));
+            applyRelationships(data.relationships);
             let loaded;
             try {
                 loaded = await loadCanvas(data.canvasJsVersion, { canvasPath: currentCanvasPath });

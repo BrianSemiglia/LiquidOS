@@ -1,0 +1,6 @@
+{
+  "components": [
+    "components/source",
+    "components/sink"
+  ]
+}

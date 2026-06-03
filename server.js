@@ -2283,7 +2283,7 @@ const server = http.createServer(async (req, res) => {
 
         if (req.method === 'GET' && componentFile) {
             const componentPath = decodeURIComponent(componentFile[1]);
-            const component = canvasGraph.findLeafComponentByPath(componentPath)?.component;
+            const component = canvasGraph.findAnyByPath(componentPath)?.component;
 
             if (!component?.file) {
                 send(res, 404, 'Component file not found');
@@ -2298,7 +2298,7 @@ const server = http.createServer(async (req, res) => {
 
         if (req.method === 'GET' && componentResource) {
             const componentPath = decodeURIComponent(componentResource[1]);
-            const component = canvasGraph.findLeafComponentByPath(componentPath)?.component;
+            const component = canvasGraph.findAnyByPath(componentPath)?.component;
             const name = decodeURIComponent(componentResource[2]);
             const resource = component && canvasGraph.componentResources(resolveCanvasReference(componentPath), component)[name];
 

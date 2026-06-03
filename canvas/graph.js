@@ -262,6 +262,46 @@ const createCanvasGraph = ({
         return String(fs.statSync(file).mtimeMs);
     };
 
+    // Relationships are component-shaped folders under <canvas>/relationships/.
+    // The harness mounts them invisibly and wires them to the canvas's regular
+    // components via the I/O contract (surface.__io). They are NOT in input.json
+    // and don't render UI of their own — they're the connective tissue.
+    const relationshipsDir = () => path.join(getCanvasPath(), 'relationships');
+
+    const relationshipEntries = () => {
+        const dir = relationshipsDir();
+        if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
+        return fs.readdirSync(dir, { withFileTypes: true })
+            .filter(entry => entry.isDirectory())
+            .map((entry, index) => ({
+                index,
+                componentPath: path.join(dir, entry.name)
+            }));
+    };
+
+    const relationshipComponents = () =>
+        relationshipEntries().map(loadLeafComponent);
+
+    const findRelationshipByPath = componentPath => {
+        if (!componentPath) return null;
+        const absolute = resolveCanvasReference(componentPath);
+        const folder = componentFolderPath(absolute);
+        return relationshipComponents().find(entry =>
+            entry.componentPath === componentPath
+            || entry.componentPath === absolute
+            || componentScopePath(entry.componentPath) === componentPath
+            || componentFolderPath(entry.componentPath) === componentPath
+            || componentFolderPath(entry.componentPath) === absolute
+            || componentFolderPath(entry.componentPath) === folder
+        ) || null;
+    };
+
+    // Lookup against components first (the common case), then relationships,
+    // so HTTP routes that serve view.json / resources / features can address
+    // both with the same /component/<path>/... URL shape.
+    const findAnyByPath = componentPath =>
+        findLeafComponentByPath(componentPath) || findRelationshipByPath(componentPath);
+
     const renderedInput = () => {
         try {
             const input = readJson(getInputPath());
@@ -271,17 +311,19 @@ const createCanvasGraph = ({
             }
 
             const leaves = leafComponents();
+            const renderEntry = ({ componentPath, component }) => ({
+                componentPath,
+                scope: componentScope(componentPath),
+                repairLevel: component.repairLevel || '',
+                html: renderedHtml(componentPath, component),
+                resources: renderedResources(componentPath, component.resources || {})
+            });
             return {
                 canvasPath: getCanvasPath(),
                 ...input,
                 canvasJsVersion: canvasJsVersion(),
-                components: leaves.map(({ componentPath, component }) => ({
-                    componentPath,
-                    scope: componentScope(componentPath),
-                    repairLevel: component.repairLevel || '',
-                    html: renderedHtml(componentPath, component),
-                    resources: renderedResources(componentPath, component.resources || {})
-                }))
+                components: leaves.map(renderEntry),
+                relationships: relationshipComponents().map(renderEntry)
             };
         } catch (error) {
             return {
@@ -293,7 +335,8 @@ const createCanvasGraph = ({
                     scope: getCanvasPath(),
                     repairLevel: 'canvas',
                     html: renderedHtml(getCanvasPath(), invalidCanvasCard(error))
-                }]
+                }],
+                relationships: []
             };
         }
     };
@@ -314,6 +357,8 @@ const createCanvasGraph = ({
 
     const watchedPaths = () => {
         const componentPaths = inputEntries().map(entry => entry.componentPath);
+        const relationshipPaths = relationshipEntries().map(entry => entry.componentPath);
+        const relationshipsDirPath = relationshipsDir();
 
         return [
             ...[getInputPath()].filter(Boolean).map(file => ({ path: file, recursive: false, kind: 'canvas' })),
@@ -323,7 +368,15 @@ const createCanvasGraph = ({
             // (selected-canvas.json, state.json, etc.) don't trigger.
             ...[getCanvasPath()].filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
                 .map(file => ({ path: file, recursive: false, kind: 'canvas-root' })),
-            ...componentWatchPaths(componentPaths).map(file => ({ path: file, recursive: true, kind: 'component' }))
+            ...componentWatchPaths(componentPaths).map(file => ({ path: file, recursive: true, kind: 'component' })),
+            // Non-recursive watch on relationships/ catches add/remove of
+            // relationships themselves (a new bridge folder appearing).
+            ...(fs.existsSync(relationshipsDirPath) && fs.statSync(relationshipsDirPath).isDirectory()
+                ? [{ path: relationshipsDirPath, recursive: false, kind: 'relationships-root' }]
+                : []),
+            // Recursive watch inside each relationship folder so view/functions
+            // edits trigger a re-render the same way component edits do.
+            ...componentWatchPaths(relationshipPaths).map(file => ({ path: file, recursive: true, kind: 'relationship' }))
         ];
     };
 
@@ -392,7 +445,11 @@ const createCanvasGraph = ({
         inputEntries,
         componentServiceFolders,
         leafComponents,
+        relationshipEntries,
+        relationshipComponents,
         findLeafComponentByPath,
+        findRelationshipByPath,
+        findAnyByPath,
         validateCanvasConfig,
         validateComponentFiles,
         validateComponentFile,

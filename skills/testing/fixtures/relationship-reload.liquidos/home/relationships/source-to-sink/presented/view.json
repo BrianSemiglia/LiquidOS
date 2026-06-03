@@ -1,0 +1,10 @@
+{
+  "title": "source-to-sink",
+  "html": "<div hidden></div>",
+  "resources": {
+    "functions": {
+      "path": "relationships/source-to-sink/presented/functions.js",
+      "mime": "text/javascript"
+    }
+  }
+}
