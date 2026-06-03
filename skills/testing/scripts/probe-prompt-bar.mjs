@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+//
+// probe-prompt-bar.mjs
+//
+// User types into the bottom prompt bar and submits → harness fires the
+// globalSubmitCallback with the canvas-scoped prompt → server queue
+// dispatches the agent → test agent edits input.json to add the pre-
+// staged probe-built component → harness re-renders → probe observes
+// the [data-canvas-build-marker] in the DOM.
+
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
+const appRoot = path.resolve(scriptsDir, '../../..');
+const fixture = path.join(scriptsDir, '..', 'fixtures', 'canvas-build.liquidos');
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+const launcher = spawn('node', [
+    path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
+    '--workspace', fixture, '--app', appRoot, '--agent', 'prompt-bar-test'
+], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+const sandbox = await new Promise((resolve, reject) => {
+    let buf = '';
+    const onExit = () => reject(new Error('sandbox launcher exited before printing url'));
+    launcher.on('exit', onExit);
+    launcher.stdout.on('data', chunk => {
+        buf += chunk.toString('utf8');
+        const nl = buf.indexOf('\n');
+        if (nl >= 0) {
+            launcher.off('exit', onExit);
+            try { resolve(JSON.parse(buf.slice(0, nl))); }
+            catch (e) { reject(new Error('non-json launcher output: ' + buf.slice(0, 200))); }
+        }
+    });
+    launcher.stderr.on('data', c => process.stderr.write('[launcher] ' + c.toString('utf8')));
+});
+
+const cleanup = () => { try { launcher.kill('SIGTERM'); } catch {} };
+process.on('SIGINT', () => { cleanup(); process.exit(130); });
+
+let exitCode = 0;
+try {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    page.on('pageerror', err => console.log('[page error]', err.message));
+    await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForSelector('#global-text', { timeout: 20000 });
+    await sleep(1500);
+
+    if (await page.locator('[data-canvas-build-marker]').count() !== 0) {
+        console.error('FAIL: marker existed before prompt-bar submit');
+        exitCode = 1;
+    }
+
+    // Type into the prompt bar and submit the form.
+    await page.locator('#global-text').fill('Add the probe-built component please.');
+    // Form submission goes through liquidos-callback's 'submit' listener.
+    await page.locator('#global-prompt button[type="submit"]').dispatchEvent('click');
+    // dispatchEvent on a submit button doesn't trigger form submission in
+    // every browser/jsdom combo; requestSubmit on the form is the reliable path.
+    await page.evaluate(() => document.getElementById('global-prompt').requestSubmit());
+
+    try {
+        await page.waitForSelector('[data-canvas-build-marker]', { timeout: 10000 });
+        const markerText = (await page.locator('[data-canvas-build-marker]').textContent() || '').trim();
+        console.log('observed marker:', markerText);
+        if (markerText !== 'BUILT') {
+            console.error('FAIL: marker text was not "BUILT"');
+            exitCode = 1;
+        }
+    } catch (e) {
+        console.error('FAIL: probe-built card never surfaced after prompt-bar submit');
+        exitCode = 1;
+    }
+
+    if (!exitCode) console.log('PASS');
+    await browser.close();
+} catch (e) {
+    console.error('FAIL:', e.message);
+    exitCode = 1;
+} finally { cleanup(); process.exit(exitCode); }

@@ -20,7 +20,8 @@ const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
 
 const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none',
-    'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'canvas-repair-test']);
+    'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'canvas-repair-test',
+    'prompt-bar-test']);
 
 const failStartup = message => {
     console.error(message);
