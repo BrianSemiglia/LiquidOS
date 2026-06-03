@@ -22,6 +22,9 @@ import { kadDHT } from '@libp2p/kad-dht';
 import { generateKeyPair, privateKeyFromProtobuf, privateKeyToProtobuf } from '@libp2p/crypto/keys';
 import { multiaddr } from '@multiformats/multiaddr';
 import { peerIdFromString } from '@libp2p/peer-id';
+import { CID } from 'multiformats/cid';
+import { sha256 } from 'multiformats/hashes/sha2';
+import * as raw from 'multiformats/codecs/raw';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -314,6 +317,25 @@ export const stopNetworkNode = async (node) => {
 const PEER_FEED_REPOLL_INTERVAL_MS = 30_000;
 const PEER_FEED_FETCH_TIMEOUT_MS = 5_000;
 
+// DHT rendezvous: every LiquidOS peer announces itself as a provider
+// of a fixed CID derived from a well-known string. Other peers query
+// the DHT for that CID and get the list of LiquidOS peers currently
+// in the network. The CID is content-addressed so any peer can derive
+// it without coordination.
+const RENDEZVOUS_KEY = '/liquidos/peers/v1';
+const PROVIDE_REANNOUNCE_INTERVAL_MS = 12 * 60 * 60 * 1000;  // 12h (DHT records last ~24h)
+const DHT_DISCOVERY_INTERVAL_MS = 60_000;                   // re-query every minute
+const DHT_DISCOVERY_TIMEOUT_MS = 10_000;
+
+let cachedRendezvousCid = null;
+const rendezvousCid = async () => {
+    if (!cachedRendezvousCid) {
+        const hash = await sha256.digest(new TextEncoder().encode(RENDEZVOUS_KEY));
+        cachedRendezvousCid = CID.createV1(raw.code, hash);
+    }
+    return cachedRendezvousCid;
+};
+
 // Set up the peer discovery loop. Returned object exposes:
 //   - cache: Map<peerIdString, { peerId, multiaddrs, feed, refreshedAt }>
 //   - broadcast(): re-poll every known peer (call after our share toggle)
@@ -381,9 +403,50 @@ export const subscribeFeedTopic = async (node, sharePath, workspacePath) => {
     const timer = setInterval(refresh, PEER_FEED_REPOLL_INTERVAL_MS);
     timer.unref && timer.unref();
 
+    // DHT rendezvous. Tell the DHT we provide RENDEZVOUS_KEY so other
+    // LiquidOS peers can find us, and periodically query for everyone
+    // else providing it. peer:connect catches peers we happen to dial
+    // or get dialed by; the DHT lookup is how strangers across the
+    // wide network find each other without prior introduction.
+    const cid = await rendezvousCid();
+    const announce = async () => {
+        try { await node.contentRouting.provide(cid); }
+        catch { /* DHT may still be bootstrapping; retry on next interval */ }
+    };
+    // First announce kicks off on a short delay so the DHT has a chance
+    // to settle a routing table from the bootstrap peers.
+    const initialAnnounceTimer = setTimeout(announce, 5_000);
+    initialAnnounceTimer.unref && initialAnnounceTimer.unref();
+    const provideTimer = setInterval(announce, PROVIDE_REANNOUNCE_INTERVAL_MS);
+    provideTimer.unref && provideTimer.unref();
+
+    const discover = async () => {
+        const ac = new AbortController();
+        const timeout = setTimeout(() => ac.abort(), DHT_DISCOVERY_TIMEOUT_MS);
+        try {
+            for await (const provider of node.contentRouting.findProviders(cid, { signal: ac.signal })) {
+                if (!provider || !provider.id) continue;
+                tryFetchFromPeer(provider.id);
+            }
+        } catch { /* aborted, no providers, or DHT not ready — fine */ }
+        finally { clearTimeout(timeout); }
+    };
+    // Same staggered start; first sweep is slightly delayed so we don't
+    // race the bootstrap handshake.
+    const initialDiscoverTimer = setTimeout(discover, 8_000);
+    initialDiscoverTimer.unref && initialDiscoverTimer.unref();
+    const discoverTimer = setInterval(discover, DHT_DISCOVERY_INTERVAL_MS);
+    discoverTimer.unref && discoverTimer.unref();
+
     return {
         cache,
         broadcast: refresh,
-        stop: () => { clearInterval(timer); }
+        stop: () => {
+            clearInterval(timer);
+            clearTimeout(initialAnnounceTimer);
+            clearInterval(provideTimer);
+            clearTimeout(initialDiscoverTimer);
+            clearInterval(discoverTimer);
+        }
     };
 };
