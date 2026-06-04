@@ -1,5 +1,5 @@
 ---
-name: component-creator
+name: component
 description: Create and modify LiquidOS canvas components
 triggers:
   - User asks to create a component
@@ -7,9 +7,7 @@ triggers:
   - User asks to build visible UI
 ---
 
-# Component Guide
-
-## Components
+# Component
 
 Every component is a folder under the canvas's `components/`. Inside, the live state lives in `presented/`. Multi-file changes are staged via a sandbox (see `../testing/SKILL.md`) and committed via the source workspace's `/workspace/writes` endpoint.
 
@@ -159,7 +157,7 @@ The same Repair affordance covers the empty case (file exists but has no content
 1. Run the scaffold script. It creates the folder, writes the loading-state files, drops a no-op `functions.js`, shells out `services/{start.sh, render.js, IO.swift}`, and registers the component in `input.json`:
 
    ```sh
-   bash skills/component-creator/scripts/create-component.sh <canvas-path> <component-name>
+   bash skills/component/scripts/create-component.sh <canvas-path> <component-name>
    ```
 
    Do not duplicate any of those steps by hand. Do not create the folder, write any of the scaffolded files, or edit `input.json` separately — the script has already done it.

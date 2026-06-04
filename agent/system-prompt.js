@@ -10,7 +10,7 @@ const agentSystemPromptText = ({ workspacePath } = {}) => [
     '',
     'Immediately restore context using the conversation-history-and-undo skill.',
     '',
-    'Use the component-creator skill to help the user.',
+    'Use the component skill to help the user.',
     'Skills can be found in: ' + path.join(String(workspacePath || '.'), 'skills') + '/',
     'Do not read local files outside the workspace unless the user asks.'
 ].join('\n') + '\n';

@@ -5,7 +5,7 @@ set -euo pipefail
 # create-component.sh — scaffolds a new component inside a canvas.
 #
 # Usage:
-#   bash skills/component-creator/scripts/create-component.sh \
+#   bash skills/component/scripts/create-component.sh \
 #     <canvas-path> <component-name>
 #
 # What it does:

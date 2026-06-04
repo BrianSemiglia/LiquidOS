@@ -1,5 +1,5 @@
 ---
-name: canvas-creator
+name: canvas
 description: Create a new LiquidOS canvas inside an existing .liquidos workspace
 triggers:
   - User asks to create a new canvas instance
@@ -7,7 +7,7 @@ triggers:
   - User mentions creating a canvas
 ---
 
-# Canvas Creator
+# Canvas
 
 Use this skill when the user asks to create a new canvas inside an existing `.liquidos` workspace.
 
@@ -36,14 +36,14 @@ Workspace.liquidos/
     components/
 ```
 
-`input.json` is the component manifest (just `{ "components": [...] }`). `components/` contains component folders. See `../component-creator/SKILL.md` for component structure.
+`input.json` is the component manifest (just `{ "components": [...] }`). `components/` contains component folders. See `../component/SKILL.md` for component structure.
 
 ## Quick Start
 
 Run from the workspace root (the agent's CWD):
 
 ```bash
-bash skills/canvas-creator/scripts/create-instance.sh <canvas-name> /path/to/Workspace.liquidos
+bash skills/canvas/scripts/create-instance.sh <canvas-name> /path/to/Workspace.liquidos
 ```
 
 This creates:

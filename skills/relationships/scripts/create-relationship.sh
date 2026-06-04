@@ -22,7 +22,7 @@ set -euo pipefail
 #
 # Bridges don't get a services/ folder by default — they're pure
 # client-side coordinators. If a relationship later needs services,
-# add them by hand following skills/component-creator.
+# add them by hand following skills/component.
 #
 # Output: one-line JSON describing the new relationship.
 #
@@ -129,7 +129,7 @@ view.html — relationship view, hidden by default.
 A relationship has no UI; its value is the wiring it sets up in
 functions.js. Leave this hidden unless you want a visualizer or controls.
 
-If you give this relationship UI later, follow skills/component-creator
+If you give this relationship UI later, follow skills/component
 for the visual side and keep functions.js's connect() intact.
 -->
 <div hidden data-relationship="${from_name} → ${to_name}"></div>

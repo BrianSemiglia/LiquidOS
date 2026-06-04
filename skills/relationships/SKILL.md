@@ -222,4 +222,4 @@ No `input.json` edit is required; the canvas was never aware of the relationship
 
 ## Relationships are still components on disk
 
-The folder layout, the `mount()` lifecycle, the no-`<script>`-in-`view.html` rule, the cleanup-on-return contract — all the rules in `component-creator/SKILL.md` apply. A relationship is just a component that lives in a different folder, is hidden by default, and implements `connect()`. If a relationship later needs UI (a knob, a visualizer), give its `view.html` real content and unhide it; everything else stays the same.
+The folder layout, the `mount()` lifecycle, the no-`<script>`-in-`view.html` rule, the cleanup-on-return contract — all the rules in `component/SKILL.md` apply. A relationship is just a component that lives in a different folder, is hidden by default, and implements `connect()`. If a relationship later needs UI (a knob, a visualizer), give its `view.html` real content and unhide it; everything else stays the same.

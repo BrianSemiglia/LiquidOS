@@ -140,7 +140,7 @@ if (!fs.existsSync(WORKSPACE_PATH) || !fs.statSync(WORKSPACE_PATH).isDirectory()
     failStartup('--workspace does not exist or is not a folder: ' + WORKSPACE_PATH);
 }
 
-const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'skills', 'canvas-creator', 'templates');
+const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'skills', 'canvas', 'templates');
 const ACTIVE_CANVAS_FILE = path.join(WORKSPACE_PATH, 'active-canvas.json');
 const ACTIVE_AGENT_FILE = path.join(WORKSPACE_PATH, 'active-agent.json');
 const DEFAULT_CANVAS_NAME = 'home';
@@ -718,7 +718,7 @@ const canvasFiles = createCanvasFiles({
     fs,
     workspacePath: WORKSPACE_PATH,
     canvasTemplateRoot: CANVAS_TEMPLATE_ROOT,
-    localAssetRoot: path.join(ROOT, 'skills', 'canvas-creator'),
+    localAssetRoot: path.join(ROOT, 'skills', 'canvas'),
     getCanvasPath: () => CANVAS_PATH,
     setCanvasPath: canvasPath => setCanvasPath(canvasPath),
     readJson

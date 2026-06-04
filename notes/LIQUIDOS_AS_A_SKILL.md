@@ -31,7 +31,7 @@ contract. Roughly:
 > The harness is a viewer, not a runtime — the workspace files are the truth.
 
 That's almost the whole thing. Everything currently in
-`skills/canvas-creator/SKILL.md` and `skills/component-creator/SKILL.md` already
+`skills/canvas/SKILL.md` and `skills/component/SKILL.md` already
 fits this shape; the rename is structural, not semantic. The two changes are
 real but small:
 

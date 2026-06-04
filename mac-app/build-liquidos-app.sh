@@ -152,18 +152,18 @@ rsync -a \
   "$PROJECT_ROOT/" "$RESOURCES/"
 
 
-if [ ! -f "$PROJECT_ROOT/skills/component-creator/SKILL.md" ]; then
-  echo "Error: skills/component-creator/SKILL.md is required." >&2
+if [ ! -f "$PROJECT_ROOT/skills/component/SKILL.md" ]; then
+  echo "Error: skills/component/SKILL.md is required." >&2
   exit 1
 fi
 
-if [ ! -f "$PROJECT_ROOT/skills/canvas-creator/SKILL.md" ]; then
-  echo "Error: skills/canvas-creator/SKILL.md is required." >&2
+if [ ! -f "$PROJECT_ROOT/skills/canvas/SKILL.md" ]; then
+  echo "Error: skills/canvas/SKILL.md is required." >&2
   exit 1
 fi
 
-if [ ! -f "$PROJECT_ROOT/skills/canvas-creator/scripts/create-instance.sh" ]; then
-  echo "Error: skills/canvas-creator/scripts/create-instance.sh is required." >&2
+if [ ! -f "$PROJECT_ROOT/skills/canvas/scripts/create-instance.sh" ]; then
+  echo "Error: skills/canvas/scripts/create-instance.sh is required." >&2
   exit 1
 fi
 

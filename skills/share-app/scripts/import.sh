@@ -63,16 +63,16 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-CREATE_INSTANCE="$REPO_ROOT/skills/canvas-creator/scripts/create-instance.sh"
-CREATE_COMPONENT="$REPO_ROOT/skills/component-creator/scripts/create-component.sh"
+CREATE_INSTANCE="$REPO_ROOT/skills/canvas/scripts/create-instance.sh"
+CREATE_COMPONENT="$REPO_ROOT/skills/component/scripts/create-component.sh"
 
 if [ ! -f "$CREATE_INSTANCE" ]; then
-    echo "Error: missing canvas-creator script: $CREATE_INSTANCE" >&2
+    echo "Error: missing canvas script: $CREATE_INSTANCE" >&2
     exit 1
 fi
 
 if [ ! -f "$CREATE_COMPONENT" ]; then
-    echo "Error: missing component-creator script: $CREATE_COMPONENT" >&2
+    echo "Error: missing component script: $CREATE_COMPONENT" >&2
     exit 1
 fi
 

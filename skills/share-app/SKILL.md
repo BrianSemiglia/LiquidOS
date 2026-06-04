@@ -119,9 +119,9 @@ bash skills/share-app/scripts/import.sh <bundle-dir> <workspace.liquidos> [canva
 The script:
 
 1. Validates the bundle: must have `canvas-requirements.txt` and a `components/` directory.
-2. Creates a new canvas with the chosen name via `canvas-creator/scripts/create-instance.sh`. Errors if a canvas with that name already exists — pass an override name in that case.
+2. Creates a new canvas with the chosen name via `canvas/scripts/create-instance.sh`. Errors if a canvas with that name already exists — pass an override name in that case.
 3. Copies the bundle's `canvas-requirements.txt` into the new canvas's root.
-4. For each subfolder under the bundle's `components/`, scaffolds a component via `component-creator/scripts/create-component.sh` and then overwrites the scaffolded `feature-requirements.txt` with the bundle's.
+4. For each subfolder under the bundle's `components/`, scaffolds a component via `component/scripts/create-component.sh` and then overwrites the scaffolded `feature-requirements.txt` with the bundle's.
 5. Prints a single-line JSON summary:
 
    ```json
@@ -134,7 +134,7 @@ The script:
 The canvas exists with scaffolded components, each showing a `Loading…` placeholder. The agent should then:
 
 - Read `canvas-requirements.txt` to understand the canvas's intent (layout, interaction, state behavior).
-- For each component, read its `feature-requirements.txt` and build the implementation following the rules in `../component-creator/SKILL.md`.
+- For each component, read its `feature-requirements.txt` and build the implementation following the rules in `../component/SKILL.md`.
 - The presentation (`canvas.js`) defaults to the standard stack layout; if the imported canvas's requirements describe a different presentation (3D, grid, etc.), the agent should rewrite `canvas.js` to match.
 
 Nothing in the bundle executes on import — every file laid down is either scaffolding from the standard create-component templates or a plain-text requirements file. All implementation is built fresh in the receiving workspace.

@@ -1,0 +1,5 @@
+# Feature Requirements
+
+- Show the live microphone activity HUD.
+- Display the current input device, level, peak, and status.
+- Surface stream errors clearly when they occur.
