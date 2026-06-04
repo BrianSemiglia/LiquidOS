@@ -304,7 +304,7 @@ await test('source canvas with async post-teardown work → destination renders'
             };
         };
     `);
-    // The sticky canvas wraps each card in a div under a `world` div, so
+    // The sticky canvas wraps each component in a div under a `world` div, so
     // items are no longer direct children of <main> — find them with
     // a deep query.
     await page.waitForFunction(() => Array.from(document.querySelectorAll('section.item'))
@@ -712,8 +712,8 @@ await test('agent creates canvas folder → dropdown lists it', async () => {
     return 'option present: ' + name;
 });
 
-// Agent adds a component to input.json — new card should appear.
-await test('agent adds component → new card appears in DOM', async () => {
+// Agent adds a component to input.json — new component should appear.
+await test('agent adds component → new component appears in DOM', async () => {
     const newName = 'probe-new-' + Date.now();
     agentWrite('home/components/' + newName + '/presented/view.json', { title: 'New', html: '<p>' + newName + '</p>' });
     const input = JSON.parse(agentRead('home/input.json'));
@@ -724,12 +724,12 @@ await test('agent adds component → new card appears in DOM', async () => {
         Array.from(document.querySelectorAll('main .item'))
             .some(item => item.dataset.componentPath?.endsWith('/' + suffix)),
         newName);
-    if (!present) throw new Error('new card not in DOM after input.json append');
-    return 'card present: ' + newName;
+    if (!present) throw new Error('new component not in DOM after input.json append');
+    return 'component present: ' + newName;
 });
 
-// Agent removes a component — card should disappear.
-await test('agent removes component → card disappears from DOM', async () => {
+// Agent removes a component — component should disappear.
+await test('agent removes component → component disappears from DOM', async () => {
     const input = JSON.parse(agentRead('home/input.json'));
     const droppedName = path.basename(input.components.pop());
     agentWrite('home/input.json', input);
@@ -738,8 +738,8 @@ await test('agent removes component → card disappears from DOM', async () => {
         Array.from(document.querySelectorAll('main .item'))
             .some(item => item.dataset.componentPath?.endsWith('/' + suffix)),
         droppedName);
-    if (still) throw new Error('card with /' + droppedName + ' still present');
-    return 'card removed: ' + droppedName;
+    if (still) throw new Error('component with /' + droppedName + ' still present');
+    return 'component removed: ' + droppedName;
 });
 
 // User opens the requirements modal via the flip button — title and

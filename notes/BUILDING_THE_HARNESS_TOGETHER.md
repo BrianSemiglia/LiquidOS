@@ -39,7 +39,7 @@ What varies between implementations:
   scenarios pass.
 - The storage. Filesystem today, but a sandboxed iOS implementation might
   use Core Data and synthesize a fs-like API. Same.
-- The renderer. Browser today, but a native UI client renders cards
+- The renderer. Browser today, but a native UI client renders components
   natively. Same.
 - The agent runtime. We bind to a few specific runtimes today; another
   client might bind to entirely different ones.

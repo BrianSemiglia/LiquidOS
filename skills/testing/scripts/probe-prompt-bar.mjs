@@ -73,7 +73,7 @@ try {
             exitCode = 1;
         }
     } catch (e) {
-        console.error('FAIL: probe-built card never surfaced after prompt-bar submit');
+        console.error('FAIL: probe-built component never surfaced after prompt-bar submit');
         exitCode = 1;
     }
 

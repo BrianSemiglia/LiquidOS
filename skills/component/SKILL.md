@@ -162,7 +162,7 @@ The same Repair affordance covers the empty case (file exists but has no content
 
    Do not duplicate any of those steps by hand. Do not create the folder, write any of the scaffolded files, or edit `input.json` separately — the script has already done it.
 
-2. Read `<canvas>/feature-requirements.txt` if it exists. It describes the canvas's intent (what it's for, how its cards should feel together). Use it as context — your component should fit the canvas, not pull against it.
+2. Read `<canvas>/feature-requirements.txt` if it exists. It describes the canvas's intent (what it's for, how its components should feel together). Use it as context — your component should fit the canvas, not pull against it.
 
 3. Write `feature-requirements.txt` describing what the user asked for, in plain language.
 

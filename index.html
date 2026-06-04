@@ -1244,7 +1244,7 @@
             </div>
             <div class="requirements-region">
                 <textarea class="canvas-requirements-textarea" id="canvas-requirements-textarea" spellcheck="true"
-                    placeholder="Describe what this canvas is for. What kinds of cards should it hold? How should they feel together? Intent only — no implementation details."></textarea>
+                    placeholder="Describe what this canvas is for. What kinds of components should it hold? How should they feel together? Intent only — no implementation details."></textarea>
                 <div class="requirements-region-overlay">
                     <liquidos-callback on="click" id="canvas-requirements-recover-callback" hidden>
                         <button type="button" class="requirements-repair">Repair</button>
@@ -1705,7 +1705,7 @@
         // owns presentation, input handling, and anything else canvas-scoped.
         //
         // Factory signature: (root, context) -> { place(items, components), teardown() }
-        // The harness still owns the cards (surface, flip-back, mount, callbacks);
+        // The harness still owns the components (surface, flip-back, mount, callbacks);
         // canvas.js decides where they live and how the user navigates them.
         // Anything else canvas.js needs (state files, external data) it
         // fetches and observes itself — the harness is agnostic.
@@ -2551,7 +2551,7 @@
                     } catch (error) {
                         // A broken place() shouldn't freeze the canvas. Drop
                         // canvas.js back to "none" — the fallback below will
-                        // at least render the cards directly, and the next
+                        // at least render the components directly, and the next
                         // render attempt re-runs loadCanvas.
                         try { currentCanvas.teardown(); } catch {}
                         currentCanvas = null;

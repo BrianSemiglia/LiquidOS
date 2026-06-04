@@ -4,7 +4,7 @@
 // "do what the user said, on this canvas." Test agent does the
 // smallest deterministic thing: edits input.json to include the
 // pre-staged probe-built component so the probe can observe the new
-// card in the DOM.
+// component in the DOM.
 
 const fs = require('fs');
 const path = require('path');

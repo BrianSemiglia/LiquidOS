@@ -1,4 +1,4 @@
-// Default stack presentation: cards laid out top-to-bottom by CSS.
+// Default stack presentation: components laid out top-to-bottom by CSS.
 // Delegates to the shared cssLayout helper — the harness has no special
 // path for CSS; it's just one composition pattern that this file picks.
 

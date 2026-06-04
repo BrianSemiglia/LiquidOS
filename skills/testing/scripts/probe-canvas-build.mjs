@@ -5,7 +5,7 @@
 // User edits feature-requirements.txt + clicks Build → /canvas/requirements
 // writes the file and dispatches the agent → test agent adds the
 // pre-staged probe-built component to input.json → harness re-renders
-// with the new card → probe observes the [data-canvas-build-marker]
+// with the new component → probe observes the [data-canvas-build-marker]
 // element in the DOM.
 
 import path from 'node:path';
@@ -65,7 +65,7 @@ try {
     await page.locator('#canvas-requirements-save').dispatchEvent('click');
 
     // The harness's input watcher re-renders the canvas after the agent
-    // writes input.json; wait for the new card's marker to appear.
+    // writes input.json; wait for the new component's marker to appear.
     try {
         await page.waitForSelector('[data-canvas-build-marker]', { timeout: 10000 });
         const markerText = (await page.locator('[data-canvas-build-marker]').textContent() || '').trim();
@@ -75,7 +75,7 @@ try {
             exitCode = 1;
         }
     } catch (e) {
-        console.error('FAIL: probe-built card never surfaced in the DOM');
+        console.error('FAIL: probe-built component never surfaced in the DOM');
         exitCode = 1;
     }
 

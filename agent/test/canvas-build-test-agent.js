@@ -4,7 +4,7 @@
 // add a component to the canvas. The fixture pre-stages a
 // `components/probe-built/` folder; this agent just edits input.json
 // to reference it. The harness's file watcher re-renders the canvas,
-// the new card surfaces with a [data-canvas-build-marker] element the
+// the new component surfaces with a [data-canvas-build-marker] element the
 // probe asserts on.
 
 const fs = require('fs');
