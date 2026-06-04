@@ -1,46 +1,79 @@
 ---
 name: workspace
-description: Workspace anatomy and sharing — what lives at the .liquidos root, how the active canvas/agent are picked, and how canvases are exported, imported, and published
+description: Workspace-scope work — switching the active canvas, listing/creating/renaming/deleting canvases, and sharing canvases between workspaces
 triggers:
-  - User asks about the workspace layout
-  - User asks to share a canvas
-  - User asks to share an app
-  - User asks to export a canvas
-  - User asks to import a canvas
-  - User asks to install an app
-  - User wants to send a workspace's canvas to someone else
-  - User has a requirements bundle they want to bring in
+  - User wants to switch the active canvas
+  - User wants to create, rename, or delete a canvas
+  - User asks what canvases exist
+  - User wants to share, export, or publish a canvas
+  - User wants to import or install a shared bundle
+  - User wants to toggle sharing on or off
 ---
 
 # Workspace
 
-A LiquidOS workspace is a folder whose name ends in `.liquidos`. It holds one or more canvases as direct children, plus a couple of pointer files at the root and an opt-in `.share/` subtree for distribution.
+A LiquidOS workspace is a folder whose name ends in `.liquidos`. It holds one or more canvases as direct children, a pointer file naming the active canvas, and an opt-in `.share/` subtree for distribution.
+
+Workspace files are the source of truth: the harness watches them, and writes from the agent or the HTTP endpoints converge — edit the file, the harness sees it.
 
 ## Anatomy
 
 ```text
 Workspace.liquidos/
-  active-canvas.json          — current-canvas pointer ({ "name": "<canvas>" })
-  active-agent.json           — current-agent pointer ({ "kind": "<agent>" })
+  active-canvas.json          — { "canvas": "<canvas-name>" }
   <canvas-name>/              — a canvas folder (see ../canvas/SKILL.md)
   <other-canvas>/
-  .share/                     — sharing tree (only present once something is published)
-    feed.json                 — manifest of bundles this peer publishes
-    published/<name>/         — published bundles by name
-    bundles/<hash>.tar        — content-addressed bundle tarballs
-  .liquidos/                  — runtime scratch (logs, errors); not user-edited
+  .share/                     — sharing tree (appears once a bundle is published)
+    feed.json
+    published/<name>/
+    bundles/<hash>.tar
+  .liquidos/                  — harness scratch (logs, errors); don't edit
 ```
 
-### Pointer files
+A canvas is any direct child folder that contains `input.json`.
 
-- `active-canvas.json` — which canvas the harness loads at startup. The server validates that the named folder exists; an invalid value is a startup error.
-- `active-agent.json` — which agent runtime to spawn (claude, codex, hermes, pi). An unknown value is a startup error.
+## What the agent does at workspace scope
 
-These are toggled by the UI; the agent only reads them. Don't write them directly during ordinary work.
+### Switch the active canvas
 
-### Canvases
+```bash
+echo '{ "canvas": "<canvas-name>" }' > <workspace>/active-canvas.json
+```
 
-Each direct child folder of the workspace is a canvas — see `../canvas/SKILL.md`. Per-canvas opt-in for sharing lives at `<canvas>/share.json` (`{ "shared": true|false }`); per-component opt-out at `<canvas>/components/<name>/share.json`.
+The harness sees the change, validates the canvas exists, tears down the previous canvas runtime, starts the new one, and tells the client to reload. If the named canvas doesn't exist, the file is treated as invalid and active stays where it was.
+
+Equivalent HTTP: `POST /canvas` with `{ "name": "<canvas-name>" }`.
+
+### List canvases
+
+Scan the workspace for direct child folders that contain `input.json`. Each one is a canvas.
+
+### Create a new canvas
+
+```bash
+bash skills/canvas/scripts/create-instance.sh <canvas-name> <workspace.liquidos>
+```
+
+Lays down the canvas folder structure (see `../canvas/SKILL.md`). Does **not** make the new canvas active — write `active-canvas.json` separately if that's what the user wants.
+
+### Rename a canvas
+
+Rename the folder. If the renamed canvas is currently active, also rewrite `active-canvas.json` with the new name to avoid a startup error on the next boot.
+
+### Delete a canvas
+
+Destructive — confirm with the user first. Then:
+
+1. If the canvas is currently active, write `active-canvas.json` to point at a remaining canvas.
+2. Remove `<workspace>/<canvas-name>/`.
+
+### Toggle sharing of a canvas
+
+```bash
+echo '{ "shared": true }' > <workspace>/<canvas-name>/share.json
+```
+
+`{ "shared": false }` opts out. The network protocol handlers filter the feed by this flag; a canvas's bundle is only visible to peers when its `share.json` says `shared: true`. Components can opt out individually via `<canvas>/components/<name>/share.json`.
 
 ## Sharing
 
@@ -50,15 +83,15 @@ Sharing exports a canvas as a portable **bundle** — a plain folder containing 
 
 ```text
 <canvas-name>/
-  feature-requirements.txt        — canvas behavior (copied from the source)
-  canvas-subtitle.txt     — one-line pitch for feeds (added by agent post-export)
-  canvas-tags.txt         — one tag per line for feed filtering (added by agent post-export)
+  feature-requirements.txt    — canvas behavior (copied from the source)
+  canvas-subtitle.txt         — one-line pitch for feeds (written by agent after export)
+  canvas-tags.txt             — one tag per line for feed filtering (written by agent after export)
   components/
     <component-name>/
       feature-requirements.txt
 ```
 
-The folder mirrors the workspace structure so import can place it back by copying. `canvas-subtitle.txt` and `canvas-tags.txt` are *feed metadata* — they live in the bundle only, not in the source canvas — and the agent writes them after export.
+The folder mirrors the workspace structure so import can place it back by copying. `canvas-subtitle.txt` and `canvas-tags.txt` live in the bundle only, not in the source canvas — the agent writes them after `export.sh` runs.
 
 ### Export
 
@@ -66,16 +99,13 @@ The folder mirrors the workspace structure so import can place it back by copyin
 bash skills/workspace/share/export.sh <canvas-name> <workspace.liquidos> [output-dir]
 ```
 
-- `output-dir` defaults to the current working directory; the bundle is created as a subfolder named after the canvas.
-- Reads `<workspace>/<canvas>/feature-requirements.txt` (empty file if absent — the empty value is intentional).
-- Reads `<workspace>/<canvas>/input.json` for the component list; copies each component's `presented/feature-requirements.txt`.
-- Prints a one-line JSON summary.
+Reads `<workspace>/<canvas>/feature-requirements.txt` and each component's `presented/feature-requirements.txt`; writes them into `<output-dir>/<canvas-name>/`. `output-dir` defaults to the current working directory.
 
-What's deliberately excluded: `canvas.js`, `input.json`, `output.json`, `state.json`, `view.*`, `functions.js`, `services/`, `data/`, `diagnostics/`. Implementation is rebuilt fresh on import.
+Deliberately excluded: `canvas.js`, `input.json`, `output.json`, `state.json`, `view.*`, `functions.js`, `services/`, `data/`, `diagnostics/`. Implementation is rebuilt fresh on import.
 
 ### Subtitle and tags
 
-After `export.sh` runs, the agent writes `canvas-subtitle.txt` and `canvas-tags.txt` into the bundle by reading the requirements:
+After `export.sh` runs, the agent writes the two feed-metadata files by reading the bundle's requirements:
 
 - **canvas-subtitle.txt** — one line, 6–12 words. What the canvas is for, said in one breath.
 - **canvas-tags.txt** — one lowercase hyphenated tag per line, 3–8 tags. Used for feed filtering.
@@ -90,11 +120,11 @@ printf '3d\nspatial\ntools\nwidgets\n' \
 ### Reviewing before sending
 
 Read each file in the bundle and confirm:
-- `feature-requirements.txt` describes the canvas's behavior only, not implementation.
-- Each `feature-requirements.txt` describes that component's behavior in plain language.
+- `feature-requirements.txt` describes behavior only, not implementation.
+- Each component's `feature-requirements.txt` is plain language and faithful to the component.
 - Nothing personal or sensitive is in any file.
 
-If anything is off, edit the source file in the workspace (so the next export is correct) rather than the bundle.
+If something needs fixing, edit the source file in the workspace (so the next export is correct) rather than the bundle.
 
 ### Import
 
@@ -102,45 +132,25 @@ If anything is off, edit the source file in the workspace (so the next export is
 bash skills/workspace/share/import.sh <bundle-dir> <workspace.liquidos> [canvas-name]
 ```
 
-- `canvas-name` defaults to the bundle folder name; pass it to import under a different name.
-- Validates the bundle (needs `feature-requirements.txt` + `components/`).
-- Creates the canvas via `canvas/scripts/create-instance.sh` (errors if the name is taken).
-- Copies `feature-requirements.txt`; scaffolds each component via `component/scripts/create-component.sh` and overwrites the scaffolded `feature-requirements.txt` with the bundle's.
+Validates the bundle, creates the canvas (errors if the name is taken — pass `[canvas-name]` to import under a different name), copies `feature-requirements.txt`, scaffolds each component, and overwrites the scaffolded `feature-requirements.txt` with the bundle's.
 
-After import, each component shows a `Loading…` placeholder. Build the implementations following `../component/SKILL.md`; if the canvas's requirements describe a non-stack presentation (3D, grid, etc.), rewrite `canvas.js` to match.
-
-Nothing in a bundle executes on import — every file is either scaffolding or plain-text requirements.
+After import, each component shows a `Loading…` placeholder. Build the implementations following `../component/SKILL.md`. If the canvas's requirements describe a non-stack presentation (3D, grid, etc.), rewrite `canvas.js` to match.
 
 ### Feed
-
-The feed is a JSON manifest listing every bundle this peer publishes, with enough metadata for others to triage before downloading.
 
 ```bash
 bash skills/workspace/share/feed.sh <bundles-dir> [output-path]
 ```
 
-Walks every immediate subdirectory of `<bundles-dir>` that looks like a bundle and emits per-bundle:
-
-- `name`, `subtitle`, `tags`
-- `canvasRequirements` — full `feature-requirements.txt` text (inline for cheap browsing)
-- `components` — names of component subfolders
-- `hash` — `sha256-…` over the bundle's contents (sorted filenames, null-separated rel-path + bytes)
-- `size`, `createdAt`
-
-Once the network layer lands, the harness serves this JSON at `/share/feed` and bundles at `/share/bundle/<hash>`. Until then it's the local published-bundle manifest.
+Walks every immediate subdirectory of `<bundles-dir>` that looks like a bundle and emits per-bundle metadata: name, subtitle, tags, full requirements text, components, sha256 hash, size, createdAt. The harness serves this at `/share/feed` once the network layer is up.
 
 ### Publish
-
-`feed.sh` only writes the manifest; `publish.sh` installs a bundle into the workspace's `.share/` tree so this peer can serve it.
 
 ```bash
 bash skills/workspace/share/publish.sh <bundle-dir> <workspace.liquidos>
 ```
 
-1. Validates `<bundle-dir>` (needs `feature-requirements.txt`, plus non-empty `canvas-subtitle.txt` and `canvas-tags.txt`).
-2. Copies the bundle into `<workspace>/.share/published/<name>/` (overwrites on republish).
-3. Computes the bundle hash and writes the TAR to `<workspace>/.share/bundles/<hash>.tar`.
-4. Regenerates `<workspace>/.share/feed.json`.
+Validates the bundle (needs `feature-requirements.txt`, non-empty `canvas-subtitle.txt`, non-empty `canvas-tags.txt`), copies it into `<workspace>/.share/published/<name>/`, writes the content-addressed TAR to `<workspace>/.share/bundles/<hash>.tar`, and regenerates `<workspace>/.share/feed.json`.
 
 ### Three independent states
 
@@ -150,8 +160,6 @@ A bundle on disk doesn't have to be published, and a published bundle doesn't ha
 - **published** — installed into `<workspace>/.share/` so the peer's libp2p node can serve it.
 - **shared** — `<canvas>/share.json` says `{ "shared": true }`, so peers actually see it in the feed.
 
-Toggling via the per-canvas requirements modal flips `share.json`. The network protocol handlers in `canvas/network.mjs` enforce the opt-in filter.
-
 ## Safety
 
-Bundles are intent only — no JavaScript, no scripts, no services. Nothing runs on import. The only thing that executes is the agent itself when it reads the requirements and writes implementations, which the user reviews like any other agent work. The trust surface is just "is this text safe to read."
+Bundles are intent only — no JavaScript, no scripts, no services. Nothing executes on import. The only thing that runs is the agent itself when it reads the requirements and writes implementations, which the user reviews like any other agent work.

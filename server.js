@@ -1345,6 +1345,28 @@ const isCanvasCandidateFilename = filename =>
         && !filename.startsWith('.')
         && !filename.includes('/');
 
+// active-canvas.json is the source of truth for the active canvas. POST
+// /canvas writes it; agents and external editors may also write it
+// directly. In every case the workspace watcher detects the change,
+// diffs the file against in-memory state, and applies. POST stays fast
+// because it updates in-memory state inline; the watcher path is the
+// catch-up for everyone else.
+const applyActiveCanvasFromFile = () => {
+    const name = activeCanvasNameFromFile();
+    const desiredPath = path.join(WORKSPACE_PATH, name);
+    if (CANVAS_PATH === desiredPath) return;
+    try {
+        canvasFiles.switchCanvas(name);
+    } catch (error) {
+        logHermesError('active-canvas', error, {
+            message: 'active-canvas.json points at missing or invalid canvas: ' + name
+        });
+        return;
+    }
+    broadcast({ type: 'canvases-changed' });
+    broadcast();
+};
+
 const scheduleWorkspaceRefresh = (eventType, filename) => {
     // Do not close-and-recreate the watcher here. fs.watch's earlier
     // behavior (recreating on every event) caused the in-process writes
@@ -1353,6 +1375,10 @@ const scheduleWorkspaceRefresh = (eventType, filename) => {
     // A single long-lived watcher on the workspace root is enough:
     // FSEvents and inotify both observe the directory itself, so new
     // canvases that appear under it still fire events.
+    if (filename === 'active-canvas.json') {
+        applyActiveCanvasFromFile();
+        return;
+    }
     if (!isCanvasCandidateFilename(filename)) return;
     broadcastWorkspaceFile(WORKSPACE_PATH, filename);
     broadcast({ type: 'canvases-changed' });
