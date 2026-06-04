@@ -151,7 +151,7 @@ const CodexAgent = () => {
                 }
 
                 setStatus({ status: 'waiting', exitCode, signal });
-                resolve(output.trim());
+                resolve(output);
             });
 
             processHandle.on('error', error => {

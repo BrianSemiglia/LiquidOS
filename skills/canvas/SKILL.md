@@ -84,6 +84,10 @@ Components are black boxes. The canvas may wrap them with behaviors and presenta
 
 The harness clears each item's inline styles before every `place()` call, so each call starts clean.
 
+### Stay inside root
+
+Everything `canvas.js` paints — scene chrome, scroll containers, full-viewport effects like rain, snow, scrims, or ambient particles — lives inside `root`. Attach overlay elements to `root`, position them relative to it, and use modest z-indices. The harness chrome (prompt bar, debug rail, requirements editor) sits on top via its own stacking context; if `canvas.js` reaches outside `root` (e.g. `document.body.appendChild`) or uses an out-of-context z-index (e.g. `9999`), its painting will cover that chrome and break interactivity.
+
 ### Hot reload
 
 - Edit `canvas.js` → `teardown()` runs on the prior instance, factory runs again, `place()` is called fresh.

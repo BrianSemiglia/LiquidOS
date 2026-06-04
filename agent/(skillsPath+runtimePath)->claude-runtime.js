@@ -115,11 +115,23 @@ const textFromToolResult = content => {
 // Turns the `claude -p --output-format stream-json` JSONL firehose into clean,
 // human-readable lines: assistant text, tool calls, tool results, and a final
 // done/error line. Everything else (session bookkeeping) is dropped.
-const createClaudeStreamParser = emit => {
+const createClaudeStreamParser = userEmit => {
     const toolNames = new Map();
     let buffer = '';
     let assistantText = '';
     let finalResult = '';
+    let transcript = '';
+
+    // The emit chain: parser internals call `emit`, which both forwards to
+    // the runtime's display callback (live stdout / SSE) and appends to the
+    // captured transcript. The transcript is what gets persisted to git so
+    // the full "Agent Response" — tool calls, tool results, text — survives.
+    const emit = text => {
+        if (text == null) return;
+        const value = String(text);
+        transcript += (transcript ? '\n' : '') + value;
+        userEmit(value);
+    };
 
     const handleEvent = event => {
         if (!event || typeof event !== 'object') {
@@ -233,6 +245,9 @@ const createClaudeStreamParser = emit => {
         },
         result() {
             return finalResult || assistantText;
+        },
+        transcript() {
+            return transcript;
         }
     };
 };
@@ -349,7 +364,7 @@ const ClaudeCodeAgent = () => {
                 }
 
                 setStatus({ status: 'waiting', exitCode, signal });
-                resolve(parser.result().trim() || output.trim());
+                resolve(parser.transcript() || output);
             });
 
             processHandle.on('error', error => {

@@ -263,7 +263,7 @@ const HermesAgent = () => {
                 }
 
                 setStatus({ status: 'waiting', exitCode, signal });
-                resolve(stripAnsi(output).trim());
+                resolve(stripAnsi(output));
             });
 
             processHandle.on('error', error => {
