@@ -382,7 +382,7 @@ const createCanvasGraph = ({
             // Non-recursive watch on the canvas root to catch edits to
             // canvas.js. The watch callback in server.js filters by filename
             // so input.json (watched directly) and other top-level files
-            // (selected-canvas.json, state.json, etc.) don't trigger.
+            // (active-canvas.json, state.json, etc.) don't trigger.
             ...[getCanvasPath()].filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
                 .map(file => ({ path: file, recursive: false, kind: 'canvas-root' })),
             ...componentWatchPaths(componentPaths).map(file => ({ path: file, recursive: true, kind: 'component' })),

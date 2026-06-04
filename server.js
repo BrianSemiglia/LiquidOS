@@ -1679,55 +1679,17 @@ const server = http.createServer(async (req, res) => {
             return parts[0] || '';
         };
 
-        // Publish a canvas: export its requirements to a temp bundle dir,
-        // then run publish.sh which copies it into .share/published/<name>/,
-        // builds the TAR under .share/bundles/<hash>.tar, and regenerates
-        // .share/feed.json. Returns { ok, error?, hash? }.
-        const publishCanvas = (canvasName) => {
+        // Share toggle is the single share.sh / unshare.sh invocation.
+        // Both scripts own writing share.json and updating .share/feed.json,
+        // so the endpoint doesn't have to coordinate any of the pieces.
+        const runShareScript = (script, args) => {
             const { spawnSync } = require('node:child_process');
-            const os = require('node:os');
-            const exportScript = path.join(ROOT, 'skills', 'workspace', 'share', 'export.sh');
-            const publishScript = path.join(ROOT, 'skills', 'workspace', 'share', 'publish.sh');
-            const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'liquidos-publish-'));
-            try {
-                const exp = spawnSync('bash', [exportScript, canvasName, WORKSPACE_PATH, tempDir], { encoding: 'utf8' });
-                if (exp.status !== 0) {
-                    return { ok: false, error: 'export failed: ' + (exp.stderr || exp.stdout || 'unknown') };
-                }
-                const bundleDir = path.join(tempDir, canvasName);
-                if (!fs.existsSync(bundleDir)) {
-                    return { ok: false, error: 'export produced no bundle directory at ' + bundleDir };
-                }
-                const pub = spawnSync('bash', [publishScript, bundleDir, WORKSPACE_PATH], { encoding: 'utf8' });
-                if (pub.status !== 0) {
-                    return { ok: false, error: 'publish failed: ' + (pub.stderr || pub.stdout || 'unknown') };
-                }
-                return { ok: true };
-            } finally {
-                try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+            const scriptPath = path.join(ROOT, 'skills', 'share', 'scripts', script);
+            const result = spawnSync('bash', [scriptPath, WORKSPACE_PATH, ...args], { encoding: 'utf8' });
+            if (result.status !== 0) {
+                return { ok: false, error: (result.stderr || result.stdout || 'unknown').trim() };
             }
-        };
-
-        // Unpublish: remove the bundle and its TAR, rewrite feed.json
-        // without it. Tolerant of any of those being missing already.
-        const unpublishCanvas = (canvasName) => {
-            const sharePath = path.join(WORKSPACE_PATH, '.share');
-            const publishedDir = path.join(sharePath, 'published', canvasName);
-            const feedFile = path.join(sharePath, 'feed.json');
-            let bundleHash = null;
-            try {
-                const feed = JSON.parse(fs.readFileSync(feedFile, 'utf8'));
-                const remaining = (feed.bundles || []).filter(b => {
-                    if (b && b.name === canvasName) { bundleHash = b.hash || null; return false; }
-                    return true;
-                });
-                fs.writeFileSync(feedFile, JSON.stringify({ ...feed, bundles: remaining }, null, 2) + '\n');
-            } catch { /* no feed; nothing to rewrite */ }
-            if (bundleHash) {
-                const tarPath = path.join(sharePath, 'bundles', bundleHash + '.tar');
-                try { if (fs.existsSync(tarPath)) fs.rmSync(tarPath); } catch {}
-            }
-            try { if (fs.existsSync(publishedDir)) fs.rmSync(publishedDir, { recursive: true, force: true }); } catch {}
+            return { ok: true };
         };
 
         if (url.pathname === '/canvas/share') {
@@ -1750,18 +1712,16 @@ const server = http.createServer(async (req, res) => {
                     return;
                 }
                 const shared = Boolean(body.shared);
-                writeShareFlag(canvasShareFile(canvasName), shared);
-                // Toggle is the publish lifecycle. On → materialize the
-                // bundle (export.sh → publish.sh). Off → remove the
-                // bundle. Either way, refresh the local feed and re-
-                // broadcast over gossipsub so peers' caches converge.
-                if (shared) {
-                    const publishResult = publishCanvas(canvasName);
-                    if (!publishResult.ok) {
-                        send(res, 500, 'publish failed: ' + publishResult.error); return;
-                    }
-                } else {
-                    unpublishCanvas(canvasName);
+                // share.sh / unshare.sh own everything: bundle build,
+                // tarball, feed regeneration, and the share.json flag.
+                // The endpoint just invokes the right one and re-
+                // broadcasts over gossipsub so peers' caches converge.
+                const result = shared
+                    ? runShareScript('share.sh', [canvasName])
+                    : runShareScript('unshare.sh', [canvasName]);
+                if (!result.ok) {
+                    send(res, 500, (shared ? 'share failed: ' : 'unshare failed: ') + result.error);
+                    return;
                 }
                 rebroadcastFeed();
                 send(res, 200, JSON.stringify({ shared }), 'application/json; charset=utf-8');
@@ -1887,12 +1847,12 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
             const { spawnSync } = require('node:child_process');
-            const importScript = path.join(ROOT, 'skills', 'workspace', 'share', 'import.sh');
+            const installScript = path.join(ROOT, 'skills', 'share', 'scripts', 'install.sh');
 
             // Two install sources: local (peerId null, bundle already
             // on disk under .share/published/) and remote (peerId set,
             // bundle fetched from the peer via libp2p). Both end up
-            // running import.sh against a bundle directory.
+            // running install.sh against a bundle directory.
             let entry = null;
             let bundleSrc = null;
             let tempDir = null;
@@ -1950,7 +1910,7 @@ const server = http.createServer(async (req, res) => {
             // Suffix the canvas name with a short hash slice so a
             // re-install doesn't collide with the existing canvas.
             const targetName = entry.name + '-' + hash.slice('sha256-'.length, 'sha256-'.length + 6);
-            const result = spawnSync('bash', [importScript, bundleSrc, WORKSPACE_PATH, targetName], {
+            const result = spawnSync('bash', [installScript, bundleSrc, WORKSPACE_PATH, targetName], {
                 encoding: 'utf8'
             });
             if (tempDir) {
@@ -1960,7 +1920,7 @@ const server = http.createServer(async (req, res) => {
                 send(res, 500, 'install failed: ' + (result.stderr || result.stdout || 'unknown'));
                 return;
             }
-            // Parse the last line of stdout — import.sh prints a JSON summary.
+            // Parse the last line of stdout — install.sh prints a JSON summary.
             const lines = (result.stdout || '').trim().split(/\r?\n/).filter(Boolean);
             let summary;
             try { summary = JSON.parse(lines[lines.length - 1]); } catch { summary = {}; }

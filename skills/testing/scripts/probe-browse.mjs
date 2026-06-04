@@ -9,7 +9,7 @@
 // "Local feed" is how self-peering reads to the UI: the client connects
 // to itself, so your own published bundles surface in the same search
 // surface as anything peers expose. The local-install code path runs
-// import.sh against the bundle directory and queues an agent build,
+// install.sh against the bundle directory and queues an agent build,
 // same as a remote install would after fetching the TAR — only the
 // transport differs. So this probe covers the full search + install
 // loop end-to-end without needing a second libp2p peer.
@@ -87,7 +87,7 @@ try {
     await page.locator('#browse-results .browse-result').first().dispatchEvent('click');
     await page.locator('#browse-results .browse-result .browse-install').first().dispatchEvent('click');
 
-    // The install handler runs import.sh, creates a new canvas folder,
+    // The install handler runs install.sh, creates a new canvas folder,
     // broadcasts canvases-changed, and the dropdown picks it up. The
     // canvas name is <bundle.name>-<first-6-of-hash> per the server
     // (see /network/install in server.js).

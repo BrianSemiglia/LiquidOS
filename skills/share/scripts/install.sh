@@ -8,7 +8,7 @@ CANVAS_NAME_OVERRIDE="${3:-}"
 if [ -z "$BUNDLE_DIR" ] || [ -z "$WORKSPACE_DIR" ]; then
     echo "Usage: $0 <bundle-dir> <workspace.liquidos> [canvas-name]" >&2
     echo "" >&2
-    echo "Imports a requirements bundle (the output of export.sh) into the" >&2
+    echo "Installs a requirements bundle (the output of share.sh) into the" >&2
     echo "workspace as a NEW canvas. Components are scaffolded with the same" >&2
     echo "shape any new component gets (presented/, services/, etc.) but with" >&2
     echo "the bundle's feature-requirements.txt copied into place. The agent" >&2

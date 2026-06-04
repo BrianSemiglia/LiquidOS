@@ -4,7 +4,7 @@
 //
 // End-to-end discovery + install across two LiquidOS peers. Boot two
 // sandboxes (publisher and consumer), share a canvas on the publisher
-// (which runs publish.sh and gossipsubs the new feed), dial the
+// (which runs share.sh and gossipsubs the new feed), dial the
 // publisher from the consumer (libp2p DHT bootstrap is too slow for a
 // probe; /network/dial is the manual shortcut), then on the consumer
 // search and install. The new canvas should appear in the consumer's
@@ -13,7 +13,7 @@
 // This covers what the local-only probe-browse couldn't: that
 // gossipsub actually broadcasts feeds, that the cache holds remote
 // peers' bundles, and that /network/install with peerId !== null
-// fetches the TAR over libp2p and runs import.sh.
+// fetches the TAR over libp2p and runs install.sh.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -69,7 +69,7 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
 
 let exitCode = 0;
 try {
-    // 1. Publisher: share the "home" canvas. Backend runs publish.sh
+    // 1. Publisher: share the "home" canvas. Backend runs share.sh
     //    and gossipsubs the new feed.
     const pubShare = await fetch(publisher.url + '/canvas/share', {
         method: 'POST',
