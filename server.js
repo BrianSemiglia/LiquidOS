@@ -12,7 +12,7 @@ const { createCanvasGraph } = require('./canvas/graph');
 const { createOutputQueue } = require('./canvas/output-queue');
 const { createPromptBuilder } = require('./canvas/prompt-builder');
 const { syncSkills } = require('./workspace/sync-skills');
-const { runMigration } = require('./workspace/run-migration');
+const { buildWorkspaceFixPrompt } = require('./workspace/run-migration');
 
 const WORKSPACE_ERROR_FILE_REL = path.join('.liquidos', 'workspace-error');
 
@@ -225,17 +225,12 @@ if (SKILLS_SYNC.error) {
     }
 }
 
-// Tracks the workspace-fix lifecycle. `errorCount` is the source of truth
-// for "does this workspace need fixing right now" — the on-disk
-// workspace-error file is a mirror that the agent reads, not the
-// authority. We keep the file in place across success/failure cycles so
-// its git history stays continuous (no delete-and-recreate gaps to walk
-// past with --follow).
-const MIGRATION_STATE = {
-    running: false,
-    errorCount: 0
-};
-const isMigrationPending = () => MIGRATION_STATE.errorCount > 0;
+// Mirror of how many workspace-level errors the last detector pass saw.
+// /input surfaces this so the client knows whether to show the "couldn't
+// fix this workspace" overlay. The on-disk .liquidos/workspace-error file
+// is the persistent snapshot; this counter is just for fast reads. It's
+// kept in sync via syncWorkspaceErrorFile.
+let workspaceErrorCount = 0;
 
 // Catch-all detector for workspace-scope problems. Wraps each top-level
 // invariant in its own try/catch so a failure in one area doesn't suppress
@@ -277,12 +272,12 @@ const collectWorkspaceErrors = () => {
     return errors;
 };
 
-// Writes the workspace-error file to mirror MIGRATION_STATE.errorCount.
-// The file is never deleted — empty `errors` arrays are written in place
-// so git history follows a single file across success/failure cycles
-// without needing --follow. The leading "_readme" key explains the file
-// to anyone (or any agent) looking at it in isolation, so an empty
-// errors array isn't mistaken for "something's wrong here."
+// Writes the workspace-error file. The file is never deleted — empty
+// `errors` arrays are written in place so git history follows a single
+// file across success/failure cycles without needing --follow. The
+// leading "_readme" key explains the file to anyone (or any agent)
+// looking at it in isolation, so an empty errors array isn't mistaken
+// for "something's wrong here."
 const writeWorkspaceErrorFile = (errors, context = {}) => {
     const errorFilePath = path.join(WORKSPACE_PATH, WORKSPACE_ERROR_FILE_REL);
     fs.mkdirSync(path.dirname(errorFilePath), { recursive: true });
@@ -296,50 +291,53 @@ const writeWorkspaceErrorFile = (errors, context = {}) => {
 };
 
 const syncWorkspaceErrorFile = errors => {
+    workspaceErrorCount = errors.length;
     writeWorkspaceErrorFile(errors, {
         syncedSkillsSha: SKILLS_SYNC.sha || null,
         syncedSkillsParentSha: SKILLS_SYNC.parentSha || null
     });
 };
 
-// Single entry point for kicking off a migration. Idempotent: returns
-// { ok: false, reason } if there's nothing to do or a run is already in
-// flight, so callers don't need to know the state. Used by both startup
-// auto-fire and the manual /workspace/retry-migration endpoint.
-const dispatchMigration = () => {
-    if (MIGRATION_STATE.running) return { ok: false, reason: 'already-running' };
-    if (!isMigrationPending()) return { ok: false, reason: 'no-pending-errors' };
+// Re-runs the detector, snapshots the result to .liquidos/workspace-error,
+// and — if anything is broken — enqueues an agent job at the front of the
+// queue to fix it. The job runs through the regular processOutputJob
+// pipeline, which commits its outcome via activityPersistence like any
+// canvas job. processOutputJob calls this again after each job completes,
+// so a still-broken workspace auto-loops; a clean workspace lets normal
+// canvas jobs proceed.
+const enqueueWorkspaceFixJobIfErrors = async () => {
+    const errors = collectWorkspaceErrors();
+    syncWorkspaceErrorFile(errors);
+    if (!errors.length) {
+        broadcast();
+        return false;
+    }
 
-    MIGRATION_STATE.running = true;
-    broadcast();
+    const alreadyQueued = outputQueue.activeOutputJobs()
+        .some(job => job.componentKey === 'workspace-fix');
+    if (alreadyQueued) {
+        broadcast();
+        return false;
+    }
 
-    setImmediate(() => {
-        runMigration({
-            workspacePath: WORKSPACE_PATH,
-            activeRuntime,
-            logServer,
-            systemPromptPath: AGENTS_RUNTIME_PATH
-        })
-            .then(result => logServer('migration', 'run complete', result))
-            .catch(error => logServer('migration', 'run errored', { error: error.message }))
-            .finally(() => {
-                // The agent doesn't manage the workspace-error file — we do.
-                // Re-run the detector now that the agent is done. The file
-                // is a snapshot of what the workspace actually looks like,
-                // not a flag the agent has to remember to clear. Whether
-                // empty or not, we write the new state so git history
-                // tracks the same file across success/failure cycles and
-                // the next attempt (auto-retry on next launch, or Try
-                // Again) sees fresh context.
-                const remainingErrors = collectWorkspaceErrors();
-                MIGRATION_STATE.errorCount = remainingErrors.length;
-                syncWorkspaceErrorFile(remainingErrors);
-                MIGRATION_STATE.running = false;
-                broadcast();
-            });
+    const prompt = buildWorkspaceFixPrompt({
+        workspacePath: WORKSPACE_PATH,
+        errors,
+        syncedSkillsSha: SKILLS_SYNC.sha || null,
+        syncedSkillsParentSha: SKILLS_SYNC.parentSha || null
     });
 
-    return { ok: true };
+    await outputQueue.prependOutputJob({
+        id: 'workspace-fix-' + Date.now(),
+        status: 'pending',
+        scope: WORKSPACE_PATH,
+        componentKey: 'workspace-fix',
+        event: 'Runtime did try to fix workspace',
+        prompt
+    });
+    broadcast();
+    outputQueue.feedHermesOutput();
+    return true;
 };
 
 const runtimeSet = createRuntimes({
@@ -975,6 +973,15 @@ const processOutputJob = async job => {
         if (activeOutputJob && activeOutputJob.id === jobId) {
             activeOutputJob = null;
         }
+
+        // Re-check workspace health after every job. If still broken,
+        // this prepends another workspace-fix job; if clean, it just
+        // updates the snapshot. Runs unconditionally so that a canvas
+        // job that incidentally repaired (or broke) the workspace also
+        // converges the state machine.
+        await enqueueWorkspaceFixJobIfErrors().catch(error => {
+            logHermesError('workspace-fix', error, { message: 'post-job workspace check failed' });
+        });
     }
 };
 
@@ -2040,9 +2047,11 @@ const server = http.createServer(async (req, res) => {
 
         if (req.method === 'GET' && url.pathname === '/input') {
             const rendered = canvasGraph.renderedInput();
+            const activeFixJob = outputQueue.activeOutputJobs()
+                .find(job => job.componentKey === 'workspace-fix');
             const workspace = {
-                migrationPending: isMigrationPending(),
-                migrationRunning: MIGRATION_STATE.running,
+                migrationPending: workspaceErrorCount > 0,
+                migrationRunning: Boolean(activeFixJob && activeFixJob.status === 'running'),
                 lastSkillsSha: SKILLS_SYNC.sha || null,
                 lastSkillsParentSha: SKILLS_SYNC.parentSha || null
             };
@@ -2144,15 +2153,10 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'POST' && url.pathname === '/output') {
-            // Belt-and-suspenders over the overlay: even if the client bypasses
-            // the migration UI (programmatic fetch, browser bookmark, etc.),
-            // refuse to queue new agent work while the workspace is being
-            // reconciled. Two agents racing the same workspace = corrupted
-            // git state + unpredictable outcomes.
-            if (MIGRATION_STATE.running) {
-                send(res, 409, 'workspace migration in progress — try again when it finishes');
-                return;
-            }
+            // No need to gate on workspace-fix state: the queue serializes
+            // jobs and workspace-fix preempts (prependOutputJob), so any
+            // canvas job queued while the workspace is broken just waits
+            // until the fix runs.
             await appendOutput(req);
             outputQueue.feedHermesOutput();
             broadcastQueueState();
@@ -2189,25 +2193,21 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'POST' && url.pathname === '/workspace/retry-migration') {
-            const result = dispatchMigration();
-            if (result.ok) {
-                send(res, 202, '');
-            } else if (result.reason === 'already-running') {
-                send(res, 409, 'migration already running');
-            } else if (result.reason === 'no-pending-errors') {
-                send(res, 204, '');
-            } else {
-                send(res, 500, 'unknown dispatch state');
-            }
+            // Same path the auto-loop takes — detect, snapshot, enqueue at
+            // front if there's anything to fix.
+            const enqueued = await enqueueWorkspaceFixJobIfErrors();
+            send(res, enqueued ? 202 : 204, '');
             return;
         }
 
         if (req.method === 'POST' && url.pathname === '/workspace/cancel-migration') {
-            // Asks the runtime to stop the in-flight agent. The promise the
-            // runtime returned will reject when the child exits, the existing
-            // .catch handler captures the error, and the workspace-error file
-            // stays put — user lands back on the overlay with Try Again.
-            if (!MIGRATION_STATE.running) {
+            // Stops the in-flight fix agent. The job's catch handler in
+            // processOutputJob commits a 'failed' record; the post-job
+            // detector still re-runs, so if errors remain the user lands
+            // on the overlay with Try Again.
+            const activeFixJob = outputQueue.activeOutputJobs()
+                .find(job => job.status === 'running' && job.componentKey === 'workspace-fix');
+            if (!activeFixJob) {
                 send(res, 409, 'no migration to cancel');
                 return;
             }
@@ -2645,22 +2645,11 @@ server.listen(PORT, '127.0.0.1', () => {
     // DHT takes seconds (which it usually does).
     startNetwork();
 
-    // Catch-all detection for workspace-level errors. Snapshot whatever the
-    // workspace looks like right now into the workspace-error file (empty
-    // errors array if everything's fine) and update MIGRATION_STATE so
-    // /input reflects whether we need to fix anything. dispatchMigration is
-    // a no-op when errorCount is 0. Canvas- and component-level issues are
-    // intentionally not included here — those have their own repair flows.
-    const workspaceErrors = collectWorkspaceErrors();
-    MIGRATION_STATE.errorCount = workspaceErrors.length;
-    if (workspaceErrors.length > 0 || fs.existsSync(path.join(WORKSPACE_PATH, WORKSPACE_ERROR_FILE_REL))) {
-        // Write the file when there's something to report OR the file
-        // already exists from a previous session (so we preserve a single
-        // continuous file in git rather than re-creating it).
-        syncWorkspaceErrorFile(workspaceErrors);
-    }
-    if (workspaceErrors.length > 0) {
-        logServer('workspace', 'errors detected at startup', { errors: workspaceErrors });
-    }
-    dispatchMigration();
+    // Catch-all detection for workspace-level errors. Snapshots state to
+    // .liquidos/workspace-error and prepends a workspace-fix job if there's
+    // anything broken. Canvas- and component-level issues are intentionally
+    // not included here — those have their own repair flows.
+    enqueueWorkspaceFixJobIfErrors().catch(error => {
+        logHermesError('workspace-fix', error, { message: 'startup workspace check failed' });
+    });
 });

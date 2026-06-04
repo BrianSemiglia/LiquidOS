@@ -1,29 +1,13 @@
-// Workspace-fix runner.
-//
-// The runtime writes .liquidos/workspace-error when its startup detects a
-// workspace-level problem (see collectWorkspaceErrors in server.js). This
-// module reads that workspace-error file and asks the active runtime to
-// repair the workspace. The runtime itself manages the file — it re-runs
-// the detector after the agent finishes and rewrites the file with the new
-// state — so the agent doesn't need to delete or rewrite the file. The
-// agent's job is to fix the workspace; the empirical re-check is the
-// validation.
+// Helpers for the workspace-error snapshot file and the prompt the
+// runtime hands the agent when a workspace-level error is detected.
+// Detection, dispatch, retry, and commit all live in the regular agent
+// job pipeline (server.js processOutputJob → activityPersistence) so
+// there is no special-case state machine here.
 
-const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
 const WORKSPACE_ERROR_FILE_REL = path.join('.liquidos', 'workspace-error');
-
-const readWorkspaceErrorFile = workspacePath => {
-    const errorFilePath = path.join(workspacePath, WORKSPACE_ERROR_FILE_REL);
-    if (!fs.existsSync(errorFilePath)) return null;
-    try {
-        return JSON.parse(fs.readFileSync(errorFilePath, 'utf8'));
-    } catch {
-        return { errors: [{ check: 'workspace-error-file-read', error: 'workspace-error file was unreadable' }] };
-    }
-};
 
 const skillsDiffSince = (workspacePath, sha) => {
     if (!sha) return '';
@@ -33,104 +17,45 @@ const skillsDiffSince = (workspacePath, sha) => {
     return result.status === 0 ? (result.stdout || '') : '';
 };
 
-const buildWorkspaceFixPrompt = ({ workspacePath, errorFile }) => {
-    const errors = (errorFile.errors || []).map(e =>
+const buildWorkspaceFixPrompt = ({ workspacePath, errors, syncedSkillsSha, syncedSkillsParentSha }) => {
+    const errorsText = (errors || []).map(e =>
         `  - [${e.check}] ${e.error}`).join('\n') || '  (none recorded)';
 
-    const diff = errorFile.syncedSkillsSha
-        ? skillsDiffSince(workspacePath, errorFile.syncedSkillsSha).slice(0, 12000)
+    const diff = syncedSkillsSha
+        ? skillsDiffSince(workspacePath, syncedSkillsSha).slice(0, 12000)
         : '';
 
     return [
-        'The runtime tried to open this workspace and hit workspace-level',
-        'errors. It might be a migration issue (the runtime\'s expectations',
-        'moved and the workspace hasn\'t caught up) or it might be something',
-        'else. Investigate and fix it if you can.',
+        'The runtime couldn\'t open this workspace. Edit workspace-level',
+        'files so it can start.',
         '',
-        'Procedure:',
-        '  1. Read the errors below and the current skills under',
-        '     <workspace>/skills/. The skills describe the runtime\'s current',
-        '     expectations for workspace shape.',
-        '  2. Look at the workspace as it stands now. Compare to the target.',
-        '  3. If the problem is within your authority — workspace-level shape',
-        '     drift, a renamed top-level file, a missing canvas selection,',
-        `     a workspace-shaped invariant the runtime now needs — then:`,
-        '       a. Write <workspace>/.liquidos/migrate.sh making the workspace',
-        '          match the skills (idempotent; safe to re-run).',
-        '       b. Run it. Fix and re-run if it fails partway.',
-        '       c. Commit the resulting workspace changes (excluding .liquidos/)',
-        '          with a message starting "workspace: migrated for skills".',
-        '  4. If the problem is OUTSIDE your authority — a runtime bug, an',
-        '     environmental issue (permissions, disk), or anything that',
-        '     reading skills + editing workspace files can\'t address — just',
-        '     explain in your final response why this is out of scope. The',
-        '     user will see your reasoning and can decide whether to retry or',
-        '     fix the underlying issue manually.',
+        'How to think about it:',
+        '  - The skills under <workspace>/skills/ describe what the runtime',
+        '    currently expects of a workspace.',
+        '  - Look at this workspace as it stands. See what doesn\'t match.',
+        '  - Change workspace-level files so the runtime can come up.',
         '',
-        'You do NOT need to touch <workspace>/.liquidos/workspace-error.',
-        'The runtime owns that file; it re-runs its own detector after you',
-        'exit and rewrites the file with whatever errors remain (none means',
-        'we\'re done; remaining errors mean another attempt is warranted).',
+        'Scope:',
+        '  - Workspace-level only. Leave individual canvases and component',
+        '    content alone; those have their own repair flows.',
+        '  - You don\'t need to manage <workspace>/.liquidos/workspace-error',
+        '    or commit anything — the runtime handles both after you exit.',
         '',
-        'Things you should NOT touch from here: individual canvas content or',
-        'component content. Canvas and component issues have their own repair',
-        'flows (the broken card shows a Repair button). This step is scoped',
-        'to workspace-level concerns only.',
+        'If the fix isn\'t within reach — a runtime bug, an environmental',
+        'issue, anything you can\'t address by editing workspace files —',
+        'explain why in your final response and stop. The user can retry',
+        'or fix it manually.',
         '',
         'Errors the runtime reported:',
-        errors,
+        errorsText,
         '',
-        errorFile.syncedSkillsSha
-            ? `Most recent skills sync: ${errorFile.syncedSkillsSha}` +
-              (errorFile.syncedSkillsParentSha ? ` (parent ${errorFile.syncedSkillsParentSha})` : '')
+        syncedSkillsSha
+            ? `Most recent skills sync: ${syncedSkillsSha}` +
+              (syncedSkillsParentSha ? ` (parent ${syncedSkillsParentSha})` : '')
             : 'No recent skills sync recorded.',
         '',
         diff ? 'Skills diff (most recent sync):\n```\n' + diff + '\n```' : ''
     ].join('\n');
 };
 
-const runMigration = async ({
-    workspacePath,
-    activeRuntime,
-    logServer,
-    systemPromptPath = null
-}) => {
-    const errorFile = readWorkspaceErrorFile(workspacePath);
-    if (!errorFile) return { skipped: 'no-workspace-error-file' };
-
-    const prompt = buildWorkspaceFixPrompt({ workspacePath, errorFile });
-
-    logServer('migration', 'agent invoked', {
-        errors: errorFile.errors,
-        skillsSha: errorFile.syncedSkillsSha || null,
-        systemPromptPath
-    });
-
-    let response = '';
-    let error = null;
-    try {
-        response = await activeRuntime.run(activeRuntime.preparePrompt(prompt), {
-            workingDirectory: workspacePath,
-            canvasPath: workspacePath,
-            inputPath: null,
-            outputPath: null,
-            // Threading the same systemPromptPath that queued component jobs
-            // use so the migration agent gets the standard runtime context
-            // (AGENTS.md). Without it, the agent operates without the
-            // baseline rules other agent jobs see.
-            systemPromptPath,
-            job: { id: 'workspace-fix-' + Date.now(), event: 'Runtime did request workspace fix' }
-        });
-    } catch (e) {
-        error = e.message;
-    }
-
-    logServer('migration', error ? 'agent failed' : 'agent returned', {
-        error,
-        responsePreview: String(response || '').slice(0, 300)
-    });
-
-    return { ran: true, error, response };
-};
-
-module.exports = { runMigration, buildWorkspaceFixPrompt, WORKSPACE_ERROR_FILE_REL };
+module.exports = { buildWorkspaceFixPrompt, WORKSPACE_ERROR_FILE_REL };
