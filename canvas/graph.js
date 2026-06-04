@@ -279,8 +279,25 @@ const createCanvasGraph = ({
             }));
     };
 
+    // Relationships have no view.json — they don't render. The component
+    // shape (html + resources.functions) is synthesized from convention:
+    // every relationship folder has a functions.js at its root, full stop.
+    // The harness mounts it onto a hidden surface and runs its connect().
     const relationshipComponents = () =>
-        relationshipEntries().map(loadLeafComponent);
+        relationshipEntries().map(entry => ({
+            ...entry,
+            component: {
+                html: '',
+                resources: {
+                    functions: {
+                        path: path.relative(
+                            getCanvasPath(),
+                            path.join(entry.componentPath, 'functions.js')),
+                        mime: 'text/javascript'
+                    }
+                }
+            }
+        }));
 
     const findRelationshipByPath = componentPath => {
         if (!componentPath) return null;

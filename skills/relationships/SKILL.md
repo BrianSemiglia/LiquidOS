@@ -9,26 +9,18 @@ triggers:
 
 # Relationships
 
-A *relationship* is a small unit of wiring that subscribes to one component's output and forwards data — possibly transformed — into another component's input. It is component-shaped on disk (same `presented/view.json` + `presented/functions.js` layout) but lives under `<canvas>/relationships/<name>/`, not under `<canvas>/components/`, and is **not** listed in `input.json`. The server discovers relationships by scanning the folder and ships them to the harness alongside the regular components. The harness mounts each onto a hidden surface and runs its `connect()` once with a map of every peer.
+A *relationship* is a small unit of wiring that subscribes to one component's output and forwards data — possibly transformed — into another component's input. It lives under `<canvas>/relationships/<name>/`, is discovered by the server scanning that folder, and is **not** listed in `input.json`. The harness mounts each one onto a hidden surface and runs its `connect()` once with a map of every peer.
 
 ## Where things live
 
 ```
-<canvas>/
-├── input.json                  user-facing components only
-├── components/
-│   └── <component>/            visible to the user
-└── relationships/
-    └── <from>-to-<to>/         invisible; wires <from> → <to>
-        └── presented/
-            ├── view.html       hidden by default
-            ├── view.json       resources point at functions.js
-            └── functions.js    implements surface.__io.connect
-        ├── diagnostics/
-        └── test.js             behavior test, runnable by hand
+<canvas>/relationships/<from>-to-<to>/
+  functions.js                 — mount(surface) → surface.__io.connect
+  feature-requirements.txt     — plain-text description of the wire
+  test.js                      — optional behavior test, runnable by hand
 ```
 
-A relationship's `view.html` is `<div hidden></div>` by default. Relationships exist for their `connect()` body, not for rendering.
+Only `functions.js` is required by the harness. Relationships don't render — there's no `view.json` because the harness synthesizes the relationship's component shape from convention (empty html, `functions.js` at the folder root).
 
 ## Naming convention
 
@@ -102,7 +94,7 @@ This keeps the wiring inspectable and editable through tooling users already hav
 
 ## Creating a relationship
 
-Run the scaffold script. It validates that `<from>` and `<to>` exist under the canvas's `components/`, then writes `relationships/<from>-to-<to>/presented/{view.html, view.json, functions.js, feature-requirements.txt}`, a `test.js` stub, and `diagnostics/status.json`.
+Run the scaffold script. It validates that `<from>` and `<to>` exist under the canvas's `components/`, then writes `functions.js`, `feature-requirements.txt`, and `test.js` directly at `relationships/<from>-to-<to>/`.
 
 ```sh
 bash skills/relationships/scripts/create-relationship.sh <canvas-path> <from> <to>
@@ -220,6 +212,6 @@ Run by hand against a live server: `node test.js <port>`. There's no separate te
 
 No `input.json` edit is required; the canvas was never aware of the relationship through that file.
 
-## Relationships are still components on disk
+## When a relationship grows UI
 
-The folder layout, the `mount()` lifecycle, the no-`<script>`-in-`view.html` rule, the cleanup-on-return contract — all the rules in `component/SKILL.md` apply. A relationship is just a component that lives in a different folder, is hidden by default, and implements `connect()`. If a relationship later needs UI (a knob, a visualizer), give its `view.html` real content and unhide it; everything else stays the same.
+If a relationship needs visible UI (a knob, a visualizer, controls), it stops being a relationship — move the folder under `<canvas>/components/`, list it in `input.json`, and treat it as a regular component. Its `connect()` still works the same way; everything else in the [component](../component/SKILL.md) contract starts to apply because there's now something to render.

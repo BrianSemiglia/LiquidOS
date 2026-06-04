@@ -14,15 +14,12 @@ set -euo pipefail
 # What it does:
 #   - Verifies <from> and <to> exist under the canvas's components/.
 #   - Errors if the relationship folder already exists.
-#   - Writes feature-requirements.txt, a hidden view.html / view.json pair,
-#     functions.js with a connect() stub naming the two peers, a test.js
-#     behavior stub, and diagnostics/status.json.
+#   - Writes functions.js, feature-requirements.txt, and a test.js stub
+#     directly at the relationship folder root. No presented/ wrapper,
+#     no view.json — relationships don't render, so the harness
+#     synthesizes their component shape from convention.
 #   - Does NOT touch input.json. The server discovers relationships by
 #     scanning <canvas>/relationships/.
-#
-# Bridges don't get a services/ folder by default — they're pure
-# client-side coordinators. If a relationship later needs services,
-# add them by hand following skills/component.
 #
 # Output: one-line JSON describing the new relationship.
 #
@@ -105,57 +102,23 @@ else
 fi
 
 rel_dir="$canvas_dir/relationships/$rel_name"
-presented_dir="$rel_dir/presented"
 
 if [ -e "$rel_dir" ]; then
     echo "Error: relationship already exists: $rel_dir" >&2
     exit 1
 fi
 
-mkdir -p "$presented_dir" "$rel_dir/data" "$rel_dir/diagnostics"
-
-printf '{}\n' > "$rel_dir/diagnostics/status.json"
+mkdir -p "$rel_dir"
 
 # feature-requirements.txt — plain text, user-facing, describes the wiring.
-cat > "$presented_dir/feature-requirements.txt" <<TXT
+cat > "$rel_dir/feature-requirements.txt" <<TXT
 - Forwards data from ${from_name} to ${to_name}. Edit this line to describe what the wire actually does.
 TXT
-
-# view.html — hidden by default. Relationships have no UI of their own.
-cat > "$presented_dir/view.html" <<HTML
-<!--
-view.html — relationship view, hidden by default.
-
-A relationship has no UI; its value is the wiring it sets up in
-functions.js. Leave this hidden unless you want a visualizer or controls.
-
-If you give this relationship UI later, follow skills/component
-for the visual side and keep functions.js's connect() intact.
--->
-<div hidden data-relationship="${from_name} → ${to_name}"></div>
-HTML
-
-# view.json — matches view.html. No render.js scaffold here, so the agent
-# keeps these two in sync by hand (or adds a render.js later if needed).
-node -e '
-const fs = require("fs");
-const [viewPath, htmlPath, relName] = process.argv.slice(1);
-const html = fs.readFileSync(htmlPath, "utf8");
-fs.writeFileSync(viewPath, JSON.stringify({
-    html,
-    resources: {
-        functions: {
-            path: `relationships/${relName}/presented/functions.js`,
-            mime: "text/javascript",
-        },
-    },
-}, null, 2) + "\n");
-' "$presented_dir/view.json" "$presented_dir/view.html" "$rel_name"
 
 # functions.js — connect() stub. The agent fills in channel names and the
 # transform function. Naming the two peers via interpolation makes the
 # starting point grep-able from the relationship name.
-cat > "$presented_dir/functions.js" <<FUNCTIONSJS
+cat > "$rel_dir/functions.js" <<FUNCTIONSJS
 //
 // ${rel_name} — relationship.
 //

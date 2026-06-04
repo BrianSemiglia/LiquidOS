@@ -101,7 +101,7 @@ try {
     // --- Step 2: rewrite the relationship's functions.js --------------
     const fnPath = path.join(
         sandbox.workspace,
-        'home/relationships/source-to-sink/presented/functions.js'
+        'home/relationships/source-to-sink/functions.js'
     );
     const updated = `
 // v2: forwards button presses to sink with the label "v2".
