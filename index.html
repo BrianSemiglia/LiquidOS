@@ -2884,7 +2884,7 @@
         canvasShareSwitch.addEventListener('click', () => { toggleCanvasShareState(); });
 
         // Canvas-level Repair affordance: surfaces a Repair button centered
-        // over the empty textarea whenever requirements.txt couldn't
+        // over the empty textarea whenever feature-requirements.txt couldn't
         // be loaded or is empty. Same shape as the component flip-back's
         // Repair, but the prompt is canvas-aware — the agent can't
         // reverse-engineer canvas intent from "implementation," but it CAN
@@ -2905,9 +2905,9 @@
                 : canvasReqEditingCanvas;
             canvasReqRecover.setAttribute('scope', scope);
             canvasReqRecover.setAttribute('prompt',
-                'Find or restore this canvas\'s requirements file (requirements.txt). ' +
+                'Find or restore this canvas\'s requirements file (feature-requirements.txt). ' +
                 'Check git history first for the last good version and restore it if found. ' +
-                'If no past version exists, write a fresh requirements.txt that describes ' +
+                'If no past version exists, write a fresh feature-requirements.txt that describes ' +
                 'what this canvas is for in plain language, based on the components it currently ' +
                 'contains and the relationships under <canvas>/relationships/. ' +
                 'Keep it user-facing intent — no implementation detail.');
@@ -2934,7 +2934,7 @@
             // writing.
             try {
                 const response = await fetch(
-                    '/workspace/file/' + encodeURIComponent(canvasName) + '/requirements.txt',
+                    '/workspace/file/' + encodeURIComponent(canvasName) + '/feature-requirements.txt',
                     { cache: 'no-store' }
                 );
                 canvasReqTextarea.value = response.ok ? await response.text() : '';

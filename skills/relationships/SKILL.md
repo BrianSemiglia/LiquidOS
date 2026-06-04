@@ -77,9 +77,9 @@ export const mount = (surface) => {
 
 The relationship **must** handle missing peers gracefully — if either endpoint isn't in the canvas, `connect()` should return without throwing, and the relationship stays inert.
 
-## Driven by `requirements.txt`
+## Driven by `feature-requirements.txt`
 
-Users don't open a separate UI to add wires. They describe wires in plain language inside `<canvas>/requirements.txt` — by convention, under a `## Relationships` heading — and the agent reconciles the actual folders under `<canvas>/relationships/` to match.
+Users don't open a separate UI to add wires. They describe wires in plain language inside `<canvas>/feature-requirements.txt` — by convention, under a `## Relationships` heading — and the agent reconciles the actual folders under `<canvas>/relationships/` to match.
 
 ```
 ## Relationships
@@ -96,7 +96,7 @@ The heading is convention, not a parser requirement — natural prose elsewhere 
 2. Fill in `connect()` based on the sentence.
 3. Write the relationship's own `feature-requirements.txt` with the same sentence (verbatim or lightly normalized) so the relationship can be inspected on its own later.
 
-When the user removes a line from the heading, the agent removes the matching folder. When the user edits a line, the agent re-reads the new wording and updates `connect()` accordingly. The text in `requirements.txt` is the source of truth; `relationships/*/` is the materialized form.
+When the user removes a line from the heading, the agent removes the matching folder. When the user edits a line, the agent re-reads the new wording and updates `connect()` accordingly. The text in `feature-requirements.txt` is the source of truth; `relationships/*/` is the materialized form.
 
 This keeps the wiring inspectable and editable through tooling users already have (the canvas requirements modal) without inventing new UI for it.
 

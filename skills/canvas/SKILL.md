@@ -1,201 +1,102 @@
 ---
 name: canvas
-description: Create a new LiquidOS canvas inside an existing .liquidos workspace
+description: Canvas-scope work — how components are arranged on screen, how the user navigates them, and how they behave as a group
 triggers:
-  - User asks to create a new canvas instance
-  - User wants to set up a new live canvas
-  - User mentions creating a canvas
+  - User wants to create a new canvas
+  - User wants to change how components are arranged or presented (stack, grid, 3D, etc.)
+  - User wants components to behave as a group (scroll-linked animation, snap, swipe-to-dismiss)
+  - User wants canvas-level input (custom scroll, keyboard shortcuts, gestures)
 ---
 
 # Canvas
 
-Use this skill when the user asks to create a new canvas inside an existing `.liquidos` workspace.
+A canvas is one screen-worth of components and the rules for how they live together — where they sit, how the user moves between them, how they respond as a group. Components themselves are black boxes: the canvas knows each one by name and assigns its bounds, but doesn't reach into its content.
 
-## Current Shape
+Land here when the work is about *how components are presented and navigated*, not what any one component is or does. Component-internal work belongs in Component Skill.
 
-A canvas is a direct child of the `.liquidos` workspace folder:
+## Files
 
 ```text
 <canvas-name>/
-  input.json                — component manifest
-  canvas.js                 — presentation, input controls, behavior, etc
-  requirements.txt          — user-facing plain-text description of canvas requirements
-  components/               — component folders
+  input.json                  — manifest: { "components": [<canvas-relative path>, ...] }
+  canvas.js                   — presentation, input, group behavior
+  feature-requirements.txt    — plain-text intent: what this canvas is for
+  components/                 — component folders (see Component Skill)
+  relationships/              — wires between components (see Relationship Skill)
+  output.json                 — agent job queue (harness-managed)
 ```
 
-`input.json` is the component manifest (just `{ "components": [...] }`). `components/` contains component folders. See `../component/SKILL.md` for component structure.
+Add or remove components by editing `input.json`. Change arrangement, navigation, or group behavior by editing `canvas.js`. Update intent in `feature-requirements.txt`.
 
-## Quick Start
+## feature-requirements.txt
 
-Run from the workspace root (the agent's CWD):
+Plain-text, user-facing description of what this canvas is for — what it should let the user do, how it should feel. Read it first when working on a canvas; update it when intent changes. Keep implementation details out — `canvas.js` is for those.
 
-```bash
-bash skills/canvas/scripts/create-instance.sh <canvas-name> /path/to/Workspace.liquidos
-```
+### Relationships
 
-This creates:
+Describes wires between components in prose. The agent reconciles the `relationships/` folder to match. See Relationships Skill.
+
+### Example
 
 ```text
-Workspace.liquidos/<canvas-name>/input.json
-Workspace.liquidos/<canvas-name>/output.json
-Workspace.liquidos/<canvas-name>/canvas.js
-Workspace.liquidos/<canvas-name>/components/
+A diorama of small tools and ambient widgets. Components float in 3D
+space and gently bob; the user pans by dragging and zooms by scrolling.
+Each one is a tactile object — small, soft lighting, no chrome.
+
+## Relationships
+
+- Pressing keys on the rainbow-keyboard sets the color-picker's color;
+  multiple keys mix into one color.
+- The clock's hourly tick scrolls the timeline to "now".
 ```
 
-## requirements.txt
+## canvas.js
 
-A plain-text file at the canvas root describing what this canvas is for —
-what kinds of cards it should hold, how they should be arranged, how the
-user wants to feel using it. Parallel to a component's
-`feature-requirements.txt`, but one layer up.
-
-- **Optional.** Canvases work without it; an empty file is fine.
-- **Read it first** when working on a canvas. If the user asks you to add
-  or modify components, consult this file to understand the canvas's
-  intent and keep your work aligned with it.
-- **Write to it** when the user describes the canvas in a new way, or
-  when you learn something about the canvas's purpose that ought to be
-  recorded. Keep it concise and plain-language.
-- **Don't put implementation details in it.** That's what `canvas.js`,
-  `input.json`, and the component files are for. This file is intent
-  only — the description should still make sense if you rebuilt every
-  component from scratch.
-- It is also the natural unit for "share this app" later: the canvas's
-  requirements plus each component's `feature-requirements.txt` together
-  describe the app completely without any code.
-
-## Core Principle
-
-Never modify source data when creating interfaces.
-
-When building canvas components that reference source files, create interface components that reference or serve the originals without renaming, moving, deleting, or rewriting the source files unless the user explicitly asks.
-
-## Loading-First Updates
-
-When creating or updating a component instance, the first visible response should be a loading-state version of the relevant component. Keep it in place while work continues.
-
-## Adding Components
-
-1. Create a component folder under `components/`.
-2. Ensure the component includes `feature-requirements.txt` and `view.json`.
-   `feature-requirements.txt` is user-facing. Keep it plain-language, concise, and faithful to the component.
-3. Add the component folder path to `input.json` if it is not already present.
-4. Preserve existing `input.json` keys and component paths.
-
-## Starting the App
-
-Use the app/server workflow provided by the LiquidOS runtime. Do not create or copy HTML entry files for the canvas.
-
-## canvas.js — the one module per canvas
-
-Every canvas has exactly one `canvas.js` at its root. It owns presentation (where components live on screen), input handling (scroll, keyboard, custom gestures), and anything else canvas-scoped — recenter buttons, axis-invert toggles, scene chrome, audio context, whatever.
-
-`input.json` is just `{ "components": [...] }` — no `presentation` field. The harness always loads `<canvas>/canvas.js`.
+Every canvas has exactly one `canvas.js` at its root.
 
 ### Contract
 
 ```js
-import { cssLayout } from '/lib/css-layout.js'; // optional, for CSS-only canvases
-
 export default (root, context) => {
-    // root: the canvas DOM region this module owns.
-    // context: { canvasPath } — useful for state keys, logging, scoping.
-    //
-    // Build scene chrome, attach input listeners, hold camera/audio state
-    // in the closure. The harness will then call place() with the components
-    // and again on every change. teardown() runs before the next load.
+    // Build chrome, attach input listeners, hold any state in this closure.
+    // `root` is the canvas DOM region you own; `context` includes canvasPath.
 
     return {
         place(items, components) {
-            // items:      array of card DOM elements (already wired with
-            //             surface, mount lifecycle, callbacks).
-            // components: parallel array of metadata for each card —
-            //             { componentPath, scope, html, resources, ... }.
-            //
-            // The harness clears items' inline styles before each call, so
-            // every place() starts from clean cards.
+            // Called on every change. items[i] is the already-mounted DOM
+            // element for components[i] — position it, that's all.
         },
         teardown() {
-            // Remove DOM, listeners, timers. The next canvas.js load gets
-            // a fresh root.
+            // Cleanup before the next factory call (or canvas swap).
         }
     };
 };
 ```
 
-### State
+### What canvas.js sees
 
-State is canvas.js's own concern — the harness doesn't read or watch it.
-If your canvas wants persistent state (camera position, per-card layout,
-pin status), pick where to store it, fetch it yourself, and observe it
-yourself.
+Each `place()` call hands you:
 
-The convention is JSON files in the canvas, e.g.:
+- `items` — the mounted DOM elements, one per component, ready to position.
+- `components` — parallel metadata. The canvas-scope fields are **identity** (each component's name/path, so you can recognize the same one across updates and preserve animation phase or position) and the bounds you assign.
 
-- `<canvas>/state.json` for canvas-wide state.
-- `<canvas>/components/<comp>/state.json` for per-component state.
+Components are black boxes. The canvas may wrap them with behaviors and presentations — scroll-linked animation, snap, swipe-to-dismiss, anything that surrounds rather than enters them — but their content belong to the component itself.
 
-Write via POST to `/workspace/writes`:
-
-```js
-fetch('/workspace/writes', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-        writes: [
-            { path: '<canvas-name>/state.json', content: { camera: { x, y, z, yaw, pitch } } }
-        ]
-    })
-});
-```
-
-`path` is workspace-relative. `content` is any JSON-encodable value; the server writes it as pretty JSON. You can batch multiple writes in one call — the watcher pauses for the whole batch and emits one refresh.
-
-Read by fetching the file URL (`fetch('/<canvas>/state.json')`) — either on mount, on a timer, or by listening to the harness's SSE update stream and refetching when something changed. The harness emits update events but does not parse state for you.
-
-Debounce continuous inputs (camera scrolls, drags). The file is replaced verbatim — always send the full object you want stored.
+The harness clears each item's inline styles before every `place()` call, so each call starts clean.
 
 ### Hot reload
 
-- Edit `canvas.js` → harness re-imports the module, calls `teardown()` on the prior instance, runs the factory again, places fresh.
-- Edit a component (view.json, etc.) → harness re-runs `place()` with the new components. State is not re-passed; if you need it, fetch it.
+- Edit `canvas.js` → `teardown()` runs on the prior instance, factory runs again, `place()` is called fresh.
+- Edit a component → harness re-runs `place()` with updated metadata. Identity persists across the update; preserve position if you've assigned one.
 
-### Editing canvas.js for anything non-trivial: use a sandbox
+### Non-trivial edits
 
-A one-line tweak in place is fine; the user sees one hot-reload and you move on. For anything bigger — rewriting `place()`, restructuring how state is consumed, multi-file changes that touch components and canvas.js together — work in a sandbox via `../testing/SKILL.md`, then apply atomically.
+Multi-file refactors, or anything that touches `canvas.js` and a component together, should go through a sandbox (see Testing Skill) and apply atomically. Single-line tweaks to `canvas.js` are fine in place — hot-reload makes them observable.
 
-The flow:
+## Create a new canvas
 
-1. Boot a sandbox of the workspace (`boot-workspace-sandbox.mjs`).
-2. Make all your edits in the sandbox copy. Verify with Playwright or by interacting via the sandbox URL.
-3. When ready, POST to the **source** server (not the sandbox), using the same `/workspace/writes` endpoint the browser uses — with `from` entries instead of `content`:
+```bash
+bash skills/canvas/scripts/create-instance.sh <canvas-name> /path/to/Workspace.liquidos
+```
 
-   ```sh
-   curl -X POST http://127.0.0.1:<source-port>/workspace/writes \
-       -H 'content-type: application/json' \
-       -d '{
-         "sandbox": "/var/folders/.../sandbox-workspace/Workspace.liquidos",
-         "writes": [
-           { "path": "gadgets/canvas.js", "from": "gadgets/canvas.js" },
-           { "path": "gadgets/components/foo/state.json", "from": "gadgets/components/foo/state.json" }
-         ]
-       }'
-   ```
-
-   The source server pauses its watcher, processes all writes, then emits one refresh event. The user sees one transition, not one per file.
-
-4. Terminate the sandbox launcher.
-
-Each write entry is `{ path, content }` (inline JSON) or `{ path, from }` (copy from disk; relative paths resolve against `sandbox` if provided). Paths are workspace-relative; absolute paths and `..` traversal are rejected.
-
-### Loading state
-
-When you create or update a component instance, the first visible response should be a loading-state version of the relevant component. Keep it in place while work continues.
-
-### Default
-
-The scaffolder ships a CSS stack canvas.js that delegates to `/lib/css-layout.js`. Edit it freely or rewrite. Keep the default-export factory shape and the `{ place, teardown }` return shape; nothing else is fixed.
-
-### What canvas.js does NOT own
-
-The harness owns prompt bar, debug rail, loading/error chrome, the requirements editor. Don't style those from canvas.js. The components own their own surface content. canvas.js sits between: it decides where the components live and how the user navigates them.
+Lays down the file layout above and registers the canvas in the workspace. The shipped `canvas.js` delegates to `/lib/css-layout.js` (CSS stack); edit it or rewrite — the only fixed shape is the default-export factory and the `{ place, teardown }` return.

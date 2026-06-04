@@ -27,8 +27,8 @@ fi
 
 BUNDLE_DIR="$(cd "$BUNDLE_DIR" && pwd)"
 
-if [ ! -f "$BUNDLE_DIR/requirements.txt" ]; then
-    echo "Error: not a valid bundle (missing requirements.txt): $BUNDLE_DIR" >&2
+if [ ! -f "$BUNDLE_DIR/feature-requirements.txt" ]; then
+    echo "Error: not a valid bundle (missing feature-requirements.txt): $BUNDLE_DIR" >&2
     exit 1
 fi
 
@@ -97,11 +97,11 @@ if [ -z "$CANVAS_PATH" ] || [ ! -d "$CANVAS_PATH" ]; then
     exit 1
 fi
 
-# Replace the empty requirements.txt with the bundle's version.
+# Replace the empty feature-requirements.txt with the bundle's version.
 # (canvas-subtitle.txt and canvas-tags.txt from the bundle stay in the
 # bundle directory — they're discovery metadata, not source for the
 # canvas. The receiving canvas can generate its own when ready to share.)
-cp "$BUNDLE_DIR/requirements.txt" "$CANVAS_PATH/requirements.txt"
+cp "$BUNDLE_DIR/feature-requirements.txt" "$CANVAS_PATH/feature-requirements.txt"
 
 CREATED_NAMES=()
 SKIPPED_NAMES=()

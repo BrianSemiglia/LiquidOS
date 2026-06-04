@@ -165,7 +165,7 @@ items?
 - Lets an agent read/write arbitrary workspace files
 
 **Editing surface**
-- Lets the user view and edit `requirements.txt`
+- Lets the user view and edit `feature-requirements.txt`
 - Lets the user view and edit each component's `feature-requirements.txt`
 
 **Identity (if networked)**
@@ -258,7 +258,7 @@ investments:
    prompts
 2. **Persistent workspace** — everything is tracked as one git timeline
 3. **History-aware agent** — agent reads the workspace AND the git history
-4. **Editable intent** — plain-text `requirements.txt` and
+4. **Editable intent** — plain-text `feature-requirements.txt` and
    `feature-requirements.txt`; editing them re-aims the agent
 5. **Pluggable presentation** — each canvas has its own `canvas.js` (stack,
    3D, whatever)
@@ -358,7 +358,7 @@ liquidos/
   canvas/
     - Updates in real time
     - Holds many components arranged together for a purpose
-    - Has plain-text intent (requirements.txt)
+    - Has plain-text intent (feature-requirements.txt)
     - Has a pluggable presentation (canvas.js)
 
     components/
@@ -416,7 +416,7 @@ liquidos/
 
   canvas/  (lives in a workspace)
     - updates in real time
-    - has plain-text intent (requirements.txt)
+    - has plain-text intent (feature-requirements.txt)
     - has a pluggable presentation (canvas.js)
     - holds many components
 
@@ -468,7 +468,7 @@ liquidos/
     - created by the user from scratch (named, empty)
        — OR installed from a peer's bundle
        — OR created by the agent in response to a prompt
-    - has plain-text intent (requirements.txt) the user can edit anytime
+    - has plain-text intent (feature-requirements.txt) the user can edit anytime
     - has a presentation module (canvas.js) the agent may rewrite
     - holds zero or more components
     - renders live as its files change
@@ -528,7 +528,7 @@ liquidos/
 
   canvas/  (lives in a workspace)
     - created by the user from scratch (named), by the agent, or installed from a peer
-    - has plain-text intent (requirements.txt) the user can edit
+    - has plain-text intent (feature-requirements.txt) the user can edit
     - has a presentation module (canvas.js) the agent may rewrite
     - holds zero or more components, ordered by input.json
     - components can be added or removed by the agent

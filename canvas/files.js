@@ -89,14 +89,14 @@ const createCanvasFiles = ({
 
         writeDefaultFile(path.join(canvasPath, 'output.json'), '[]\n');
 
-        // requirements.txt is a plain-text description of what this
+        // feature-requirements.txt is a plain-text description of what this
         // canvas is for — what it should hold, how it should feel, how the
         // user wants to interact with it. Parallel to a component's
         // feature-requirements.txt, but at the canvas level. Optional, but
         // when present it's the natural anchor for "share this app" and
         // for the agent when generating components for the canvas. Start
         // empty; the user (or agent on the user's behalf) fills it in.
-        writeDefaultFile(path.join(canvasPath, 'requirements.txt'), '');
+        writeDefaultFile(path.join(canvasPath, 'feature-requirements.txt'), '');
 
         return canvasPath;
     };

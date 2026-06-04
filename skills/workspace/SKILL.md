@@ -44,13 +44,13 @@ Each direct child folder of the workspace is a canvas — see `../canvas/SKILL.m
 
 ## Sharing
 
-Sharing exports a canvas as a portable **bundle** — a plain folder containing only the canvas's `requirements.txt` and each component's `feature-requirements.txt`. No code, no view.html, no state. The receiving instance reads the requirements and builds a fresh implementation locally; nothing executes on import.
+Sharing exports a canvas as a portable **bundle** — a plain folder containing only the canvas's `feature-requirements.txt` and each component's `feature-requirements.txt`. No code, no view.html, no state. The receiving instance reads the requirements and builds a fresh implementation locally; nothing executes on import.
 
 ### Bundle shape
 
 ```text
 <canvas-name>/
-  requirements.txt        — canvas behavior (copied from the source)
+  feature-requirements.txt        — canvas behavior (copied from the source)
   canvas-subtitle.txt     — one-line pitch for feeds (added by agent post-export)
   canvas-tags.txt         — one tag per line for feed filtering (added by agent post-export)
   components/
@@ -67,7 +67,7 @@ bash skills/workspace/share/export.sh <canvas-name> <workspace.liquidos> [output
 ```
 
 - `output-dir` defaults to the current working directory; the bundle is created as a subfolder named after the canvas.
-- Reads `<workspace>/<canvas>/requirements.txt` (empty file if absent — the empty value is intentional).
+- Reads `<workspace>/<canvas>/feature-requirements.txt` (empty file if absent — the empty value is intentional).
 - Reads `<workspace>/<canvas>/input.json` for the component list; copies each component's `presented/feature-requirements.txt`.
 - Prints a one-line JSON summary.
 
@@ -90,7 +90,7 @@ printf '3d\nspatial\ntools\nwidgets\n' \
 ### Reviewing before sending
 
 Read each file in the bundle and confirm:
-- `requirements.txt` describes the canvas's behavior only, not implementation.
+- `feature-requirements.txt` describes the canvas's behavior only, not implementation.
 - Each `feature-requirements.txt` describes that component's behavior in plain language.
 - Nothing personal or sensitive is in any file.
 
@@ -103,9 +103,9 @@ bash skills/workspace/share/import.sh <bundle-dir> <workspace.liquidos> [canvas-
 ```
 
 - `canvas-name` defaults to the bundle folder name; pass it to import under a different name.
-- Validates the bundle (needs `requirements.txt` + `components/`).
+- Validates the bundle (needs `feature-requirements.txt` + `components/`).
 - Creates the canvas via `canvas/scripts/create-instance.sh` (errors if the name is taken).
-- Copies `requirements.txt`; scaffolds each component via `component/scripts/create-component.sh` and overwrites the scaffolded `feature-requirements.txt` with the bundle's.
+- Copies `feature-requirements.txt`; scaffolds each component via `component/scripts/create-component.sh` and overwrites the scaffolded `feature-requirements.txt` with the bundle's.
 
 After import, each component shows a `Loading…` placeholder. Build the implementations following `../component/SKILL.md`; if the canvas's requirements describe a non-stack presentation (3D, grid, etc.), rewrite `canvas.js` to match.
 
@@ -122,7 +122,7 @@ bash skills/workspace/share/feed.sh <bundles-dir> [output-path]
 Walks every immediate subdirectory of `<bundles-dir>` that looks like a bundle and emits per-bundle:
 
 - `name`, `subtitle`, `tags`
-- `canvasRequirements` — full `requirements.txt` text (inline for cheap browsing)
+- `canvasRequirements` — full `feature-requirements.txt` text (inline for cheap browsing)
 - `components` — names of component subfolders
 - `hash` — `sha256-…` over the bundle's contents (sorted filenames, null-separated rel-path + bytes)
 - `size`, `createdAt`
@@ -137,7 +137,7 @@ Once the network layer lands, the harness serves this JSON at `/share/feed` and 
 bash skills/workspace/share/publish.sh <bundle-dir> <workspace.liquidos>
 ```
 
-1. Validates `<bundle-dir>` (needs `requirements.txt`, plus non-empty `canvas-subtitle.txt` and `canvas-tags.txt`).
+1. Validates `<bundle-dir>` (needs `feature-requirements.txt`, plus non-empty `canvas-subtitle.txt` and `canvas-tags.txt`).
 2. Copies the bundle into `<workspace>/.share/published/<name>/` (overwrites on republish).
 3. Computes the bundle hash and writes the TAR to `<workspace>/.share/bundles/<hash>.tar`.
 4. Regenerates `<workspace>/.share/feed.json`.
