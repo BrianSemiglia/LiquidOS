@@ -8,7 +8,7 @@ set -euo pipefail
 #   bash skills/share-app/scripts/feed.sh <bundles-dir> [output-path]
 #
 # Walks every immediate subdirectory of <bundles-dir> that looks like a
-# bundle (has canvas-requirements.txt) and emits a JSON manifest listing
+# bundle (has requirements.txt) and emits a JSON manifest listing
 # each one with the metadata needed to BROWSE the feed without
 # downloading the bundles themselves: name, subtitle, tags, the canvas-
 # requirements text, the list of component names, a content hash, and
@@ -38,11 +38,11 @@ fi
 BUNDLES_DIR="$(cd "$BUNDLES_DIR" && pwd)"
 
 # Collect bundle directories. A bundle is any immediate subdirectory
-# with a canvas-requirements.txt at its root.
+# with a requirements.txt at its root.
 BUNDLE_DIRS=()
 for D in "$BUNDLES_DIR"/*/; do
     [ -d "$D" ] || continue
-    if [ -f "$D/canvas-requirements.txt" ]; then
+    if [ -f "$D/requirements.txt" ]; then
         BUNDLE_DIRS+=("${D%/}")
     fi
 done
@@ -130,7 +130,7 @@ const entries = bundles.map(b => {
         name: path.basename(b),
         subtitle: readText(path.join(b, "canvas-subtitle.txt")).trim(),
         tags: parseTags(readText(path.join(b, "canvas-tags.txt"))),
-        canvasRequirements: readText(path.join(b, "canvas-requirements.txt")),
+        canvasRequirements: readText(path.join(b, "requirements.txt")),
         components: listComponents(b),
         hash,
         size,

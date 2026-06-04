@@ -3,9 +3,9 @@
 // probe-canvas-switcher.mjs
 //
 // Open canvas-info on the active canvas (home) → the modal shows home's
-// canvas-requirements.txt. Close. Switch to the "other" canvas via the
+// requirements.txt. Close. Switch to the "other" canvas via the
 // dropdown. Open canvas-info again → the modal shows other's
-// canvas-requirements.txt (not stale home content). Verifies the
+// requirements.txt (not stale home content). Verifies the
 // per-canvas content isolation through the user-facing switcher flow.
 
 import path from 'node:path';

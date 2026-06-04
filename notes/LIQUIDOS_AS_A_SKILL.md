@@ -18,12 +18,12 @@ contract. Roughly:
 
 > A LiquidOS workspace is a `.liquidos` folder containing one or more canvases.
 > Each canvas is a subfolder with `input.json` (component manifest), `canvas.js`
-> (presentation), and `canvas-requirements.txt` (what the canvas is for).
+> (presentation), and `requirements.txt` (what the canvas is for).
 > Components live under `<canvas>/components/<name>/` and have a
 > `presented/feature-requirements.txt` plus the files needed to render them.
 >
 > When the user asks for a new app or tool, decide whether it fits an existing
-> canvas or wants its own. Author the canvas-requirements first, then each
+> canvas or wants its own. Author the requirements first, then each
 > component's feature-requirements, then their implementations.
 >
 > A small harness is included in this skill that renders the workspace in a

@@ -18,13 +18,13 @@ Use this skill in two directions:
 - **Export**: package a canvas's requirements into a portable bundle to share with someone else.
 - **Import**: take a bundle someone shared and lay it down as a new canvas in this workspace; the agent then builds the implementations from the requirements.
 
-The output is a **plain-folder bundle of requirements only**. No code, no view.html, no state, no view.json — just the canvas's `canvas-requirements.txt` and each component's `feature-requirements.txt`. The receiving instance reads the requirements and builds a fresh implementation locally; nothing executes on import.
+The output is a **plain-folder bundle of requirements only**. No code, no view.html, no state, no view.json — just the canvas's `requirements.txt` and each component's `feature-requirements.txt`. The receiving instance reads the requirements and builds a fresh implementation locally; nothing executes on import.
 
 ## What a bundle looks like
 
 ```text
 <canvas-name>/
-  canvas-requirements.txt        — canvas behavior (copied from the source)
+  requirements.txt        — canvas behavior (copied from the source)
   canvas-subtitle.txt            — one-line pitch for feeds (added by agent post-export)
   canvas-tags.txt                — one tag per line for feed filtering (added by agent post-export)
   components/
@@ -58,7 +58,7 @@ bash skills/share-app/scripts/export.sh <canvas-name> <workspace.liquidos> [outp
 
 The script:
 
-1. Reads `<workspace>/<canvas>/canvas-requirements.txt`. If it's empty or missing, the bundle still includes the file (empty) so the receiver knows a canvas-level description was intentionally not provided.
+1. Reads `<workspace>/<canvas>/requirements.txt`. If it's empty or missing, the bundle still includes the file (empty) so the receiver knows a canvas-level description was intentionally not provided.
 2. Reads `<workspace>/<canvas>/input.json` to find the component list.
 3. For each component listed, reads `<workspace>/<canvas>/<component-path>/presented/feature-requirements.txt` and copies it to `<output-dir>/<canvas-name>/components/<component-leaf>/feature-requirements.txt`.
 4. Prints a one-line JSON summary of what was written (canvas name, output path, components included).
@@ -73,7 +73,7 @@ The receiving instance's agent reads the requirements and builds the implementat
 
 ## Generating subtitle and tags
 
-After `export.sh` runs, the bundle has `canvas-requirements.txt` and each component's `feature-requirements.txt` but NOT `canvas-subtitle.txt` or `canvas-tags.txt`. Those are the agent's job. Read the bundle, then write fresh versions of each:
+After `export.sh` runs, the bundle has `requirements.txt` and each component's `feature-requirements.txt` but NOT `canvas-subtitle.txt` or `canvas-tags.txt`. Those are the agent's job. Read the bundle, then write fresh versions of each:
 
 - **canvas-subtitle.txt** — a single line, ideally 6–12 words. What is this canvas for, said in one breath. Should be enough on its own for someone to decide whether they want a closer look. Examples:
   - `A 3D diorama of small tools and ambient widgets`
@@ -98,7 +98,7 @@ The two files travel with the bundle from there on — feed builders pick them u
 ## Reviewing before sending
 
 Before handing the bundle to anyone, read each file in the output and confirm:
-- `canvas-requirements.txt` describes only the canvas's behavior, not what's on it.
+- `requirements.txt` describes only the canvas's behavior, not what's on it.
 - Each `feature-requirements.txt` describes only that component's behavior, in plain language, no implementation details.
 - Nothing personal or sensitive is in any of the requirement files.
 
@@ -118,9 +118,9 @@ bash skills/share-app/scripts/import.sh <bundle-dir> <workspace.liquidos> [canva
 
 The script:
 
-1. Validates the bundle: must have `canvas-requirements.txt` and a `components/` directory.
+1. Validates the bundle: must have `requirements.txt` and a `components/` directory.
 2. Creates a new canvas with the chosen name via `canvas/scripts/create-instance.sh`. Errors if a canvas with that name already exists — pass an override name in that case.
-3. Copies the bundle's `canvas-requirements.txt` into the new canvas's root.
+3. Copies the bundle's `requirements.txt` into the new canvas's root.
 4. For each subfolder under the bundle's `components/`, scaffolds a component via `component/scripts/create-component.sh` and then overwrites the scaffolded `feature-requirements.txt` with the bundle's.
 5. Prints a single-line JSON summary:
 
@@ -133,7 +133,7 @@ The script:
 
 The canvas exists with scaffolded components, each showing a `Loading…` placeholder. The agent should then:
 
-- Read `canvas-requirements.txt` to understand the canvas's intent (layout, interaction, state behavior).
+- Read `requirements.txt` to understand the canvas's intent (layout, interaction, state behavior).
 - For each component, read its `feature-requirements.txt` and build the implementation following the rules in `../component/SKILL.md`.
 - The presentation (`canvas.js`) defaults to the standard stack layout; if the imported canvas's requirements describe a different presentation (3D, grid, etc.), the agent should rewrite `canvas.js` to match.
 
@@ -147,12 +147,12 @@ A feed is a single JSON document listing every bundle this peer publishes, with 
 bash skills/share-app/scripts/feed.sh <bundles-dir> [output-path]
 ```
 
-Walks every immediate subdirectory of `<bundles-dir>` that looks like a bundle (has `canvas-requirements.txt`) and emits a JSON manifest with these fields per bundle:
+Walks every immediate subdirectory of `<bundles-dir>` that looks like a bundle (has `requirements.txt`) and emits a JSON manifest with these fields per bundle:
 
 - `name` — the bundle's folder name
 - `subtitle` — from `canvas-subtitle.txt`
 - `tags` — parsed list from `canvas-tags.txt`
-- `canvasRequirements` — the full text of `canvas-requirements.txt` (small enough to ship inline so feeds are browseable without download)
+- `canvasRequirements` — the full text of `requirements.txt` (small enough to ship inline so feeds are browseable without download)
 - `components` — names of the component subfolders
 - `hash` — `sha256-…` over the bundle's contents (deterministic walk: sorted filenames, null-separated rel-path + bytes)
 - `size` — total bytes of the bundle's files
@@ -170,7 +170,7 @@ bash skills/share-app/scripts/publish.sh <bundle-dir> <workspace.liquidos>
 
 What it does, in order:
 
-1. Validates `<bundle-dir>` looks like a bundle (has `canvas-requirements.txt`, plus non-empty `canvas-subtitle.txt` and `canvas-tags.txt` — the feed metadata other peers see before downloading).
+1. Validates `<bundle-dir>` looks like a bundle (has `requirements.txt`, plus non-empty `canvas-subtitle.txt` and `canvas-tags.txt` — the feed metadata other peers see before downloading).
 2. Copies the bundle into `<workspace>/.share/published/<name>/`. Republishing with the same name overwrites the previous version.
 3. Computes the bundle's `sha256-…` hash (same deterministic walk as `feed.sh`) and writes the tarball to `<workspace>/.share/bundles/<hash>.tar`.
 4. Regenerates `<workspace>/.share/feed.json` so the bundle appears in the peer's feed under its new hash.

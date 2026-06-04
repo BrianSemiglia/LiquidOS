@@ -1559,7 +1559,7 @@ const canvasRequirementsPrompt = ({ canvasName, canvasScope, before, after }) =>
     '- Add, remove, or modify components in input.json as the prose dictates.',
     '- Add, remove, or modify relationships under ' + canvasScope + '/relationships/ (see skills/relationships).',
     '- Update individual components\' feature-requirements.txt files when canvas-level intent changes their roles.',
-    'Keep canvas-requirements.txt user-facing, plain-language, and faithful to what the canvas is for.',
+    'Keep requirements.txt user-facing, plain-language, and faithful to what the canvas is for.',
     "If the requirements and the actual canvas disagree, resolve the mismatch based on the user's intent."
 ].join('\n');
 
@@ -2105,7 +2105,7 @@ const server = http.createServer(async (req, res) => {
             // Mirror of /component/<path>/features for the canvas-level
             // requirements file. Writes the new content, and — only when it
             // changed — dispatches the agent with a reconcile prompt so
-            // edits to canvas-requirements.txt build the canvas to match
+            // edits to requirements.txt build the canvas to match
             // (add/remove components, materialize relationships, etc.).
             const body = JSON.parse(await readBody(req));
             const requestedCanvas = String(body.canvas || '');
@@ -2118,7 +2118,7 @@ const server = http.createServer(async (req, res) => {
                 send(res, 404, 'canvas not found');
                 return;
             }
-            const requirementsPath = path.join(canvasPath, 'canvas-requirements.txt');
+            const requirementsPath = path.join(canvasPath, 'requirements.txt');
             let before = '';
             try { before = fs.readFileSync(requirementsPath, 'utf8'); } catch { before = ''; }
             const after = String(body.text || '');
@@ -2380,7 +2380,7 @@ const server = http.createServer(async (req, res) => {
                     fs.mkdirSync(path.dirname(write.toAbs), { recursive: true });
                     if (write.kind === 'inline') {
                         // String content writes raw (for plain-text files like
-                        // canvas-requirements.txt, feature-requirements.txt).
+                        // requirements.txt, feature-requirements.txt).
                         // Anything else is JSON-encodable structured data and
                         // gets pretty-printed (canvas/component state.json,
                         // view.json, input.json, etc.).

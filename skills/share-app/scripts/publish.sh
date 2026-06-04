@@ -11,7 +11,7 @@ set -euo pipefail
 # What it does:
 #
 #   1. Validates that <bundle-dir> looks like a bundle (has
-#      canvas-requirements.txt). Optionally requires canvas-subtitle.txt
+#      requirements.txt). Optionally requires canvas-subtitle.txt
 #      and canvas-tags.txt to be present and non-empty — those are the
 #      feed metadata other peers will browse before downloading.
 #
@@ -52,8 +52,8 @@ fi
 
 BUNDLE_DIR="$(cd "$BUNDLE_DIR" && pwd)"
 
-if [ ! -f "$BUNDLE_DIR/canvas-requirements.txt" ]; then
-    echo "Error: not a valid bundle (missing canvas-requirements.txt): $BUNDLE_DIR" >&2
+if [ ! -f "$BUNDLE_DIR/requirements.txt" ]; then
+    echo "Error: not a valid bundle (missing requirements.txt): $BUNDLE_DIR" >&2
     exit 1
 fi
 

@@ -24,7 +24,7 @@ import { chromium } from 'playwright';
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(scriptsDir, '../../..');
 // Publisher sandbox starts from a canvas with non-empty
-// canvas-requirements.txt so the export step produces something
+// requirements.txt so the export step produces something
 // recognizable.
 const publisherFixture = path.join(scriptsDir, '..', 'fixtures', 'canvas-switcher.liquidos');
 // Consumer sandbox starts empty; we just need a workspace shell.

@@ -2,7 +2,7 @@
 //
 // probe-canvas-build.mjs
 //
-// User edits canvas-requirements.txt + clicks Build → /canvas/requirements
+// User edits requirements.txt + clicks Build → /canvas/requirements
 // writes the file and dispatches the agent → test agent adds the
 // pre-staged probe-built component to input.json → harness re-renders
 // with the new card → probe observes the [data-canvas-build-marker]

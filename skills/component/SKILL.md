@@ -162,7 +162,7 @@ The same Repair affordance covers the empty case (file exists but has no content
 
    Do not duplicate any of those steps by hand. Do not create the folder, write any of the scaffolded files, or edit `input.json` separately — the script has already done it.
 
-2. Read `<canvas>/canvas-requirements.txt` if it exists. It describes the canvas's intent (what it's for, how its cards should feel together). Use it as context — your component should fit the canvas, not pull against it.
+2. Read `<canvas>/requirements.txt` if it exists. It describes the canvas's intent (what it's for, how its cards should feel together). Use it as context — your component should fit the canvas, not pull against it.
 
 3. Write `feature-requirements.txt` describing what the user asked for, in plain language.
 
@@ -182,7 +182,7 @@ Do not touch any component other than the one being created.
 
 1. Read `<canvas>/components/<component_name>/presented/feature-requirements.txt` to confirm the component's purpose. If the user is reporting a problem, also check the `diagnostics/` folder.
 
-2. Read `<canvas>/canvas-requirements.txt` if it exists. The canvas's intent is the context your changes need to fit; don't drift away from it without reason.
+2. Read `<canvas>/requirements.txt` if it exists. The canvas's intent is the context your changes need to fit; don't drift away from it without reason.
 
 3. Write `view.html` with a placeholder showing the next intended action. Disable any inputs that would mutate the same data the agent is about to change.
 

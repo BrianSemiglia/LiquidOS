@@ -1,7 +1,7 @@
 // Test agent for the canvas-repair probe.
 //
 // Real agent's job on the canvas Repair prompt: find or write
-// canvas-requirements.txt. This test agent writes a known marker so
+// requirements.txt. This test agent writes a known marker so
 // the probe can verify the textarea reflects the change after the
 // modal is reopened.
 
@@ -37,7 +37,7 @@ const CanvasRepairTestAgent = () => {
             if (!canvasFolder) { reject(new Error(KIND + ': could not extract canvas scope')); return; }
             setStatus({ status: 'running', cwd: workingDirectory });
             try {
-                fs.writeFileSync(path.join(canvasFolder, 'canvas-requirements.txt'), MARKER + '\n');
+                fs.writeFileSync(path.join(canvasFolder, 'requirements.txt'), MARKER + '\n');
                 setStatus({ status: 'waiting' });
                 resolve('ok');
             } catch (error) {

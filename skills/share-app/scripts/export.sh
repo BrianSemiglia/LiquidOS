@@ -63,8 +63,8 @@ mkdir -p "$BUNDLE_DIR/components"
 # tags.txt into the bundle directory. Keeping them out of the canvas
 # itself keeps source clutter down for canvases that nobody ever
 # shares.
-CANVAS_REQ_SRC="$CANVAS_DIR/canvas-requirements.txt"
-CANVAS_REQ_DEST="$BUNDLE_DIR/canvas-requirements.txt"
+CANVAS_REQ_SRC="$CANVAS_DIR/requirements.txt"
+CANVAS_REQ_DEST="$BUNDLE_DIR/requirements.txt"
 if [ -f "$CANVAS_REQ_SRC" ]; then
     cp "$CANVAS_REQ_SRC" "$CANVAS_REQ_DEST"
 else

@@ -17,22 +17,19 @@ The `.liquidos` folder is the workspace root and the canvas root. A canvas is a 
 
 ```text
 Workspace.liquidos/
-  selected-canvas.json
+  active-canvas.json          — workspace pointer to the current canvas
+  active-agent.json           — workspace pointer to the current agent
   home/
     input.json                — component manifest
     output.json               — agent job queue
     canvas.js                 — presentation, input controls, anything canvas-scoped
-    canvas-requirements.txt   — plain-text description of what this canvas is for
-    state.json                — canvas.js's persisted state (optional)
+    requirements.txt          — plain-text description of what this canvas is for
     components/               — component folders
-      foo/
-        state.json            — per-component canvas state (optional)
   <canvas-name>/
     input.json
     output.json
     canvas.js
-    canvas-requirements.txt
-    state.json
+    requirements.txt
     components/
 ```
 
@@ -55,7 +52,7 @@ Workspace.liquidos/<canvas-name>/canvas.js
 Workspace.liquidos/<canvas-name>/components/
 ```
 
-## canvas-requirements.txt
+## requirements.txt
 
 A plain-text file at the canvas root describing what this canvas is for —
 what kinds of cards it should hold, how they should be arranged, how the

@@ -3,9 +3,9 @@
 // probe-canvas-repair.mjs
 //
 // User opens the canvas requirements modal on an empty canvas, clicks
-// Repair → agent dispatched → test agent writes canvas-requirements.txt.
+// Repair → agent dispatched → test agent writes requirements.txt.
 // User closes the modal and reopens it; openCanvasRequirements re-fetches
-// via /workspace/file/.../canvas-requirements.txt every open, so the
+// via /workspace/file/.../requirements.txt every open, so the
 // textarea now contains the agent's content. Probe asserts on that.
 
 import path from 'node:path';
