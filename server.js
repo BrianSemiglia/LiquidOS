@@ -1334,6 +1334,17 @@ const broadcastWorkspaceFile = (watchedDir, filename) => {
     broadcast({ type: 'workspace-file', path: rel });
 };
 
+// Canvas folders are non-dotted direct children of the workspace
+// (see canvas/files.js availableCanvases). The workspace watcher fires
+// canvases-changed only for entries that could plausibly be a canvas
+// — never for dotfiles like .git, .claude/, .codex/, AGENTS.md, etc.,
+// which are runtime/system files outside the canvas namespace.
+const isCanvasCandidateFilename = filename =>
+    typeof filename === 'string'
+        && filename.length > 0
+        && !filename.startsWith('.')
+        && !filename.includes('/');
+
 const scheduleWorkspaceRefresh = (eventType, filename) => {
     // Do not close-and-recreate the watcher here. fs.watch's earlier
     // behavior (recreating on every event) caused the in-process writes
@@ -1342,6 +1353,7 @@ const scheduleWorkspaceRefresh = (eventType, filename) => {
     // A single long-lived watcher on the workspace root is enough:
     // FSEvents and inotify both observe the directory itself, so new
     // canvases that appear under it still fire events.
+    if (!isCanvasCandidateFilename(filename)) return;
     broadcastWorkspaceFile(WORKSPACE_PATH, filename);
     broadcast({ type: 'canvases-changed' });
 };
