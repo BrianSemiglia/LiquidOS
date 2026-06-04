@@ -198,7 +198,11 @@ let CANVAS_PATH = path.join(WORKSPACE_PATH, activeCanvasNameFromFile());
 let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
 let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
 let ACTIVE_AGENT_KIND = activeAgentKindFromFile();
-const AGENT_RUNTIME_PATH = path.join(os.homedir(), 'Library', 'Application Support', 'LiquidOS', 'AgentRuntime');
+// The agent runs with the workspace as its CWD. Each agent's discovery
+// dir (.claude/, .codex/, .hermes/, .pi/, .agents/) and the system-prompt
+// file (AGENTS.md) are materialized directly inside the workspace, so
+// there is no separate runtime tree under Application Support.
+const AGENT_RUNTIME_PATH = WORKSPACE_PATH;
 const SKILLS_SOURCE_PATH = path.join(ROOT, 'skills');
 
 // Skill sync runs before anything else touches the workspace. It ensures
@@ -340,7 +344,6 @@ const dispatchMigration = () => {
 };
 
 const runtimeSet = createRuntimes({
-    workspacePath: WORKSPACE_PATH,
     runtimePath: AGENT_RUNTIME_PATH,
     skillsPath: SKILLS_SOURCE_PATH
 });
@@ -349,10 +352,7 @@ const activeRuntime = createActiveRuntime({
     selection: ACTIVE_AGENT_KIND
 });
 ACTIVE_AGENT_KIND = activeRuntime.activeKind() || ACTIVE_AGENT_KIND;
-const AGENT_RUNTIME_LOGS_PATH = runtimeSet.runtimeLogsPath;
 const AGENTS_RUNTIME_PATH = runtimeSet.runtimePromptPath;
-const HERMES_AGENT_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_PATH, 'agent.log');
-const HERMES_ERRORS_LOG_PATH = path.join(AGENT_RUNTIME_LOGS_PATH, 'errors.log');
 
 
 const pathIsInside = (file, basePath) => {
@@ -477,27 +477,17 @@ const currentAgentDebugSnapshot = () => {
 
 const logServer = (area, message, details = null) => {
     const suffix = details ? ' ' + JSON.stringify(details) : '';
-    const line = `[${new Date().toISOString()}] [${area}] ${message}${suffix}`;
-    console.log(line);
-    appendHermesLog(HERMES_AGENT_LOG_PATH, line);
+    console.log(`[${new Date().toISOString()}] [${area}] ${message}${suffix}`);
 };
 
 const logHermesError = (area, error, details = null) => {
     const message = error instanceof Error ? error.message : String(error || 'Unknown error');
     const suffix = details ? ' ' + JSON.stringify(details) : '';
-    const line = `[${new Date().toISOString()}] [${area}] ${message}${suffix}`;
-    console.error(line);
-    appendHermesLog(HERMES_ERRORS_LOG_PATH, line);
+    console.error(`[${new Date().toISOString()}] [${area}] ${message}${suffix}`);
 
     if (error && error.stack) {
-        appendHermesLog(HERMES_ERRORS_LOG_PATH, error.stack);
+        console.error(error.stack);
     }
-};
-
-const appendHermesLog = (file, line) => {
-    fs.promises.appendFile(file, line + '\n').catch(error => {
-        console.error('[log] failed to append ' + file + ': ' + error.message);
-    });
 };
 
 const stripAnsiForLog = value =>
@@ -523,7 +513,6 @@ const writeProcessOutput = (label, chunk, stream = process.stdout) => {
             }
 
             stream.write(`${label} ${line}`);
-            appendHermesLog(HERMES_AGENT_LOG_PATH, `${label} ${cleanLine.trimEnd()}`);
             pushAgentDebugLine(line);
         });
 };

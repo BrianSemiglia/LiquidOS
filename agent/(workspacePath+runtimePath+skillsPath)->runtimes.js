@@ -33,18 +33,19 @@ const NoneAgent = () => ({
     run: () => Promise.reject(new Error('No agent is configured (--agent none).'))
 });
 
+// runtimePath is the workspace. Each agent materializes its discovery
+// dir (`.claude/`, `.codex/`, `.hermes/`, `.pi/`, `.agents/`) directly
+// inside the workspace so launching the agent with the workspace as CWD
+// is enough — no separate Application Support runtime tree.
 const createRuntimes = ({
-    workspacePath,
     runtimePath,
     skillsPath
 } = {}) => {
-    if (!workspacePath || !runtimePath || !skillsPath) {
-        throw new Error('createRuntimes requires workspacePath, runtimePath, and skillsPath');
+    if (!runtimePath || !skillsPath) {
+        throw new Error('createRuntimes requires runtimePath and skillsPath');
     }
 
-    const runtimeLogsPath = path.join(runtimePath, 'logs');
     const runtimePromptPath = path.join(runtimePath, 'AGENTS.md');
-    const runtimeConfigPath = path.join(runtimePath, 'runtime.json');
 
     const runtimes = [
         HermesAgent(),
@@ -59,17 +60,24 @@ const createRuntimes = ({
         PromptBarTestAgent()
     ];
 
+    const ownedRuntimePaths = () =>
+        runtimes.flatMap(runtime =>
+            typeof runtime?.runtimePaths === 'function'
+                ? runtime.runtimePaths({ runtimePath }) || []
+                : []
+        );
+
     const materializeRuntime = () => {
         if (!fs.existsSync(skillsPath)) {
             return false;
         }
 
-        fs.mkdirSync(runtimePath, { recursive: true });
-        fs.mkdirSync(runtimeLogsPath, { recursive: true });
-
-        fs.readdirSync(runtimePath)
-            .filter(name => !['logs', 'runtime.json'].includes(name))
-            .forEach(name => fs.rmSync(path.join(runtimePath, name), { recursive: true, force: true }));
+        // Only sweep the per-agent discovery dirs (.claude, .codex, etc.)
+        // — not the workspace itself, which holds canvases, skills/, and
+        // the user's data.
+        ownedRuntimePaths().forEach(p =>
+            fs.rmSync(p, { recursive: true, force: true })
+        );
 
         runtimes.forEach(runtime => {
             if (runtime && typeof runtime.materializeRuntime === 'function') {
@@ -82,23 +90,14 @@ const createRuntimes = ({
 
         writeAgentSystemPrompt({
             filePath: runtimePromptPath,
-            runtimeDirectory: runtimePath
+            workspacePath: runtimePath
         });
 
         return true;
     };
 
-    const writeRuntimeConfig = () => {
-        fs.mkdirSync(path.dirname(runtimeConfigPath), { recursive: true });
-        fs.writeFileSync(
-            runtimeConfigPath,
-            JSON.stringify({ app: workspacePath }, null, 2) + '\n'
-        );
-    };
-
     const refreshRuntime = () => {
         materializeRuntime();
-        writeRuntimeConfig();
         process.env.LIQUIDOS_AGENT_RUNTIME_PATH = runtimePath;
     };
 
@@ -114,9 +113,7 @@ const createRuntimes = ({
     return {
         runtimes,
         runtimePath,
-        runtimeLogsPath,
         runtimePromptPath,
-        runtimeConfigPath,
         refreshRuntime,
         configureHosts
     };

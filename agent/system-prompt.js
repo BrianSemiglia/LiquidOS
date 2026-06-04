@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const agentSystemPromptText = () => [
+const agentSystemPromptText = ({ workspacePath } = {}) => [
     '# LiquidOS',
     '',
     'You are LiquidOS, a just-in-time operating system.',
@@ -11,13 +11,13 @@ const agentSystemPromptText = () => [
     'Immediately restore context using the conversation-history-and-undo skill.',
     '',
     'Use the component-creator skill to help the user.',
-    'Skills can be found in: ~/Library/Application Support/LiquidOS/AgentRuntime/.codex/skills/',
-    'Do not read local files outside the workspace/agentruntime unless the user asks.'
+    'Skills can be found in: ' + path.join(String(workspacePath || '.'), 'skills') + '/',
+    'Do not read local files outside the workspace unless the user asks.'
 ].join('\n') + '\n';
 
-const writeAgentSystemPrompt = ({ filePath, runtimeDirectory }) => {
+const writeAgentSystemPrompt = ({ filePath, workspacePath }) => {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, agentSystemPromptText({ runtimeDirectory }));
+    fs.writeFileSync(filePath, agentSystemPromptText({ workspacePath }));
     return filePath;
 };
 

@@ -50,6 +50,38 @@ const commitMessage = ({ event, scope, agentResponse }) => [
 const workspaceName = workspacePath =>
     path.basename(String(workspacePath || '').replace(/\/+$/, ''), '.liquidos');
 
+// The set of entries the workspace's .gitignore must always contain.
+// Re-applied on every launch so existing workspaces created before a
+// rule was added pick it up without a manual edit.
+const REQUIRED_GITIGNORE_ENTRIES = [
+    '**/diagnostics/',
+    '**/data/.runtime/',
+    '**/.presented/',
+    '.DS_Store',
+    '/.claude/',
+    '/.codex/',
+    '/.hermes/',
+    '/.pi/',
+    '/.agents/',
+    '/AGENTS.md'
+];
+
+const ensureWorkspaceGitignore = workspacePath => {
+    const gitignorePath = path.join(workspacePath, '.gitignore');
+    const current = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+    const present = new Set(current.split('\n').map(line => line.trim()));
+    const missing = REQUIRED_GITIGNORE_ENTRIES.filter(entry => !present.has(entry));
+
+    if (!missing.length && current) {
+        return;
+    }
+
+    const header = current
+        ? current.endsWith('\n') ? current : current + '\n'
+        : '# Runtime-managed; regenerated each session and noisy to track.\n';
+    fs.writeFileSync(gitignorePath, header + missing.join('\n') + (missing.length ? '\n' : ''));
+};
+
 const ensureGitRepo = workspacePath => {
     const inGit = gitOut(workspacePath, ['rev-parse', '--show-toplevel']);
     if (inGit && path.resolve(inGit) === path.resolve(workspacePath)) return false;
@@ -58,17 +90,7 @@ const ensureGitRepo = workspacePath => {
         throw new Error('git init failed in ' + workspacePath);
     }
 
-    const gitignorePath = path.join(workspacePath, '.gitignore');
-    if (!fs.existsSync(gitignorePath)) {
-        fs.writeFileSync(gitignorePath, [
-            '# Runtime-managed; regenerated each session and noisy to track.',
-            '**/diagnostics/',
-            '**/data/.runtime/',
-            '**/.presented/',
-            '.DS_Store',
-            ''
-        ].join('\n'));
-    }
+    ensureWorkspaceGitignore(workspacePath);
 
     // Seed an initial commit. Mirrors git-timeline's first-commit message so
     // the two paths produce comparable history if either runs first.
@@ -92,8 +114,8 @@ const replaceDir = (sourcePath, destPath) => {
     fs.cpSync(sourcePath, destPath, { recursive: true });
 };
 
-const hasStagedSkillsDelta = workspacePath =>
-    git(workspacePath, ['diff', '--cached', '--quiet', '--', 'skills']).status === 1;
+const hasStagedDelta = (workspacePath, paths) =>
+    git(workspacePath, ['diff', '--cached', '--quiet', '--', ...paths]).status === 1;
 
 const syncSkills = ({ workspacePath, skillsSourcePath }) => {
     const result = {
@@ -106,14 +128,15 @@ const syncSkills = ({ workspacePath, skillsSourcePath }) => {
 
     try {
         result.initialized = ensureGitRepo(workspacePath);
+        ensureWorkspaceGitignore(workspacePath);
 
         replaceDir(skillsSourcePath, path.join(workspacePath, 'skills'));
 
-        if (git(workspacePath, ['add', '--', 'skills']).status !== 0) {
+        if (git(workspacePath, ['add', '--', 'skills', '.gitignore']).status !== 0) {
             throw new Error('git add skills failed');
         }
 
-        if (hasStagedSkillsDelta(workspacePath)) {
+        if (hasStagedDelta(workspacePath, ['skills', '.gitignore'])) {
             if (git(workspacePath, ['commit', '-q', '-m', commitMessage({
                 event: 'Runtime did update skills',
                 scope: 'skills',

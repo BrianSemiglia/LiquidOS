@@ -40,7 +40,7 @@ Workspace.liquidos/
 
 ## Quick Start
 
-Run from the AgentRuntime directory:
+Run from the workspace root (the agent's CWD):
 
 ```bash
 bash skills/canvas-creator/scripts/create-instance.sh <canvas-name> /path/to/Workspace.liquidos
