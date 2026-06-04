@@ -1684,8 +1684,8 @@ const server = http.createServer(async (req, res) => {
         const publishCanvas = (canvasName) => {
             const { spawnSync } = require('node:child_process');
             const os = require('node:os');
-            const exportScript = path.join(ROOT, 'skills', 'share-app', 'scripts', 'export.sh');
-            const publishScript = path.join(ROOT, 'skills', 'share-app', 'scripts', 'publish.sh');
+            const exportScript = path.join(ROOT, 'skills', 'workspace', 'share', 'export.sh');
+            const publishScript = path.join(ROOT, 'skills', 'workspace', 'share', 'publish.sh');
             const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'liquidos-publish-'));
             try {
                 const exp = spawnSync('bash', [exportScript, canvasName, WORKSPACE_PATH, tempDir], { encoding: 'utf8' });
@@ -1885,7 +1885,7 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
             const { spawnSync } = require('node:child_process');
-            const importScript = path.join(ROOT, 'skills', 'share-app', 'scripts', 'import.sh');
+            const importScript = path.join(ROOT, 'skills', 'workspace', 'share', 'import.sh');
 
             // Two install sources: local (peerId null, bundle already
             // on disk under .share/published/) and remote (peerId set,

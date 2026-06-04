@@ -26,7 +26,7 @@ landed on."* Agent B hits the same test failure later. First move: check the
 breadcrumbs. Saves the 20 minutes. No coordination needed — the help is
 one-way, asynchronous, and pure information.
 
-**Work claims.** Agent A's user asks them to build the share-app skill's
+**Work claims.** Agent A's user asks them to build the workspace skill's
 import. Agent A publishes: *"working on import.sh"* with a short description.
 Agent B's user later asks the same thing. Agent B sees A's claim and tells
 its user *"someone is already working on this, want to wait, watch, or build

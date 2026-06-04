@@ -13,24 +13,14 @@ Use this skill when the user asks to create a new canvas inside an existing `.li
 
 ## Current Shape
 
-The `.liquidos` folder is the workspace root and the canvas root. A canvas is a direct child of that folder:
+A canvas is a direct child of the `.liquidos` workspace folder:
 
 ```text
-Workspace.liquidos/
-  active-canvas.json          — workspace pointer to the current canvas
-  active-agent.json           — workspace pointer to the current agent
-  home/
-    input.json                — component manifest
-    output.json               — agent job queue
-    canvas.js                 — presentation, input controls, anything canvas-scoped
-    requirements.txt          — plain-text description of what this canvas is for
-    components/               — component folders
-  <canvas-name>/
-    input.json
-    output.json
-    canvas.js
-    requirements.txt
-    components/
+<canvas-name>/
+  input.json                — component manifest
+  canvas.js                 — presentation, input controls, behavior, etc
+  requirements.txt          — user-facing plain-text description of canvas requirements
+  components/               — component folders
 ```
 
 `input.json` is the component manifest (just `{ "components": [...] }`). `components/` contains component folders. See `../component/SKILL.md` for component structure.

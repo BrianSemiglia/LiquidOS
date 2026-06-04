@@ -6,7 +6,7 @@ set -euo pipefail
 # libp2p node can serve it to other peers.
 #
 # Usage:
-#   bash skills/share-app/scripts/publish.sh <bundle-dir> <workspace.liquidos>
+#   bash skills/workspace/share/publish.sh <bundle-dir> <workspace.liquidos>
 #
 # What it does:
 #
