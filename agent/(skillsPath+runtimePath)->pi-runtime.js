@@ -69,7 +69,7 @@ const materializePiRuntime = ({ runtimePath, skillsPath } = {}) => {
 
 const conversationHistorySkillPath = () => {
     const runtimePath = process.env.LIQUIDOS_AGENT_RUNTIME_PATH;
-    return runtimePath ? path.join(runtimePath, '.pi', 'skills', 'conversation-history-and-undo') : null;
+    return runtimePath ? path.join(runtimePath, '.pi', 'skills', 'history-and-undo') : null;
 };
 
 const extractMessageText = message => {

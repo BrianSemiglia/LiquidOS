@@ -1,5 +1,5 @@
 ---
-name: conversation-history-and-undo
+name: history-and-undo
 description: Restore LiquidOS context from git history and undo changes safely
 ---
 

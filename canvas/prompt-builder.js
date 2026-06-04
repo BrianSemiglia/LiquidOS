@@ -17,7 +17,7 @@ const createPromptBuilder = ({
     callbackPromptText
 }) => {
     const buildJobPrompt = job => [
-        'Immediately restore context using the conversation-history-and-undo skill. Then use canvas/component skills to help the user. When you are done, do not summarize your work. The user does not see your text output, only the canvas. If you need to talk to the user, create a chat component.',
+        'Immediately restore context using the history-and-undo skill. Then use canvas/component skills to help the user. When you are done, do not summarize your work. The user does not see your text output, only the canvas. If you need to talk to the user, create a chat component.',
         'Skills can be found in: ./skills/',
         'Do not read local files outside the workspace unless the user asks.',
         '',
