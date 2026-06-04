@@ -101,7 +101,7 @@ bash skills/workspace/share/export.sh <canvas-name> <workspace.liquidos> [output
 
 Reads `<workspace>/<canvas>/feature-requirements.txt` and each component's `presented/feature-requirements.txt`; writes them into `<output-dir>/<canvas-name>/`. `output-dir` defaults to the current working directory.
 
-Deliberately excluded: `canvas.js`, `input.json`, `output.json`, `state.json`, `view.*`, `functions.js`, `services/`, `data/`, `diagnostics/`. Implementation is rebuilt fresh on import.
+Deliberately excluded: `canvas.js`, `input.json`, `state.json`, `view.*`, `functions.js`, `services/`, `data/`, `diagnostics/`. Implementation is rebuilt fresh on import.
 
 ### Subtitle and tags
 

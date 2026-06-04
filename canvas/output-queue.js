@@ -2,13 +2,9 @@ const path = require('path');
 
 const createOutputQueue = ({
     workspacePath,
-    fs,
     getCanvasPath,
-    getOutputPath,
     logServer,
     logHermesError,
-    readJson,
-    writeJson,
     callbackPromptText,
     shortText,
     resolveCanvasReference,
@@ -18,58 +14,22 @@ const createOutputQueue = ({
     const resolveFromWorkspacePath = value =>
         path.isAbsolute(value) ? value : path.resolve(workspacePath, value);
 
+    // The job queue is in-memory state owned by this canvas runtime.
+    // It is not persisted: a process crash drops pending work, and a
+    // canvas switch resets it (jobs are scoped to the canvas that
+    // enqueued them; running them against a different canvas would
+    // dispatch the agent into the wrong scope).
+    let jobs = [];
     let outputDispatchTimer = null;
     let outputDispatching = false;
     let activeOutputKeys = new Set();
     let processJob = null;
 
-    let outputWriteChain = Promise.resolve();
+    const readOutputJobs = () => jobs.slice();
 
-    const withOutputLock = task => {
-        const run = outputWriteChain.catch(() => {}).then(task);
-        outputWriteChain = run.catch(() => {});
-        return run;
-    };
-
-    const outputText = () =>
-        fs.existsSync(getOutputPath()) ? fs.readFileSync(getOutputPath(), 'utf8') : '';
-
-    const readOutputJobs = () => {
-        const text = outputText().trim();
-
-        if (!text) {
-            return [];
-        }
-
-        let value;
-
-        try {
-            value = JSON.parse(text);
-        } catch (error) {
-            logHermesError('output', error, {
-                message: 'output.json parse failed; recovering with an empty job queue'
-            });
-
-            try {
-                writeJson(getOutputPath(), []);
-            } catch (_) {
-                // Ignore recovery write failures; the in-memory fallback still keeps the server alive.
-            }
-
-            return [];
-        }
-
-        if (Array.isArray(value)) {
-            return value.filter(isObject);
-        }
-
-        return isObject(value) && Object.keys(value).length ? [value] : [];
-    };
-
-    const readOutputJob = () => {
-        const jobs = readOutputJobs();
-        return [...jobs].reverse().find(job => job.status === 'pending' || job.status === 'running') || jobs[jobs.length - 1] || null;
-    };
+    const readOutputJob = () =>
+        [...jobs].reverse().find(job => job.status === 'pending' || job.status === 'running')
+            || jobs[jobs.length - 1] || null;
 
     const outputJobKey = job => {
         if (!job) {
@@ -109,79 +69,47 @@ const createOutputQueue = ({
         prompt: job ? shortText(callbackPromptText(job)) : ''
     });
 
-    const writeOutputJobs = async jobs =>
-        withOutputLock(async () => {
-            writeJson(getOutputPath(), Array.isArray(jobs) ? jobs : []);
+    const appendOutputJob = async job => {
+        jobs.push(job);
+        logServer('queue', 'job enqueued', {
+            canvas: getCanvasPath(),
+            depth: jobs.filter(item => item && ['pending', 'running'].includes(item.status)).length,
+            job: outputJobSummary(job)
         });
+        return job;
+    };
 
-    const appendOutputJob = async job =>
-        withOutputLock(async () => {
-            const jobs = readOutputJobs();
-            const jobKey = outputJobKey(job);
-
-            jobs.push(job);
-            writeJson(getOutputPath(), jobs);
-            logServer('queue', 'job enqueued', {
-                canvas: getCanvasPath(),
-                depth: jobs.filter(item => item && ['pending', 'running'].includes(item.status)).length,
-                job: outputJobSummary(job)
-            });
-            return job;
-        });
-
-    const updateOutputJob = async (jobId, patch) =>
-        withOutputLock(async () => {
-            const jobs = readOutputJobs();
-            let updated = false;
-            const nextJobs = jobs.map(job => {
-                if (job.id !== jobId) {
-                    return job;
-                }
-
-                updated = true;
-                return { ...job, ...patch };
-            });
-
-            if (updated) {
-                writeJson(getOutputPath(), nextJobs);
+    const updateOutputJob = async (jobId, patch) => {
+        let updated = false;
+        jobs = jobs.map(job => {
+            if (job.id !== jobId) {
+                return job;
             }
 
-            return updated;
+            updated = true;
+            return { ...job, ...patch };
         });
+        return updated;
+    };
 
-    const normalizeOutputJobs = () => {
-        const jobs = readOutputJobs();
-        const normalized = jobs.map(job => (
-            job && job.status === 'running'
-                ? {
-                    ...job,
-                    status: 'pending',
-                    resumedAt: new Date().toISOString(),
-                    startedAt: null
-                }
-                : job
-        ));
-
-        if (normalized.length !== jobs.length || JSON.stringify(normalized) !== JSON.stringify(jobs)) {
-            writeJson(getOutputPath(), normalized);
-            logServer('queue', 'normalized running jobs', {
-                canvas: getCanvasPath(),
-                recovered: jobs.filter(job => job && job.status === 'running').length
-            });
-        } else if (!fs.existsSync(getOutputPath())) {
-            writeJson(getOutputPath(), []);
-        }
+    // Called when the canvas runtime starts (initial load or canvas switch).
+    // Initial load: queue is already empty. Canvas switch: drops stale jobs
+    // from the prior canvas and clears any lane reservations. Process restart
+    // gives an empty queue by definition, so there is no normalization step.
+    const resetQueue = () => {
+        jobs = [];
+        activeOutputKeys.clear();
     };
 
     const activeOutputJobs = () =>
-        readOutputJobs().filter(job => ['pending', 'running'].includes(job.status) && callbackPromptText(job));
+        jobs.filter(job => ['pending', 'running'].includes(job.status) && callbackPromptText(job));
 
-    const dispatchableJobs = jobs => {
+    const dispatchableJobs = candidate => {
         if (activeOutputKeys.size) {
             return [];
         }
 
-        return jobs
+        return candidate
             .filter(job => job.status === 'pending' && callbackPromptText(job))
             .slice(0, 1);
     };
@@ -207,7 +135,6 @@ const createOutputQueue = ({
         outputDispatching = true;
 
         try {
-            const jobs = readOutputJobs();
             const ready = dispatchableJobs(jobs);
 
             if (!ready.length) {
@@ -277,15 +204,15 @@ const createOutputQueue = ({
     const currentBusyState = key => {
         const activeJobs = activeOutputJobs();
         const componentKey = key ? String(key).trim() : '';
-        const jobs = componentKey
+        const filtered = componentKey
             ? activeJobs.filter(job => isCanvasScope(job.scope) || outputJobKey(job) === componentKey)
             : activeJobs;
-        const job = jobs[jobs.length - 1] || activeJobs[activeJobs.length - 1] || null;
+        const job = filtered[filtered.length - 1] || activeJobs[activeJobs.length - 1] || null;
 
         return {
-            busy: Boolean(jobs.length),
+            busy: Boolean(filtered.length),
             job: job ? outputJobSummary(job) : null,
-            jobs: jobs.map(outputJobSummary)
+            jobs: filtered.map(outputJobSummary)
         };
     };
 
@@ -305,10 +232,9 @@ const createOutputQueue = ({
         readOutputJob,
         outputJobKey,
         outputJobSummary,
-        writeOutputJobs,
         appendOutputJob,
         updateOutputJob,
-        normalizeOutputJobs,
+        resetQueue,
         activeOutputJobs,
         currentBusyState,
         feedHermesOutput,

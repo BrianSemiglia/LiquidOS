@@ -23,7 +23,6 @@ Land here when the work is about *how components are presented and navigated*, n
   feature-requirements.txt    — plain-text intent: what this canvas is for
   components/                 — component folders (see Component Skill)
   relationships/              — wires between components (see Relationship Skill)
-  output.json                 — agent job queue (harness-managed)
 ```
 
 Add or remove components by editing `input.json`. Change arrangement, navigation, or group behavior by editing `canvas.js`. Update intent in `feature-requirements.txt`.

@@ -196,7 +196,6 @@ const canvasNameFromPath = canvasPath =>
 
 let CANVAS_PATH = path.join(WORKSPACE_PATH, activeCanvasNameFromFile());
 let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
-let OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
 let ACTIVE_AGENT_KIND = activeAgentKindFromFile();
 // The agent runs with the workspace as its CWD. Each agent's discovery
 // dir (.claude/, .codex/, .hermes/, .pi/, .agents/) and the system-prompt
@@ -380,7 +379,6 @@ fs.mkdirSync(WORKSPACE_PATH, { recursive: true });
 if (!fs.existsSync(path.join(CANVAS_PATH, 'input.json'))) {
     CANVAS_PATH = DEFAULT_CANVAS_PATH;
     INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
-    OUTPUT_PATH = path.join(CANVAS_PATH, 'output.json');
     writeActiveCanvasName(DEFAULT_CANVAS_NAME);
 }
 
@@ -704,16 +702,6 @@ const writeJson = (file, value) => {
     fs.renameSync(temp, file);
 };
 
-const clearOutputJson = () => {
-    try {
-        writeJson(OUTPUT_PATH, []);
-    } catch (error) {
-        logHermesError('shutdown', error, {
-            message: 'failed to clear output.json during shutdown'
-        });
-    }
-};
-
 const canvasFiles = createCanvasFiles({
     fs,
     workspacePath: WORKSPACE_PATH,
@@ -738,16 +726,11 @@ const ensureActiveCanvasFiles = () => {
     if (!fs.existsSync(INPUT_PATH)) {
         throw new Error('Canvas input.json not found: ' + INPUT_PATH);
     }
-
-    if (!fs.existsSync(OUTPUT_PATH)) {
-        writeJson(OUTPUT_PATH, []);
-    }
 };
 
 const applyCanvasRuntime = runtime => {
     CANVAS_PATH = runtime.canvasPath;
     INPUT_PATH = runtime.inputPath;
-    OUTPUT_PATH = runtime.outputPath;
     return runtime;
 };
 
@@ -757,7 +740,6 @@ const createCanvasRuntime = canvasPath => {
     return {
         canvasPath: resolvedCanvasPath,
         inputPath: path.join(resolvedCanvasPath, 'input.json'),
-        outputPath: path.join(resolvedCanvasPath, 'output.json'),
         started: false,
 
         start() {
@@ -766,8 +748,7 @@ const createCanvasRuntime = canvasPath => {
             this.started = true;
             ensureActiveCanvasFiles();
             activityPersistence.ensureActivityPersistenceRepo();
-            outputQueue.normalizeOutputJobs();
-            outputQueue.clearActiveLanes();
+            outputQueue.resetQueue();
             outputQueue.feedHermesOutput();
             reconcileComponentServices();
             broadcastQueueState();
@@ -831,13 +812,9 @@ const isCanvasScope = scope => {
 
 outputQueue = createOutputQueue({
     workspacePath: ROOT,
-    fs,
     getCanvasPath: () => CANVAS_PATH,
-    getOutputPath: () => OUTPUT_PATH,
     logServer,
     logHermesError,
-    readJson,
-    writeJson,
     callbackPromptText,
     shortText,
     resolveCanvasReference,
@@ -913,7 +890,6 @@ const processOutputJob = async job => {
             job: outputQueue.outputJobSummary({ ...job, id: jobId, componentPath, status: 'running' }),
             canvasPath: CANVAS_PATH,
             inputPath: INPUT_PATH,
-            outputPath: OUTPUT_PATH,
             workingDirectory: WORKSPACE_PATH,
             systemPromptPath: AGENTS_RUNTIME_PATH
         });
@@ -2629,11 +2605,9 @@ const shutdownCanvasRuntime = reason => {
     if (activeCanvasRuntime) {
         activeCanvasRuntime.stop();
         activeCanvasRuntime = null;
-        clearOutputJson();
         return true;
     }
 
-    clearOutputJson();
     return false;
 };
 
@@ -2705,7 +2679,6 @@ server.listen(PORT, '127.0.0.1', () => {
     console.log('Server at http://127.0.0.1:' + resolvedPort);
     console.log('Canvas: ' + CANVAS_PATH);
     console.log('Input: ' + INPUT_PATH);
-    console.log('Output: ' + OUTPUT_PATH);
 
     // Kick off the libp2p node in the background. Don't await — the
     // harness should serve HTTP immediately even if bootstrap to the

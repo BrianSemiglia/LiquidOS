@@ -87,8 +87,6 @@ const createCanvasFiles = ({
         );
         ensureLocalAssetReferences(canvasPath);
 
-        writeDefaultFile(path.join(canvasPath, 'output.json'), '[]\n');
-
         // feature-requirements.txt is a plain-text description of what this
         // canvas is for — what it should hold, how it should feel, how the
         // user wants to interact with it. Parallel to a component's
