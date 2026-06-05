@@ -12,15 +12,16 @@ const scopeText = (scope, getCanvasPath) => {
     return resolved === getCanvasPath() ? asDirectoryPath(resolved) : resolved;
 };
 
+// Per-job prompt carries only Scope and Prompt. Standing guidance
+// (skill usage, "user only sees the canvas", don't-read-outside, etc.)
+// lives in AGENTS.md, which is materialized into the workspace at
+// startup and discovered by each agent via its native mechanism (or
+// prepended by promptWithAgentSystemPrompt for agents that don't).
 const createPromptBuilder = ({
     getCanvasPath,
     callbackPromptText
 }) => {
     const buildJobPrompt = job => [
-        'Immediately restore context using the history-and-undo skill. Then use canvas/component skills to help the user. When you are done, do not summarize your work. The user does not see your text output, only the canvas. If you need to talk to the user, create a chat component.',
-        'Skills can be found in: ./skills/',
-        'Do not read local files outside the workspace unless the user asks.',
-        '',
         'Scope:',
         scopeText(job.scope, getCanvasPath),
         '',
