@@ -73,8 +73,8 @@ const createRuntimes = ({
         }
 
         // Only sweep the per-agent discovery dirs (.claude, .codex, etc.)
-        // — not the workspace itself, which holds canvases, skills/, and
-        // the user's data.
+        // — not the workspace itself, which holds canvases and the user's
+        // data.
         ownedRuntimePaths().forEach(p =>
             fs.rmSync(p, { recursive: true, force: true })
         );
@@ -88,10 +88,7 @@ const createRuntimes = ({
             }
         });
 
-        writeAgentSystemPrompt({
-            filePath: runtimePromptPath,
-            workspacePath: runtimePath
-        });
+        writeAgentSystemPrompt({ filePath: runtimePromptPath });
 
         return true;
     };

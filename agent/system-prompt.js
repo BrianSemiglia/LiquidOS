@@ -1,23 +1,16 @@
+// AGENTS.md is the source of truth for the agent's system prompt. The
+// file ships with the app bundle; this module copies it into the
+// workspace at startup and reads it back when an agent (e.g. hermes)
+// can't discover AGENTS.md natively from CWD.
+
 const fs = require('fs');
 const path = require('path');
 
-const agentSystemPromptText = ({ workspacePath } = {}) => [
-    '# LiquidOS',
-    '',
-    'You are LiquidOS, a just-in-time operating system.',
-    'The user sees only the graphics that you produce by writing components to disk, not your text output. The user does not see your text output, only the canvas. If you need to talk to the user, create a chat component.',
-    'If you can\'t figure out what a user is intending, ask them a question or give them options. This can save a lot of time that you might spend guessing.',
-    '',
-    'Immediately restore context using the history-and-undo skill.',
-    '',
-    'Use the component skill to help the user.',
-    'Skills can be found in: ' + path.join(String(workspacePath || '.'), 'skills') + '/',
-    'Do not read local files outside the workspace unless the user asks.'
-].join('\n') + '\n';
+const SOURCE_AGENTS_MD_PATH = path.join(__dirname, '..', 'AGENTS.md');
 
-const writeAgentSystemPrompt = ({ filePath, workspacePath }) => {
+const writeAgentSystemPrompt = ({ filePath }) => {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, agentSystemPromptText({ workspacePath }));
+    fs.copyFileSync(SOURCE_AGENTS_MD_PATH, filePath);
     return filePath;
 };
 
@@ -28,7 +21,7 @@ const promptWithAgentSystemPrompt = ({ prompt, systemPromptPath }) => systemProm
     : String(prompt || '');
 
 module.exports = {
-    agentSystemPromptText,
+    SOURCE_AGENTS_MD_PATH,
     promptWithAgentSystemPrompt,
     readAgentSystemPrompt,
     writeAgentSystemPrompt
