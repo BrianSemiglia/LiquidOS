@@ -658,12 +658,8 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         intentionallyStoppingServer = true
 
         if server.isRunning {
-            server.terminate()
-            Thread.sleep(forTimeInterval: 0.5)
-
-            if server.isRunning {
-                kill(server.processIdentifier, SIGKILL)
-            }
+            server.terminate()        // SIGTERM — node runs its shutdown handler
+            server.waitUntilExit()    // block until node actually exits
         }
 
         self.server = nil
