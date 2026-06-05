@@ -11,7 +11,7 @@ const { createCanvasFiles } = require('./canvas/files');
 const { createCanvasGraph } = require('./canvas/graph');
 const { createOutputQueue } = require('./canvas/output-queue');
 const { createPromptBuilder } = require('./canvas/prompt-builder');
-const { syncSkills } = require('./workspace/sync-skills');
+const { bootstrapWorkspace } = require('./workspace/bootstrap');
 const { buildWorkspaceFixPrompt } = require('./workspace/run-migration');
 
 const WORKSPACE_ERROR_FILE_REL = path.join('.liquidos', 'workspace-error');
@@ -204,25 +204,16 @@ let ACTIVE_AGENT_KIND = activeAgentKindFromFile();
 const AGENT_RUNTIME_PATH = WORKSPACE_PATH;
 const SKILLS_SOURCE_PATH = path.join(ROOT, 'skills');
 
-// Skill sync runs before anything else touches the workspace. It ensures
-// the workspace is a git repo, refreshes <workspace>/skills/ from the
-// runtime, and commits any delta for audit history. The trigger to fire
-// the workspace-fix agent is purely error-driven (see
-// collectWorkspaceErrors below); a skills delta alone doesn't write the
-// workspace-error file. Failures here don't abort startup — the runtime
-// should still come up so the user can recover.
-const SKILLS_SYNC = syncSkills({
-    workspacePath: WORKSPACE_PATH,
-    skillsSourcePath: SKILLS_SOURCE_PATH
-});
-if (SKILLS_SYNC.error) {
-    console.warn('[skills-sync] failed:', SKILLS_SYNC.error);
-} else {
-    if (SKILLS_SYNC.initialized) console.log('[skills-sync] initialized workspace git');
-    if (SKILLS_SYNC.updated) {
-        console.log('[skills-sync] committed', SKILLS_SYNC.sha?.slice(0, 8),
-            '(parent', SKILLS_SYNC.parentSha?.slice(0, 8) || 'none', ')');
-    }
+// Bootstrap the workspace as a git repo with the runtime-managed
+// .gitignore entries. Skills are no longer copied to a plain
+// <workspace>/skills/ folder; each agent's runtime materializes its own
+// skill tree under its discovery dir. Failures here don't abort startup
+// — the runtime should still come up so the user can recover.
+const WORKSPACE_BOOTSTRAP = bootstrapWorkspace({ workspacePath: WORKSPACE_PATH });
+if (WORKSPACE_BOOTSTRAP.error) {
+    console.warn('[workspace-bootstrap] failed:', WORKSPACE_BOOTSTRAP.error);
+} else if (WORKSPACE_BOOTSTRAP.initialized) {
+    console.log('[workspace-bootstrap] initialized workspace git');
 }
 
 // Mirror of how many workspace-level errors the last detector pass saw.
@@ -292,10 +283,7 @@ const writeWorkspaceErrorFile = (errors, context = {}) => {
 
 const syncWorkspaceErrorFile = errors => {
     workspaceErrorCount = errors.length;
-    writeWorkspaceErrorFile(errors, {
-        syncedSkillsSha: SKILLS_SYNC.sha || null,
-        syncedSkillsParentSha: SKILLS_SYNC.parentSha || null
-    });
+    writeWorkspaceErrorFile(errors);
 };
 
 // Re-runs the detector, snapshots the result to .liquidos/workspace-error,
@@ -322,9 +310,7 @@ const enqueueWorkspaceFixJobIfErrors = async () => {
 
     const prompt = buildWorkspaceFixPrompt({
         workspacePath: WORKSPACE_PATH,
-        errors,
-        syncedSkillsSha: SKILLS_SYNC.sha || null,
-        syncedSkillsParentSha: SKILLS_SYNC.parentSha || null
+        errors
     });
 
     await outputQueue.prependOutputJob({
@@ -2051,9 +2037,7 @@ const server = http.createServer(async (req, res) => {
                 .find(job => job.componentKey === 'workspace-fix');
             const workspace = {
                 migrationPending: workspaceErrorCount > 0,
-                migrationRunning: Boolean(activeFixJob && activeFixJob.status === 'running'),
-                lastSkillsSha: SKILLS_SYNC.sha || null,
-                lastSkillsParentSha: SKILLS_SYNC.parentSha || null
+                migrationRunning: Boolean(activeFixJob && activeFixJob.status === 'running')
             };
             send(res, 200, JSON.stringify({ ...rendered, workspace }), 'application/json; charset=utf-8');
             startGraphWatchAfterFirstInput();

@@ -1,17 +1,10 @@
-// Workspace skill synchronization.
+// Workspace bootstrap.
 //
-// On every server startup the runtime:
-//   1. Ensures the workspace is a git repo (init + sensible .gitignore +
-//      a seed commit). One-time per workspace. Idempotent — no-ops if
-//      git-timeline's ensureCanvasesGitRepo already ran or will run.
-//   2. Overwrites <workspace>/skills/ with the runtime's bundled skills.
-//   3. Stages skills/ and asks git whether the staged tree differs from HEAD.
-//   4. If yes, commits ("Runtime did update skills") for audit history.
-//
-// This module does NOT decide whether the workspace needs a fix-up. That
-// decision is made by the runtime trying to load the workspace and seeing
-// what fails (see server.js's collectWorkspaceErrors). Skill prose changes
-// shouldn't trigger an agent run when the workspace happens to still work.
+// On every server startup the runtime ensures the workspace is a git repo
+// with the runtime-managed entries in its .gitignore. Per-agent skill
+// trees are materialized separately under the runtime's discovery dirs
+// (.claude/, .codex/, .hermes/, .pi/, .agents/); this module no longer
+// drops a plain <workspace>/skills/ folder.
 //
 // Commits use the same -c user.name/user.email and structured Event/Scope/
 // Agent Response format as canvas/git-timeline.js so the workspace history
@@ -63,7 +56,8 @@ const REQUIRED_GITIGNORE_ENTRIES = [
     '/.hermes/',
     '/.pi/',
     '/.agents/',
-    '/AGENTS.md'
+    '/AGENTS.md',
+    '/skills/'
 ];
 
 const ensureWorkspaceGitignore = workspacePath => {
@@ -109,44 +103,28 @@ const ensureGitRepo = workspacePath => {
     return true;
 };
 
-const replaceDir = (sourcePath, destPath) => {
-    if (fs.existsSync(destPath)) fs.rmSync(destPath, { recursive: true });
-    fs.cpSync(sourcePath, destPath, { recursive: true });
-};
-
 const hasStagedDelta = (workspacePath, paths) =>
     git(workspacePath, ['diff', '--cached', '--quiet', '--', ...paths]).status === 1;
 
-const syncSkills = ({ workspacePath, skillsSourcePath }) => {
-    const result = {
-        initialized: false,
-        updated: false,
-        sha: null,
-        parentSha: null,
-        error: null
-    };
+const bootstrapWorkspace = ({ workspacePath }) => {
+    const result = { initialized: false, error: null };
 
     try {
         result.initialized = ensureGitRepo(workspacePath);
         ensureWorkspaceGitignore(workspacePath);
 
-        replaceDir(skillsSourcePath, path.join(workspacePath, 'skills'));
-
-        if (git(workspacePath, ['add', '--', 'skills', '.gitignore']).status !== 0) {
-            throw new Error('git add skills failed');
+        if (git(workspacePath, ['add', '--', '.gitignore']).status !== 0) {
+            throw new Error('git add .gitignore failed');
         }
 
-        if (hasStagedDelta(workspacePath, ['skills', '.gitignore'])) {
+        if (hasStagedDelta(workspacePath, ['.gitignore'])) {
             if (git(workspacePath, ['commit', '-q', '-m', commitMessage({
-                event: 'Runtime did update skills',
-                scope: 'skills',
+                event: 'Runtime did update workspace gitignore',
+                scope: '.gitignore',
                 agentResponse: 'none'
             })]).status !== 0) {
-                throw new Error('git commit (skills update) failed');
+                throw new Error('git commit (.gitignore) failed');
             }
-            result.updated = true;
-            result.sha = gitOut(workspacePath, ['rev-parse', 'HEAD']);
-            result.parentSha = gitOut(workspacePath, ['rev-parse', 'HEAD~1']);
         }
     } catch (error) {
         result.error = error.message;
@@ -155,4 +133,4 @@ const syncSkills = ({ workspacePath, skillsSourcePath }) => {
     return result;
 };
 
-module.exports = { syncSkills };
+module.exports = { bootstrapWorkspace };
