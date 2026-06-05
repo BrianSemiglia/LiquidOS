@@ -301,7 +301,7 @@ const ClaudeCodeAgent = () => {
                 '--verbose',
                 '--output-format',
                 'stream-json',
-                ...(systemPromptPath ? ['--system-prompt-file', systemPromptPath] : []),
+                ...(systemPromptPath ? ['--append-system-prompt-file', systemPromptPath] : []),
                 ...runtimeAccessArguments({ systemPromptPath, canvasPath }),
                 '--allowedTools',
                 'WebSearch',

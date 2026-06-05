@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { copySkillsTreeToRoot } = require('./skills');
+const { promptWithAgentSystemPrompt } = require('./system-prompt');
 
 let host = {
     output: () => {},
@@ -85,13 +86,18 @@ const CodexAgent = () => {
         preparePrompt: prompt => prompt,
         runtimePaths: codexRuntimePaths,
         materializeRuntime: materializeCodexRuntime,
-        run: (prompt, { workingDirectory, canvasPath } = {}) => new Promise((resolve, reject) => {
+        run: (prompt, { workingDirectory, canvasPath, systemPromptPath } = {}) => new Promise((resolve, reject) => {
             if (!workingDirectory) {
                 reject(new Error('CodexAgent.run requires a workingDirectory'));
                 return;
             }
             let output = '';
             let timedOut = false;
+            // codex exec has no system-prompt flag; the cross-agent convention
+            // here is to inject the AGENTS.md content programmatically rather
+            // than rely on the CLI's AGENTS.md auto-discovery. promptWithAgent-
+            // SystemPrompt prepends the file's contents to the user prompt.
+            const composedPrompt = promptWithAgentSystemPrompt({ prompt, systemPromptPath });
             const processHandle = spawn(command, [
                 'exec',
                 '--sandbox',
@@ -100,7 +106,7 @@ const CodexAgent = () => {
                 '--skip-git-repo-check',
                 '--cd',
                 workingDirectory,
-                prompt
+                composedPrompt
             ], {
                 cwd: workingDirectory,
                 env: process.env,
