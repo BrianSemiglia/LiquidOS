@@ -1787,7 +1787,15 @@ const server = http.createServer(async (req, res) => {
             // (b) every peer feed we've heard via the gossipsub topic. The
             // network never sees the query string — that's the privacy
             // story. Install (below) is the only thing that dials a peer.
+            //
+            // Optional `n` and `timeout_ms` let the caller wait for the
+            // local cache to grow. The handler polls the cache every
+            // ~500ms until `n` matching results are present or the timeout
+            // expires; it returns whatever is in hand when one of those
+            // conditions hits. The recipient just looks at results.length.
             const query = (url.searchParams.get('q') || '').trim().toLowerCase();
+            const wantN = Math.max(0, Number.parseInt(url.searchParams.get('n') || '0', 10) || 0);
+            const timeoutMs = Math.max(0, Number.parseInt(url.searchParams.get('timeout_ms') || '0', 10) || 0);
             const matchesQuery = (bundle) => {
                 if (!query) return true;
                 const haystack = [
@@ -1802,25 +1810,36 @@ const server = http.createServer(async (req, res) => {
                 return haystack.includes(query);
             };
 
-            const results = [];
-            // Local bundles (tagged peerId: null so the UI labels them "local").
-            const feedFile = path.join(WORKSPACE_PATH, '.share', 'feed.json');
-            if (fs.existsSync(feedFile)) {
-                try {
-                    const localFeed = JSON.parse(fs.readFileSync(feedFile, 'utf8'));
-                    for (const bundle of (localFeed.bundles || [])) {
-                        if (matchesQuery(bundle)) results.push({ ...bundle, peerId: null });
-                    }
-                } catch { /* fall through */ }
-            }
-            // Remote bundles from the gossipsub cache.
-            if (networkFeedSub) {
-                for (const [, entry] of networkFeedSub.cache) {
-                    const bundles = entry.feed && Array.isArray(entry.feed.bundles) ? entry.feed.bundles : [];
-                    for (const bundle of bundles) {
-                        if (matchesQuery(bundle)) results.push({ ...bundle, peerId: entry.peerId });
+            const collectResults = () => {
+                const acc = [];
+                // Local bundles (tagged peerId: null so the UI labels them "local").
+                const feedFile = path.join(WORKSPACE_PATH, '.share', 'feed.json');
+                if (fs.existsSync(feedFile)) {
+                    try {
+                        const localFeed = JSON.parse(fs.readFileSync(feedFile, 'utf8'));
+                        for (const bundle of (localFeed.bundles || [])) {
+                            if (matchesQuery(bundle)) acc.push({ ...bundle, peerId: null });
+                        }
+                    } catch { /* fall through */ }
+                }
+                // Remote bundles from the gossipsub cache.
+                if (networkFeedSub) {
+                    for (const [, entry] of networkFeedSub.cache) {
+                        const bundles = entry.feed && Array.isArray(entry.feed.bundles) ? entry.feed.bundles : [];
+                        for (const bundle of bundles) {
+                            if (matchesQuery(bundle)) acc.push({ ...bundle, peerId: entry.peerId });
+                        }
                     }
                 }
+                return acc;
+            };
+
+            const sleep = ms => new Promise(r => setTimeout(r, ms));
+            const started = Date.now();
+            let results = collectResults();
+            while (wantN > 0 && results.length < wantN && Date.now() - started < timeoutMs) {
+                await sleep(500);
+                results = collectResults();
             }
             send(res, 200, JSON.stringify({ results }), 'application/json; charset=utf-8');
             return;
