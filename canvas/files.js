@@ -87,15 +87,6 @@ const createCanvasFiles = ({
         );
         ensureLocalAssetReferences(canvasPath);
 
-        // feature-requirements.txt is a plain-text description of what this
-        // canvas is for — what it should hold, how it should feel, how the
-        // user wants to interact with it. Parallel to a component's
-        // feature-requirements.txt, but at the canvas level. Optional, but
-        // when present it's the natural anchor for "share this app" and
-        // for the agent when generating components for the canvas. Start
-        // empty; the user (or agent on the user's behalf) fills it in.
-        writeDefaultFile(path.join(canvasPath, 'feature-requirements.txt'), '');
-
         return canvasPath;
     };
 
@@ -158,7 +149,12 @@ const createCanvasFiles = ({
             throw error;
         }
 
-        ensureCanvasDefaults(safeName);
+        const canvasPath = ensureCanvasDefaults(safeName);
+        // feature-requirements.txt is a plain-text description of what this
+        // canvas is for. Materialized empty at creation time only — startup
+        // bootstrap leaves it alone so a deleted/missing file stays missing
+        // (UI distinguishes missing → Repair from empty → Generate).
+        fs.writeFileSync(path.join(canvasPath, 'feature-requirements.txt'), '');
         return safeName;
     };
 

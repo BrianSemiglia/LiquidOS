@@ -2393,18 +2393,35 @@
         // the textarea ends up empty — whether the file is missing, the file
         // exists but is empty, the fetch errored, or the JSON was unparseable.
         // The button stays hidden when the requirements file has real content.
+        // Outcomes from loadComponentFeatures, used by syncRepairCallback to
+        // decide between Generate (file present but empty) and Repair (file
+        // missing or unreadable). User-typed content trumps both — if the
+        // textarea isn't empty, the button stays hidden.
+        const REQ_PRESENT_PROMPT = 'Find or restore this component\'s requirements. It might be a badly formatted file or sitting in the wrong place; if not, check git history; last resort, recreate from the code.';
+        const REQ_EMPTY_PROMPT = 'Generate this component\'s feature-requirements.txt. Read the component\'s implementation (view.html, functions.js, services/*) and write a faithful, plain-language summary of what it does. Keep it user-facing intent — no implementation detail.';
+
         const syncRepairCallback = item => {
             const textarea = item.querySelector('[data-feature-requirements]');
             const callback = item.querySelector('[data-feature-recover-callback]');
             if (!callback) return;
+            const isEmpty = !textarea || textarea.value.trim().length === 0;
+            if (!isEmpty) {
+                callback.hidden = true;
+                return;
+            }
+            const outcome = item.__featureLoadOutcome;
+            const button = callback.querySelector('button');
             const scope = item.__component?.componentPath || '';
             callback.setAttribute('scope', scope);
-            callback.setAttribute('prompt',
-                'Find or restore this component\'s requirements. It might be a badly ' +
-                'formatted file or sitting in the wrong place; if not, check git ' +
-                'history; last resort, recreate from the code.');
-            const isEmpty = !textarea || textarea.value.trim().length === 0;
-            callback.hidden = !isEmpty;
+            if (outcome === 'empty') {
+                if (button) button.textContent = 'Generate';
+                callback.setAttribute('prompt', REQ_EMPTY_PROMPT);
+            } else {
+                // 'missing' | 'corrupt' | unset (load hasn't completed) → Repair.
+                if (button) button.textContent = 'Repair';
+                callback.setAttribute('prompt', REQ_PRESENT_PROMPT);
+            }
+            callback.hidden = false;
         };
 
         // Runtime-error Repair button. Sits next to the Requirements flip on
@@ -2443,8 +2460,8 @@
                 return;
             }
 
-            // Hide Generate while loading so the overlay shows only one
-            // affordance at a time, centered over the textarea.
+            // Hide the recover button while loading so the overlay shows only
+            // one affordance at a time, centered over the textarea.
             if (recoverCallback) recoverCallback.hidden = true;
             if (loading) loading.hidden = false;
             status.textContent = '';
@@ -2461,12 +2478,20 @@
                 const titleEl = item.querySelector('[data-feature-title]');
                 if (titleEl) titleEl.textContent = String(data.title || '');
                 item.querySelector('[data-feature-save]').disabled = true;
+                // Record the outcome so syncRepairCallback can choose between
+                // Generate (present but empty) and Repair (missing / corrupt).
+                if (data.error || data.present === false) {
+                    item.__featureLoadOutcome = data.error ? 'corrupt' : 'missing';
+                } else {
+                    item.__featureLoadOutcome = textarea.value.trim().length === 0 ? 'empty' : 'present';
+                }
+            } catch (error) {
+                // Fetch failed entirely — treat as unrecoverable read.
+                item.__featureLoadOutcome = 'corrupt';
             } finally {
                 if (loading) loading.hidden = true;
-                // Always reconcile the Generate button — success leaves it
-                // visible only when the file was empty; failure leaves the
-                // textarea empty so the button surfaces, and the user can
-                // dispatch the agent to find or recreate the file.
+                // Reconcile the recover button: missing/corrupt → Repair,
+                // empty → Generate, present-with-content → hidden.
                 syncRepairCallback(item);
             }
         };
@@ -3318,9 +3343,21 @@
         // restore from git history first, then fall back to writing a fresh
         // intent from the canvas's current components + relationships.
         const canvasReqRecover = document.getElementById('canvas-requirements-recover-callback');
+
+        // Same outcome model as the component flip-back, just at canvas scope.
+        const CANVAS_REQ_PRESENT_PROMPT = 'Find or restore this canvas\'s requirements file (feature-requirements.txt). Check git history first for the last good version and restore it if found.';
+        const CANVAS_REQ_EMPTY_PROMPT = 'Generate this canvas\'s feature-requirements.txt. Describe what this canvas is for in plain language, based on the components it currently contains and the relationships under <canvas>/relationships/. Keep it user-facing intent — no implementation detail.';
+
+        let canvasReqLoadOutcome = null;
+
         const syncCanvasReqRepairCallback = () => {
             if (!canvasReqRecover) return;
             if (!canvasReqEditingCanvas) {
+                canvasReqRecover.hidden = true;
+                return;
+            }
+            const isEmpty = canvasReqTextarea.value.trim().length === 0;
+            if (!isEmpty) {
                 canvasReqRecover.hidden = true;
                 return;
             }
@@ -3331,15 +3368,15 @@
                 ? currentCanvasPath
                 : canvasReqEditingCanvas;
             canvasReqRecover.setAttribute('scope', scope);
-            canvasReqRecover.setAttribute('prompt',
-                'Find or restore this canvas\'s requirements file (feature-requirements.txt). ' +
-                'Check git history first for the last good version and restore it if found. ' +
-                'If no past version exists, write a fresh feature-requirements.txt that describes ' +
-                'what this canvas is for in plain language, based on the components it currently ' +
-                'contains and the relationships under <canvas>/relationships/. ' +
-                'Keep it user-facing intent — no implementation detail.');
-            const isEmpty = canvasReqTextarea.value.trim().length === 0;
-            canvasReqRecover.hidden = !isEmpty;
+            const button = canvasReqRecover.querySelector('button');
+            if (canvasReqLoadOutcome === 'empty') {
+                if (button) button.textContent = 'Generate';
+                canvasReqRecover.setAttribute('prompt', CANVAS_REQ_EMPTY_PROMPT);
+            } else {
+                if (button) button.textContent = 'Repair';
+                canvasReqRecover.setAttribute('prompt', CANVAS_REQ_PRESENT_PROMPT);
+            }
+            canvasReqRecover.hidden = false;
         };
 
         canvasReqTextarea.addEventListener('input', () => {
@@ -3361,17 +3398,27 @@
             if (canvasReqRecover) canvasReqRecover.hidden = true;
             if (loading) loading.hidden = false;
             loadCanvasShareState(canvasName);
-            // Fetch via the workspace-file route; 404 means the file
-            // doesn't exist yet — treat as empty and let the user start
-            // writing.
+            // Fetch via the workspace-file route. 404 → file missing
+            // (Repair). 200 with empty body → present but empty (Generate).
+            // Other failures → corrupt (Repair).
             try {
                 const response = await fetch(
                     '/workspace/file/' + encodeURIComponent(canvasName) + '/feature-requirements.txt',
                     { cache: 'no-store' }
                 );
-                canvasReqTextarea.value = response.ok ? await response.text() : '';
+                if (response.ok) {
+                    canvasReqTextarea.value = await response.text();
+                    canvasReqLoadOutcome = canvasReqTextarea.value.trim().length === 0 ? 'empty' : 'present';
+                } else if (response.status === 404) {
+                    canvasReqTextarea.value = '';
+                    canvasReqLoadOutcome = 'missing';
+                } else {
+                    canvasReqTextarea.value = '';
+                    canvasReqLoadOutcome = 'corrupt';
+                }
             } catch {
                 canvasReqTextarea.value = '';
+                canvasReqLoadOutcome = 'corrupt';
             }
             // If the user switched canvases or closed the overlay before
             // the fetch resolved, don't blow away their current edit.

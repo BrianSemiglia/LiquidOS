@@ -106,10 +106,11 @@ try {
     if (!isVisible(opened.surface))  fail('surface not visible: ' + JSON.stringify(opened.surface));
     if (!isVisible(opened.textarea)) fail('requirements textarea not visible: ' + JSON.stringify(opened.textarea));
 
-    // --- 1b. Requirements input behavior: Loading clears after fetch and,
-    //         when the requirements file is empty, Generate surfaces with
-    //         that exact label. Same shape applies to the canvas-level
-    //         requirements modal — same overlay markup, same flow.
+    // --- 1b. Requirements input behavior: Loading clears after fetch, and
+    //         the recover button label depends on the file's state — Repair
+    //         when missing/corrupt, Generate when present-but-empty. The
+    //         widget fixture has no requirements file, so this iteration
+    //         expects Repair.
     await page.waitForFunction(
         () => {
             const loading = document.querySelector('.requirements-overlay [data-feature-loading]');
@@ -117,18 +118,46 @@ try {
         },
         { timeout: 5000 }
     ).catch(() => fail('component Loading… did not hide after fetch'));
-    const componentRecoverVisible = await page.evaluate(() => {
+    let componentRecoverVisible = await page.evaluate(() => {
         const cb = document.querySelector('.requirements-overlay [data-feature-recover-callback]');
         return cb && !cb.hidden;
     });
-    if (!componentRecoverVisible) fail('component Generate callback did not surface for empty requirements');
-    const componentRecoverText = await page.evaluate(() => {
+    if (!componentRecoverVisible) fail('component recover callback did not surface for missing requirements');
+    let componentRecoverText = await page.evaluate(() => {
+        const btn = document.querySelector('.requirements-overlay [data-feature-recover]');
+        return btn ? (btn.textContent || '').trim() : '';
+    });
+    if (componentRecoverText !== 'Repair') {
+        fail('component recover button text is "' + componentRecoverText + '", expected "Repair" (file missing)');
+    }
+    // --- 1c. Now create an empty requirements file and reopen the
+    //         modal. Same UI surface, but the label flips to Generate
+    //         because the file is present-but-empty (different repair
+    //         path: write from implementation, not find/restore).
+    const featurePath = path.join(sandbox.workspace, 'home/components/widget/presented/feature-requirements.txt');
+    fs.mkdirSync(path.dirname(featurePath), { recursive: true });
+    fs.writeFileSync(featurePath, '');
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    await page.locator('.item[data-component-path*="widget"] [data-component-flip]')
+        .first().evaluate(el => el.click());
+    await page.waitForFunction(
+        () => {
+            const cb = document.querySelector('.requirements-overlay [data-feature-recover-callback]');
+            return cb && !cb.hidden;
+        },
+        { timeout: 5000 }
+    );
+    componentRecoverText = await page.evaluate(() => {
         const btn = document.querySelector('.requirements-overlay [data-feature-recover]');
         return btn ? (btn.textContent || '').trim() : '';
     });
     if (componentRecoverText !== 'Generate') {
-        fail('component recover button text is "' + componentRecoverText + '", expected "Generate"');
+        fail('component recover button text is "' + componentRecoverText + '", expected "Generate" (file present but empty)');
     }
+    // Restore the missing case for the remainder of the test (preserves the
+    // original scenarios that test overlay survival under canvas state churn).
+    fs.unlinkSync(featurePath);
 
     // --- 2. State-driven re-place via workspace-file SSE ---
     //     The fixture's canvas.js subscribes to workspace-file events and
@@ -171,8 +200,12 @@ try {
     if (!closed.placeholderGone) fail('placeholder still in #app after ESC');
     if (!closed.itemBackInApp)   fail('item did not return to #app after ESC');
 
-    // --- 5. Canvas requirements modal mirrors the same input behavior:
-    //         centered Loading, then Generate when the file is empty.
+    // --- 5. Canvas requirements modal mirrors the same input behavior.
+    //         Startup bootstrap no longer materializes an empty
+    //         feature-requirements.txt — only canvas creation does. So the
+    //         fixture's home canvas starts with the file missing → Repair.
+    //         Write an empty file to flip to Generate.
+    const canvasFeaturePath = path.join(sandbox.workspace, 'home/feature-requirements.txt');
     await page.locator('#canvas-info').dispatchEvent('click');
     await page.waitForSelector('#canvas-requirements-textarea', { state: 'visible', timeout: 5000 });
     await page.waitForFunction(
@@ -186,14 +219,33 @@ try {
         const cb = document.getElementById('canvas-requirements-recover-callback');
         return cb && !cb.hidden;
     });
-    if (!canvasRecoverVisible) fail('canvas Generate callback did not surface for empty requirements');
-    const canvasRecoverText = await page.evaluate(() => {
+    if (!canvasRecoverVisible) fail('canvas recover callback did not surface for missing requirements');
+    let canvasRecoverText = await page.evaluate(() => {
+        const btn = document.querySelector('#canvas-requirements-recover-callback button');
+        return btn ? (btn.textContent || '').trim() : '';
+    });
+    if (canvasRecoverText !== 'Repair') {
+        fail('canvas recover button text is "' + canvasRecoverText + '", expected "Repair" (file missing)');
+    }
+    fs.writeFileSync(canvasFeaturePath, '');
+    await page.locator('#canvas-requirements-cancel').dispatchEvent('click');
+    await sleep(300);
+    await page.locator('#canvas-info').dispatchEvent('click');
+    await page.waitForFunction(
+        () => {
+            const cb = document.getElementById('canvas-requirements-recover-callback');
+            return cb && !cb.hidden;
+        },
+        { timeout: 5000 }
+    );
+    canvasRecoverText = await page.evaluate(() => {
         const btn = document.querySelector('#canvas-requirements-recover-callback button');
         return btn ? (btn.textContent || '').trim() : '';
     });
     if (canvasRecoverText !== 'Generate') {
-        fail('canvas recover button text is "' + canvasRecoverText + '", expected "Generate"');
+        fail('canvas recover button text is "' + canvasRecoverText + '", expected "Generate" (file present but empty)');
     }
+    fs.unlinkSync(canvasFeaturePath);
 
     if (exitCode === 0) console.log('PASS');
     await browser.close();

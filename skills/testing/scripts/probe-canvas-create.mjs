@@ -7,6 +7,7 @@
 // canvas-select dropdown updates with the new canvas. UI-only; no
 // agent involved.
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -59,6 +60,17 @@ try {
         exitCode = 1;
     }
 
+    // Server-startup bootstrap (ensureCanvasDefaults on 'home') must not
+    // materialize an empty feature-requirements.txt for an already-existing
+    // canvas. The file is the user's signal that they've expressed canvas
+    // intent; the harness creating it pre-emptively would mask the missing-
+    // vs-empty distinction the Repair/Generate UI relies on.
+    const homeFeatureFile = path.join(sandbox.workspace, 'home', 'feature-requirements.txt');
+    if (fs.existsSync(homeFeatureFile)) {
+        console.error('FAIL: server startup created home/feature-requirements.txt; bootstrap should leave existing canvases alone');
+        exitCode = 1;
+    }
+
     // New → opens Browse overlay.
     await page.locator('#new-canvas').dispatchEvent('click');
     await page.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
@@ -77,7 +89,23 @@ try {
     );
     const after = await page.locator('#canvas-select option').allTextContents();
     console.log('canvases after :', after);
-    console.log('PASS');
+
+    // Canvas-creation IS the moment feature-requirements.txt gets materialized
+    // (empty by default; user/agent fills it in). Verify the new canvas has it.
+    const newFeatureFile = path.join(sandbox.workspace, NAME, 'feature-requirements.txt');
+    if (!fs.existsSync(newFeatureFile)) {
+        console.error('FAIL: canvas creation did not materialize feature-requirements.txt');
+        exitCode = 1;
+    } else {
+        const size = fs.statSync(newFeatureFile).size;
+        console.log('new canvas feature-requirements.txt size:', size);
+        if (size !== 0) {
+            console.error('FAIL: new canvas feature-requirements.txt should start empty, got size ' + size);
+            exitCode = 1;
+        }
+    }
+
+    if (!exitCode) console.log('PASS');
     await browser.close();
 } catch (e) {
     console.error('FAIL:', e.message);

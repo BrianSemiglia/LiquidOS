@@ -1490,6 +1490,19 @@ const readComponentFeatureText = componentPath => {
     return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
 };
 
+// readComponentFeatures returns the file's content plus presence/error
+// metadata so the client can distinguish "file missing" (Repair) from
+// "file present but empty" (Generate). Read errors fall under Repair too.
+const readComponentFeatures = componentPath => {
+    const file = componentFeatureFile(componentPath);
+    if (!fs.existsSync(file)) return { present: false, text: '', error: null };
+    try {
+        return { present: true, text: fs.readFileSync(file, 'utf8'), error: null };
+    } catch (error) {
+        return { present: true, text: '', error: error.message };
+    }
+};
+
 const readComponentFeatureTitle = componentPath => {
     const folder = canvasGraph.componentFolderPath(componentPath);
     try {
@@ -2446,9 +2459,12 @@ const server = http.createServer(async (req, res) => {
             }
 
             if (req.method === 'GET') {
+                const { present, text, error } = readComponentFeatures(entry.componentPath);
                 send(res, 200, JSON.stringify({
-                    text: readComponentFeatureText(entry.componentPath),
-                    title: readComponentFeatureTitle(entry.componentPath)
+                    text,
+                    title: readComponentFeatureTitle(entry.componentPath),
+                    present,
+                    error
                 }), 'application/json; charset=utf-8');
                 return;
             }
