@@ -239,3 +239,185 @@ Two cheap defenses, both at the recipient/agent layer (so they fit the dumb-prot
 - **Show what got incorporated.** If the synthesized result is "I built X using these popular bullets," the user can scan that list and reject anything weird before build. The transparency that makes "show, not vote" work for popularity also catches injections.
 
 So: the same risk as web search, mostly handled the same way, with one extra "requirements look like specs" caveat that the recipient pattern already mitigates if the agent's filtering is grounded in the user's actual ask.
+
+---
+
+**User:**
+> We should run a test where I think we run three instances of LiquidOS, where two of the three have a shared subset and a fourth instance searches the three and returns or picks an outcome that we would expect. And I'm wondering if we can run that test without a bunch of plumbing changes. Uh, if the network is working currently and we can search and do what we need to, it would be nice if we could just give agent a simpler tool that's similar just so we can prototype. But if you think it's easy enough to add the endpoints, then go for it.
+
+**Agent:**
+
+Good news: zero plumbing changes needed for either path.
+
+`GET /network/search?q=<query>` already returns bundles from the local feed + every peer feed cached via gossipsub, and each bundle includes `canvasRequirements` (the raw text). That's exactly the "raw text from N peers" surface we sketched in the notes. The existing `probe-cross-peer-share.mjs` shows the multi-instance orchestration pattern (boot N sandboxes via `boot-workspace-sandbox.mjs`, dial via `POST /network/dial`, share via `POST /canvas/share`).
+
+Two paths for the test, ordered by how cheap:
+
+1. **JS probe, no agent loop.** Boot 3 publisher sandboxes from fixtures with curated overlapping requirements, dial them from a 4th consumer sandbox, hit `/network/search`, do the recipient-side bullet clustering directly in the probe's JS, assert the expected core/extras tiers. Fully deterministic. Validates the protocol surface and the recipient-pattern math without involving an LLM. Probably a day's work, and the existing probe is a strong template.
+
+2. **Agent probe.** Same orchestration but the 4th instance dispatches an actual agent with a one-line tool ("curl `/network/search?q=...` and interpret what comes back"). Validates the full loop the user will actually use, but harder to make deterministic — LLM output varies, assertions get fuzzy. Worth doing after we know (1) works.
+
+Concrete fixture shape for (1) that makes the expected outcome unambiguous:
+
+```
+Publisher A requirements: bullets {1, 2, 3, 4}
+Publisher B requirements: bullets {1, 2, 3, 5}
+Publisher C requirements: bullets {1, 2, 6, 7}
+```
+
+Expected consumer-side result for the search:
+- **Core (3/3)**: bullets 1 and 2 (the shared subset the user described)
+- **Extras (2/3)**: bullet 3
+- **Long tail (1/3 each)**: 4, 5, 6, 7
+
+If the probe asserts that exact tier breakdown, we know the protocol surface + recipient-side interpretation works end to end. Want me to scaffold path (1)?
+
+---
+
+**User:**
+> Yes. But don't we want the agent to do it?
+
+**Agent:**
+
+Right — the agent is the actual consumer in production; the probe just verifies the protocol surface is sufficient. They're different jobs:
+
+- **The JS probe** is a deterministic unit test of the surface: "does `/network/search` already ship enough raw data that *any* recipient — agent, script, whatever — can do the clustering?" Answer: yes. Stays useful as a regression check; doesn't depend on an LLM being available or behaving consistently.
+- **The agent** is what real users will trigger. For that we need a skill that tells the agent how `/network/search` works and walks the recipient pattern — sample, cluster, decide tiers per situation, show the user the sample size. The agent uses the same protocol surface the probe just validated.
+
+---
+
+**User:**
+> We'll probably need a specific prompt for this, not the system.
+
+**Agent:**
+
+Right — agreed. The skill's trigger keywords help the agent find it when the user happens to phrase a prompt the right way, but the standing system prompt shouldn't carry "use the network for popularity" because most prompts aren't about that. It belongs in a specific entry-point prompt the harness fires when the user explicitly asks.
+
+Shape I'd suggest:
+
+The harness has a UI affordance — a search bar in the Browse overlay, or a callback button on a canvas requirements modal, something like that. Clicking it POSTs to `/output` with a prompt template that *does* explicitly invoke the network pattern.
+
+Two design decisions for this prompt that I'd want to nail before scaffolding:
+
+1. **Where the result surfaces.** As a chat component (read-only suggestions)? As an editable diff against the canvas's requirements ("here are popular extras you might want to add")? As a side panel? Different UX, different prompt language.
+2. **Single-canvas search or full-network browse.** Is the user always asking "what's popular near *this* canvas's topic" (in which case the harness can derive the query from the current canvas's existing requirements), or do they sometimes search the whole network freely? Probably both — but the trigger surface for each is different.
+
+---
+
+**User:**
+> This could be either how search works or a tool that an agent can use when it thinks it needs to create a component that might have a lot of requirements or both.
+
+**Agent:**
+
+Yes — both, and the protocol + skill already support that shape. The thing that varies is who decides to invoke and where the result lands.
+
+**As search (user-initiated):**
+- User types a query into a search affordance.
+- Either the harness aggregates directly (call `/network/search`, cluster, show histogram + tiers in a Browse-like overlay — fast, no agent in the loop), or the harness dispatches a search-flavored prompt to the agent for synthesis. The first is snappier and predictable; the second is more natural and adapts the framing to the user's situation.
+- Reasonable default: cheap aggregation in the harness for the histogram view (show the user what's actually there) plus an "ask the agent to summarize" affordance when they want interpretation rather than raw data.
+
+**As an agent tool (agent-initiated):**
+- User asks for something the agent recognizes as "likely-to-have-established-patterns" (a new component built from a real-world domain — restaurants, calendar, chat). Agent autonomously consults the network mid-build, finds the popular core, builds it with that informed.
+- The network skill's trigger list already gestures at this. Worth strengthening — the trigger isn't really about *user* asking for popularity, it's about the *agent* recognizing the domain shape.
+
+---
+
+**User:**
+> If we should go with the programmatic approach. That would work for search. with the agent, I'm not totally sure. I guess it could query or rather use the tool, whatever we produce, and then look at the results afterwards and then decide whether to use the tool again to find more results. What do you think?
+
+**Agent:**
+
+I think that's exactly right and matches the dumb-protocol shape. The agent doesn't need a smart tool — it needs a raw one it can call repeatedly with different inputs. The iteration is just normal agent behavior: try, evaluate, decide whether to try again differently.
+
+For this to feel natural in practice, three things:
+
+1. **Each call is cheap and stateless.** `/network/search` already is — same call, same cache, returns whatever the local feed cache has. The agent can call it 10 times in a session without breaking anything.
+2. **The result needs to expose enough for the agent to self-assess.** "Did I see enough to be confident?" depends on cluster spread. If every bullet is 1/N (everything's in the long tail), the sample is fragmented and the agent should either widen the query or accept "no clear consensus." If the histogram looks bimodal (clear core + clear tail), the agent has signal. The agent can compute this itself from the raw results; nothing structural needed beyond what we have.
+3. **The skill should hint at iteration, not prescribe it.** Add something like "if the histogram looks fragmented, try a broader query; if it looks too narrow, try a more specific one; if the sample size is small, the conclusion is tentative — say so." That's a pattern hint, not a recipe.
+
+The one real limitation worth flagging: in the current setup, `/network/search` returns whatever's in the local gossipsub cache. Searching the same query twice gives the same results — the agent can't say "find me more matching the same query." Iteration is via *different queries*, not "give me more of the same." For now that's fine; if the network grows enough that the cache holds less than the network has, we'd want an active-DHT-pull mechanism. Not today's problem.
+
+---
+
+**User:**
+> The tool could take a parameter of number of samples and automatically rerun until it has enough results with the query in it. And I suppose the tool could give up at some point. And then those would be passed to either the user or the agent. Then we can run a few instances with various scenarios that we need. and just run the tool. at least as a first pass. And then after that, we can write UI tests for search and then potentially one for an agent even though we really don't have any tests so far that actually incorporate real agents.
+
+**Agent:**
+
+That's a clean shape. Concrete plan reading from your description:
+
+**The tool:**
+- `GET /network/search?q=<query>&n=<int>&timeout_ms=<int>` — wants at least `n` matching results, polls the local cache every ~500ms until it has them, gives up at `timeout_ms` and returns whatever it has (with a flag indicating "satisfied" vs "gave up"). Same recipient model — the *raw* results pass through, the tool just handles the "wait until enough show up" part.
+- Why it works without DHT changes: as gossipsub delivers more peer feeds, the cache grows. Polling is the cheap way to wait.
+- Why `n` is meaningful even at small scale: lets the test "I want at least 3 publishers' worth of data" be deterministic regardless of how long gossipsub takes to converge in this run.
+
+**First-pass tests (no real agent):**
+- One probe boots N publishers + 1 consumer per scenario, hits the tool directly, asserts the tier breakdown. The existing popularity-tiers probe is most of this — extend it with a scenarios table and call the new tool shape.
+
+**Later:**
+- UI test for search: Playwright drives a search affordance, asserts histogram/tier rendering. After we know what the affordance looks like.
+- Real-agent probe: separate question; worth doing once but expect non-determinism, API cost, and slower CI. Worth knowing it's a novel category for this codebase — every existing probe uses `--agent none` or a deterministic test agent.
+
+---
+
+**User:**
+> The A cross x results should be installable.
+
+**Agent (after building it):**
+
+Each bullet in the histogram gets a checkbox (checked by default). A name input + Build button at the bottom of the block POSTs to /canvases to create a fresh canvas and then to /canvas/requirements to write the selected bullets — the harness's existing /canvas/requirements handler kicks the active agent to reconcile from there. Name input is pre-filled from the search query (slugified). The block is hidden when fewer than 2 results are present.
+
+---
+
+**User:**
+> The user shouldn't have to name it, the agent can do that. the Prompt sent from build can simply be the list of requirements.
+
+**Agent:**
+
+Dropped the name input. The Build button now POSTs to `/output` with the selected bullets as the prompt body and nothing else — no preamble, no template. The agent decides whether to create a new canvas, what to name it, and what to build, the same as if the user had typed the bullets into the prompt bar themselves.
+
+---
+
+**User:**
+> There are quite a few components when searching for restaurants that share a requirement of having a refresh button, and yet I don't see it in the popular results. Also, I'm wondering about our concept. our concept works better for components because their requirements are for a single domain. canvases work differently. The way the app is working currently building a canvas from a list of requirements could be mixed concerns. And I suppose the agent could figure it out Maybe? but it definitely wouldn't be as intuitive.
+
+**Agent:**
+
+Both observations are right, and the second one is the structural one.
+
+**Immediate (the bug you see):** my `computeBulletHistogram` only walks `bundle.canvasRequirements`. The bundle structure also carries `bundle.components[].requirements`, where the "refresh button" almost certainly lives. Quick fix: treat each component's `requirements` text as another source alongside the canvas-level text. Same clustering, just more sources per bundle. That would surface "refresh button" with the count it deserves.
+
+**Structural (what you noticed about the concept):** the recipient-pattern is *much* cleaner over **components** than canvases.
+
+- A component has a single domain (a restaurant browser, a clock, a tip calculator). Its requirements list is coherent. Bullets in one component's requirements are about the same thing — clustering them across the network synthesizes "what a restaurant browser is, in practice."
+- A canvas's requirements list mixes domains. "Cards stack vertically. Rain falls. Show me upcoming concerts." Those aren't comparable bullets even across two canvases that nominally do the same thing — the wiring of "what's on this screen" is orthogonal to "what does each thing do." Clustering them produces a soup.
+
+---
+
+**User:**
+> No. I don't think you quite got what I was saying. Maybe... here's a better example. They... there are four canvases that have restaurant somewhere in their requirements. And let's say a majority of them have a A particular kind of component. and then a lesser majority has another kind of component and then the rest vary uniquely. Would our approach be able to produce a canvas with two components that have the more popular features of those results.
+
+**Agent:**
+
+Got it now — and that's a much bigger and better idea than what I was describing.
+
+You're describing **two levels of clustering**, not one:
+
+1. **Component-type popularity across canvases.** Of the 4 matching canvases, what kinds of components do they tend to have? `restaurant-list` in 3/4, `map-view` in 2/4, `wait-times` in 1/4, `phone-numbers` in 1/4. That tells you what *roles* canonical "restaurant" canvases assemble.
+2. **Bullet popularity within each component type.** Of the 3 `restaurant-list` components you found, what bullets do they share? "Refresh button" 3/3, "Filter by cuisine" 3/3, "Show photos" 2/3, etc. That tells you what each role *is*, in practice.
+
+And the synthesis = a canvas containing only the components that crossed the popularity bar, each carrying only the bullets that crossed *their* bar. So your example output: a canvas with two components, `restaurant-list` (with the bullets that 3/3 of them share) and `map-view` (with the bullets that 2/2 share), nothing else. That's a coherent canvas synthesized from the network's collective experience of "what a restaurant browser looks like" — not a soup of mixed concerns.
+
+Critically: **the protocol doesn't change for this.** Bundles already carry `canvas + components[].requirements`. All the work is recipient-side. The shift is in how we cluster and how we present:
+
+- Two-level histogram instead of flat. Outer: component types (clustered by normalized name, just like bullets are clustered by normalized text — same primitive). Inner: bullets within each type.
+- UI is tree-shaped. Each component type is a section the user can check or uncheck; inside, bullet checkboxes default to popular ones. Tier thresholds (outer and inner) are the recipient's call — agent or user.
+- Build assembles a real canvas: creates each checked component with its checked bullets as `feature-requirements.txt`, lists them in `input.json`, hands the whole thing to the agent to materialize. The agent picks the canvas name. The component names come straight from the popular clusters.
+
+The component-name clustering has the same wording-variation problem as bullet clustering ("restaurants" vs "restaurant-list" vs "RestaurantList"), with the same answer — normalize first, MinHash or LLM-rename if needed. Same recipient choice, same protocol-stays-dumb shape.
+
+A few open design questions:
+
+- **When the component types compete on naming**: if 2 canvases have `restaurant-list` and 2 have `restaurant-results`, are those one cluster of 4 or two clusters of 2? That's a normalization decision — and it actually wants the agent in the loop, since it might involve semantic judgment, not just text smoothing.
+- **What canvas-level requirements do we keep, if any?** Probably *none* by default for the synthesized canvas — let the synthesized components stand on their own and the agent decide if there's a coherent canvas-level story to tell. Skipping canvas-level avoids the soup problem entirely.
+- **Is the search affordance still "Browse"?** Conceptually we're not browsing existing canvases anymore; we're synthesizing one. Might want a different surface: "Find" or a build-from-the-network flow that explicitly returns a tree.
