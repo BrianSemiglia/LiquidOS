@@ -337,6 +337,41 @@
             color: rgba(232, 232, 234, 0.55);
             font-size: 0.88rem;
         }
+        .browse-popularity {
+            margin: 0.3rem 0.3rem 0.7rem;
+            padding: 0.75rem 0.9rem 0.85rem;
+            background: rgba(96, 165, 250, 0.07);
+            border: 1px solid rgba(96, 165, 250, 0.22);
+            border-radius: 10px;
+            display: grid;
+            gap: 0.32rem;
+        }
+        .browse-popularity-heading {
+            font-size: 0.7rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(147, 197, 253, 0.85);
+            margin-bottom: 0.2rem;
+            font-weight: 600;
+        }
+        .browse-popularity-row {
+            display: grid;
+            grid-template-columns: 2.6em 1fr;
+            align-items: baseline;
+            gap: 0.65rem;
+            font-size: 0.85rem;
+            color: rgba(232, 232, 234, 0.92);
+        }
+        .browse-popularity-count {
+            font-family: ui-monospace, Menlo, monospace;
+            font-size: 0.72rem;
+            color: rgba(147, 197, 253, 0.85);
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        .browse-popularity-text {
+            line-height: 1.35;
+        }
         .browse-result {
             padding: 0.7rem 0.85rem;
             margin: 0.3rem 0;
@@ -3215,12 +3250,74 @@
             return root;
         };
 
+        // Recipient-side bullet clustering across the search results — see
+        // notes/POPULARITY_FROM_RAW_DATA.md. We show counts directly rather
+        // than baking in a tier threshold; the user reads the histogram and
+        // picks their own line. Canonical text comes from the first bundle
+        // that contributed a given normalized variant so wording stays
+        // legible even when normalization smooths casing/punctuation.
+        const normalizeBrowseBullet = s => s
+            .replace(/^[-*•\s]+/, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+
+        const computeBulletHistogram = (results) => {
+            const counts = new Map();
+            const canonical = new Map();
+            for (const result of results) {
+                const reqText = result.canvasRequirements || '';
+                const seen = new Set();
+                for (const rawLine of reqText.split('\n')) {
+                    const norm = normalizeBrowseBullet(rawLine);
+                    if (!norm || seen.has(norm)) continue;
+                    seen.add(norm);
+                    counts.set(norm, (counts.get(norm) || 0) + 1);
+                    if (!canonical.has(norm)) {
+                        canonical.set(norm, rawLine.replace(/^[-*•\s]+/, '').trim());
+                    }
+                }
+            }
+            return Array.from(counts.entries())
+                .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+                .map(([norm, count]) => ({ text: canonical.get(norm) || norm, count }));
+        };
+
+        const renderBrowsePopularity = (results) => {
+            if (!results || results.length < 2) return null;
+            const histogram = computeBulletHistogram(results);
+            if (histogram.length === 0) return null;
+            const root = document.createElement('div');
+            root.className = 'browse-popularity';
+            root.dataset.popularitySample = String(results.length);
+            const heading = document.createElement('div');
+            heading.className = 'browse-popularity-heading';
+            heading.textContent = 'Across ' + results.length + ' result' + (results.length === 1 ? '' : 's');
+            root.appendChild(heading);
+            for (const { text, count } of histogram) {
+                const row = document.createElement('div');
+                row.className = 'browse-popularity-row';
+                row.dataset.count = String(count);
+                const countEl = document.createElement('span');
+                countEl.className = 'browse-popularity-count';
+                countEl.textContent = count + '/' + results.length;
+                const textEl = document.createElement('span');
+                textEl.className = 'browse-popularity-text';
+                textEl.textContent = text;
+                row.append(countEl, textEl);
+                root.appendChild(row);
+            }
+            return root;
+        };
+
         const renderBrowseResults = (results) => {
             if (!results || results.length === 0) {
                 renderBrowseEmpty('No matches yet.');
                 return;
             }
             const frag = document.createDocumentFragment();
+            const popularity = renderBrowsePopularity(results);
+            if (popularity) frag.appendChild(popularity);
             for (const r of results) frag.appendChild(renderBrowseResult(r));
             browseResults.replaceChildren(frag);
         };
