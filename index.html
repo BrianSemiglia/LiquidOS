@@ -911,6 +911,12 @@
             pointer-events: none;
         }
         .requirements-region-overlay liquidos-callback { pointer-events: auto; }
+        .requirements-region-overlay [data-feature-loading] {
+            color: rgba(255, 255, 255, 0.55);
+            font-size: 0.9rem;
+            letter-spacing: 0.02em;
+        }
+        .requirements-region-overlay [data-feature-loading][hidden] { display: none; }
         .requirements-repair {
             padding: 0.55rem 1rem;
             font: inherit;
@@ -1402,8 +1408,9 @@
                 <textarea class="canvas-requirements-textarea" id="canvas-requirements-textarea" spellcheck="true"
                     placeholder="Describe what this canvas is for. What kinds of components should it hold? How should they feel together? Intent only — no implementation details."></textarea>
                 <div class="requirements-region-overlay">
+                    <span data-feature-loading id="canvas-requirements-loading" hidden>Loading…</span>
                     <liquidos-callback on="click" id="canvas-requirements-recover-callback" hidden>
-                        <button type="button" class="requirements-repair">Repair</button>
+                        <button type="button" class="requirements-repair">Generate</button>
                     </liquidos-callback>
                 </div>
             </div>
@@ -2429,12 +2436,18 @@
         const loadComponentFeatures = async item => {
             const textarea = item.querySelector('[data-feature-requirements]');
             const status = item.querySelector('[data-feature-status]');
+            const loading = item.querySelector('[data-feature-loading]');
+            const recoverCallback = item.querySelector('[data-feature-recover-callback]');
 
             if (!textarea || !item.__component?.componentPath) {
                 return;
             }
 
-            status.textContent = 'Loading…';
+            // Hide Generate while loading so the overlay shows only one
+            // affordance at a time, centered over the textarea.
+            if (recoverCallback) recoverCallback.hidden = true;
+            if (loading) loading.hidden = false;
+            status.textContent = '';
             try {
                 const response = await fetch(componentFeatureUrl(item.__component), { cache: 'no-store' });
 
@@ -2445,12 +2458,12 @@
                 const data = await response.json();
                 textarea.value = String(data.text || '');
                 textarea.dataset.savedValue = textarea.value;
-                status.textContent = '';
                 const titleEl = item.querySelector('[data-feature-title]');
                 if (titleEl) titleEl.textContent = String(data.title || '');
                 item.querySelector('[data-feature-save]').disabled = true;
             } finally {
-                // Always reconcile the Repair button — success leaves it
+                if (loading) loading.hidden = true;
+                // Always reconcile the Generate button — success leaves it
                 // visible only when the file was empty; failure leaves the
                 // textarea empty so the button surfaces, and the user can
                 // dispatch the agent to find or recreate the file.
@@ -2679,8 +2692,9 @@
                 '<div class="requirements-region">',
                 '<textarea data-feature-requirements spellcheck="true" placeholder="Describe what this component should do, what it may use, and any limits it should respect."></textarea>',
                 '<div class="requirements-region-overlay">',
+                '<span data-feature-loading hidden>Loading…</span>',
                 '<liquidos-callback on="click" data-feature-recover-callback hidden>',
-                '<button type="button" data-feature-recover class="requirements-repair">Repair</button>',
+                '<button type="button" data-feature-recover class="requirements-repair">Generate</button>',
                 '</liquidos-callback>',
                 '</div>',
                 '</div>',
@@ -3250,6 +3264,8 @@
             canvasReqSave.disabled = false;
             const recover = document.getElementById('canvas-requirements-recover-callback');
             if (recover) recover.hidden = true;
+            const loading = document.getElementById('canvas-requirements-loading');
+            if (loading) loading.hidden = true;
         };
 
         const canvasShareSwitch = document.getElementById('canvas-share-switch');
@@ -3339,6 +3355,11 @@
             canvasReqTextarea.disabled = true;
             canvasReqSave.disabled = true;
             canvasReqOverlay.hidden = false;
+            // Mirror the component flip-back: hide Generate, show Loading,
+            // centered over the textarea. Same overlay markup + CSS.
+            const loading = document.getElementById('canvas-requirements-loading');
+            if (canvasReqRecover) canvasReqRecover.hidden = true;
+            if (loading) loading.hidden = false;
             loadCanvasShareState(canvasName);
             // Fetch via the workspace-file route; 404 means the file
             // doesn't exist yet — treat as empty and let the user start
@@ -3355,6 +3376,7 @@
             // If the user switched canvases or closed the overlay before
             // the fetch resolved, don't blow away their current edit.
             if (canvasReqEditingCanvas !== canvasName || canvasReqOverlay.hidden) return;
+            if (loading) loading.hidden = true;
             canvasReqTextarea.disabled = false;
             canvasReqSave.disabled = false;
             syncCanvasReqRepairCallback();

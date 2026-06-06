@@ -106,6 +106,30 @@ try {
     if (!isVisible(opened.surface))  fail('surface not visible: ' + JSON.stringify(opened.surface));
     if (!isVisible(opened.textarea)) fail('requirements textarea not visible: ' + JSON.stringify(opened.textarea));
 
+    // --- 1b. Requirements input behavior: Loading clears after fetch and,
+    //         when the requirements file is empty, Generate surfaces with
+    //         that exact label. Same shape applies to the canvas-level
+    //         requirements modal — same overlay markup, same flow.
+    await page.waitForFunction(
+        () => {
+            const loading = document.querySelector('.requirements-overlay [data-feature-loading]');
+            return loading && loading.hidden === true;
+        },
+        { timeout: 5000 }
+    ).catch(() => fail('component Loading… did not hide after fetch'));
+    const componentRecoverVisible = await page.evaluate(() => {
+        const cb = document.querySelector('.requirements-overlay [data-feature-recover-callback]');
+        return cb && !cb.hidden;
+    });
+    if (!componentRecoverVisible) fail('component Generate callback did not surface for empty requirements');
+    const componentRecoverText = await page.evaluate(() => {
+        const btn = document.querySelector('.requirements-overlay [data-feature-recover]');
+        return btn ? (btn.textContent || '').trim() : '';
+    });
+    if (componentRecoverText !== 'Generate') {
+        fail('component recover button text is "' + componentRecoverText + '", expected "Generate"');
+    }
+
     // --- 2. State-driven re-place via workspace-file SSE ---
     //     The fixture's canvas.js subscribes to workspace-file events and
     //     re-places using its cached lastItems. If lastItems still holds
@@ -146,6 +170,30 @@ try {
     if (!closed.overlayGone)     fail('overlay still on body after ESC');
     if (!closed.placeholderGone) fail('placeholder still in #app after ESC');
     if (!closed.itemBackInApp)   fail('item did not return to #app after ESC');
+
+    // --- 5. Canvas requirements modal mirrors the same input behavior:
+    //         centered Loading, then Generate when the file is empty.
+    await page.locator('#canvas-info').dispatchEvent('click');
+    await page.waitForSelector('#canvas-requirements-textarea', { state: 'visible', timeout: 5000 });
+    await page.waitForFunction(
+        () => {
+            const loading = document.getElementById('canvas-requirements-loading');
+            return loading && loading.hidden === true;
+        },
+        { timeout: 5000 }
+    ).catch(() => fail('canvas Loading… did not hide after fetch'));
+    const canvasRecoverVisible = await page.evaluate(() => {
+        const cb = document.getElementById('canvas-requirements-recover-callback');
+        return cb && !cb.hidden;
+    });
+    if (!canvasRecoverVisible) fail('canvas Generate callback did not surface for empty requirements');
+    const canvasRecoverText = await page.evaluate(() => {
+        const btn = document.querySelector('#canvas-requirements-recover-callback button');
+        return btn ? (btn.textContent || '').trim() : '';
+    });
+    if (canvasRecoverText !== 'Generate') {
+        fail('canvas recover button text is "' + canvasRecoverText + '", expected "Generate"');
+    }
 
     if (exitCode === 0) console.log('PASS');
     await browser.close();
