@@ -354,6 +354,54 @@
             margin-bottom: 0.2rem;
             font-weight: 600;
         }
+        .browse-popularity-component {
+            display: grid;
+            gap: 0.25rem;
+            padding: 0.5rem 0.6rem 0.55rem;
+            background: rgba(15, 15, 18, 0.32);
+            border: 1px solid rgba(96, 165, 250, 0.18);
+            border-radius: 8px;
+        }
+        .browse-popularity-component[data-unchecked="true"] {
+            opacity: 0.5;
+        }
+        .browse-popularity-component-header {
+            display: grid;
+            grid-template-columns: 1.1em 2.6em 1fr;
+            align-items: baseline;
+            gap: 0.55rem;
+            font-size: 0.92rem;
+            font-weight: 600;
+            color: rgba(232, 232, 234, 0.98);
+            cursor: pointer;
+            padding: 0.1rem 0.05rem;
+            border-radius: 4px;
+        }
+        .browse-popularity-component-pick {
+            margin: 0;
+            cursor: pointer;
+            transform: translateY(2px);
+        }
+        .browse-popularity-component-count {
+            font-family: ui-monospace, Menlo, monospace;
+            font-size: 0.75rem;
+            color: rgba(147, 197, 253, 0.95);
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+        }
+        .browse-popularity-component-name {
+            font-family: ui-monospace, Menlo, monospace;
+            font-size: 0.82rem;
+            letter-spacing: 0.01em;
+        }
+        .browse-popularity-component-bullets {
+            display: grid;
+            gap: 0.18rem;
+            margin-left: 0.85rem;
+            padding-left: 0.6rem;
+            border-left: 1px dashed rgba(96, 165, 250, 0.18);
+        }
         .browse-popularity-row {
             display: grid;
             grid-template-columns: 1.1em 2.6em 1fr;
@@ -3281,43 +3329,86 @@
             return root;
         };
 
-        // Recipient-side bullet clustering across the search results — see
-        // notes/POPULARITY_FROM_RAW_DATA.md. We show counts directly rather
-        // than baking in a tier threshold; the user reads the histogram and
-        // picks their own line. Canonical text comes from the first bundle
-        // that contributed a given normalized variant so wording stays
-        // legible even when normalization smooths casing/punctuation.
+        // Recipient-side TWO-LEVEL clustering — see notes/POPULARITY_FROM_
+        // RAW_DATA.md. Outer: component types (clustered by normalized
+        // name) across the search-result bundles. Inner: bullet popularity
+        // within each component-type cluster. We show counts directly
+        // rather than baking in tier thresholds; the user reads the
+        // histogram and picks their own line. Canvas-level requirements
+        // are intentionally excluded — they mix concerns and would produce
+        // a soup.
         const normalizeBrowseBullet = s => s
             .replace(/^[-*•\s]+/, '')
             .replace(/\s+/g, ' ')
             .trim()
             .toLowerCase();
 
-        const computeBulletHistogram = (results) => {
-            const counts = new Map();
-            const canonical = new Map();
-            for (const result of results) {
-                const reqText = result.canvasRequirements || '';
-                const seen = new Set();
-                for (const rawLine of reqText.split('\n')) {
-                    const norm = normalizeBrowseBullet(rawLine);
-                    if (!norm || seen.has(norm)) continue;
-                    seen.add(norm);
-                    counts.set(norm, (counts.get(norm) || 0) + 1);
-                    if (!canonical.has(norm)) {
-                        canonical.set(norm, rawLine.replace(/^[-*•\s]+/, '').trim());
+        const normalizeComponentName = s => String(s || '')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+
+        const computeComponentHistogram = (results) => {
+            // norm-name -> { count, canonicalNames: Map<rawName, occurrences>,
+            //                bulletCounts: Map<norm-bullet, { count, canonical }> }
+            const clusters = new Map();
+
+            for (const bundle of results) {
+                const components = Array.isArray(bundle.components) ? bundle.components : [];
+                const seenInBundle = new Set();
+                for (const c of components) {
+                    const rawName = typeof c === 'string' ? c : (c?.name || '');
+                    const reqs = typeof c === 'string' ? '' : (c?.requirements || '');
+                    const norm = normalizeComponentName(rawName);
+                    if (!norm || seenInBundle.has(norm)) continue;
+                    seenInBundle.add(norm);
+
+                    if (!clusters.has(norm)) {
+                        clusters.set(norm, {
+                            count: 0,
+                            canonicalNames: new Map(),
+                            bulletCounts: new Map()
+                        });
+                    }
+                    const cluster = clusters.get(norm);
+                    cluster.count += 1;
+                    cluster.canonicalNames.set(rawName, (cluster.canonicalNames.get(rawName) || 0) + 1);
+
+                    const seenBullets = new Set();
+                    for (const rawLine of reqs.split('\n')) {
+                        const normBullet = normalizeBrowseBullet(rawLine);
+                        if (!normBullet || seenBullets.has(normBullet)) continue;
+                        seenBullets.add(normBullet);
+                        if (!cluster.bulletCounts.has(normBullet)) {
+                            cluster.bulletCounts.set(normBullet, {
+                                count: 0,
+                                canonical: rawLine.replace(/^[-*•\s]+/, '').trim()
+                            });
+                        }
+                        cluster.bulletCounts.get(normBullet).count += 1;
                     }
                 }
             }
-            return Array.from(counts.entries())
-                .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-                .map(([norm, count]) => ({ text: canonical.get(norm) || norm, count }));
+
+            const out = [];
+            for (const [, cluster] of clusters) {
+                const canonicalName = Array.from(cluster.canonicalNames.entries())
+                    .sort((a, b) => b[1] - a[1])[0][0];
+                const bullets = Array.from(cluster.bulletCounts.entries())
+                    .map(([, info]) => ({ text: info.canonical, count: info.count }))
+                    .sort((a, b) => b.count - a.count || a.text.localeCompare(b.text));
+                out.push({ canonicalName, count: cluster.count, bullets });
+            }
+            return out.sort((a, b) =>
+                b.count - a.count || a.canonicalName.localeCompare(b.canonicalName));
         };
 
         const renderBrowsePopularity = (results, query) => {
             if (!results || results.length < 2) return null;
-            const histogram = computeBulletHistogram(results);
-            if (histogram.length === 0) return null;
+            const components = computeComponentHistogram(results);
+            if (components.length === 0) return null;
+
             const root = document.createElement('div');
             root.className = 'browse-popularity';
             root.dataset.popularitySample = String(results.length);
@@ -3327,50 +3418,93 @@
             heading.textContent = 'Across ' + results.length + ' result' + (results.length === 1 ? '' : 's');
             root.appendChild(heading);
 
-            const pickEls = [];
-            for (const { text, count } of histogram) {
-                const row = document.createElement('label');
-                row.className = 'browse-popularity-row';
-                row.dataset.count = String(count);
-                const pick = document.createElement('input');
-                pick.type = 'checkbox';
-                pick.className = 'browse-popularity-pick';
-                pick.checked = true;
-                pick.dataset.bulletText = text;
-                pickEls.push(pick);
-                const countEl = document.createElement('span');
-                countEl.className = 'browse-popularity-count';
-                countEl.textContent = count + '/' + results.length;
-                const textEl = document.createElement('span');
-                textEl.className = 'browse-popularity-text';
-                textEl.textContent = text;
-                row.append(pick, countEl, textEl);
-                root.appendChild(row);
+            const componentControls = [];
+            for (const comp of components) {
+                const block = document.createElement('div');
+                block.className = 'browse-popularity-component';
+                block.dataset.componentCount = String(comp.count);
+                block.dataset.componentName = comp.canonicalName;
+
+                const header = document.createElement('label');
+                header.className = 'browse-popularity-component-header';
+                const headerPick = document.createElement('input');
+                headerPick.type = 'checkbox';
+                headerPick.className = 'browse-popularity-component-pick';
+                headerPick.checked = true;
+                const headerCount = document.createElement('span');
+                headerCount.className = 'browse-popularity-component-count';
+                headerCount.textContent = comp.count + '/' + results.length;
+                const headerName = document.createElement('span');
+                headerName.className = 'browse-popularity-component-name';
+                headerName.textContent = comp.canonicalName;
+                header.append(headerPick, headerCount, headerName);
+                block.appendChild(header);
+
+                const bulletsContainer = document.createElement('div');
+                bulletsContainer.className = 'browse-popularity-component-bullets';
+                const bulletPicks = [];
+                for (const b of comp.bullets) {
+                    const row = document.createElement('label');
+                    row.className = 'browse-popularity-row';
+                    row.dataset.count = String(b.count);
+                    const pick = document.createElement('input');
+                    pick.type = 'checkbox';
+                    pick.className = 'browse-popularity-pick';
+                    pick.checked = true;
+                    pick.dataset.bulletText = b.text;
+                    const countEl = document.createElement('span');
+                    countEl.className = 'browse-popularity-count';
+                    countEl.textContent = b.count + '/' + comp.count;
+                    const textEl = document.createElement('span');
+                    textEl.className = 'browse-popularity-text';
+                    textEl.textContent = b.text;
+                    row.append(pick, countEl, textEl);
+                    bulletsContainer.appendChild(row);
+                    bulletPicks.push(pick);
+                }
+                block.appendChild(bulletsContainer);
+
+                // Unchecking the component disables its bullet picks visually
+                // so the relationship reads clearly.
+                headerPick.addEventListener('change', () => {
+                    bulletPicks.forEach(p => { p.disabled = !headerPick.checked; });
+                    block.dataset.unchecked = headerPick.checked ? 'false' : 'true';
+                });
+
+                componentControls.push({ componentPick: headerPick, bulletPicks });
+                root.appendChild(block);
             }
 
-            // Install affordance: send the selected bullets as a prompt to
-            // the agent. The agent decides the canvas name and creates it.
-            // The prompt body is just the bullet list — nothing else.
             const actions = document.createElement('div');
             actions.className = 'browse-popularity-actions';
             const installBtn = document.createElement('button');
             installBtn.type = 'button';
             installBtn.className = 'browse-popularity-install';
             installBtn.textContent = 'Build canvas';
-            installBtn.addEventListener('click', () => installPopularBullets({ pickEls, installBtn }));
+            installBtn.addEventListener('click', () => installPopularComponents({ componentControls, installBtn }));
             actions.append(installBtn);
             root.appendChild(actions);
             return root;
         };
 
-        const installPopularBullets = async ({ pickEls, installBtn }) => {
-            const bullets = pickEls.filter(p => p.checked).map(p => p.dataset.bulletText);
-            if (bullets.length === 0) return;
+        const installPopularComponents = async ({ componentControls, installBtn }) => {
+            // Build groups: for each checked component, the bullets the user
+            // left checked. Skip components with no checked bullets entirely.
+            const groups = componentControls
+                .filter(c => c.componentPick.checked)
+                .map(c => c.bulletPicks.filter(p => p.checked).map(p => p.dataset.bulletText))
+                .filter(bullets => bullets.length > 0);
+            if (groups.length === 0) return;
+
             installBtn.disabled = true;
             const originalLabel = installBtn.textContent;
             installBtn.textContent = 'Building…';
             try {
-                const prompt = bullets.map(b => '- ' + b).join('\n');
+                // Plain grouped bullets. No names — the agent picks both the
+                // canvas name and each component's name.
+                const prompt = groups.map(bullets =>
+                    'Component:\n' + bullets.map(b => '  - ' + b).join('\n')
+                ).join('\n\n');
                 await submitPrompt('./', prompt);
                 closeBrowseOverlay();
             } catch (error) {
