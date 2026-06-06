@@ -223,6 +223,16 @@ do:
 
 The exception is the escalation case (see Diagnostics → Escalation below): when the agent has determined it cannot perform the action — typically a harness or infrastructure bug — it says so plainly and stops. A button that loops back to the same failure is worse than no button.
 
+## Declare what you need; work in less
+
+Two responsibilities, both on the component:
+
+- **Declare how much room the component needs**, no more. The component's outermost element should carry a `min-width` (and where useful a `width` / preferred size) that reflects the *actual* content minimum — the width below which the component genuinely stops working. Don't pad the declaration with comfort margins. If the natural minimum is 280px, declare 280px. If a piano keyboard needs 720px to fit all its keys, declare 720px. This is the signal the presentation reads to decide layout — over-declaring wastes its space; under-declaring lets it crush you.
+
+- **Still work when given less than declared.** The presentation may give you less than your declared minimum anyway — a narrow slot, a stacked layout, a small modal. The component should degrade gracefully: `max-width: 100%`, `min-width: 0` on flex children that can compress, `overflow-x: auto` for intrinsically-wide content (keyboards, tables, code) so it scrolls instead of spilling out of the slot.
+
+The component is a guest in a slot it didn't pick. Same component may render in a 3D scene with fixed-size cards, in the requirements modal at half-width, in a stack presentation at full-width, or inside a relationship's preview. The declared minimum tells those presentations what you actually need; the graceful-degradation behavior covers them ignoring it.
+
 ## Catch only when you can recover
 
 The harness installs `window.error` and `unhandledrejection` listeners that attribute a thrown error to the component whose `functions.js` is on the stack, POST it to `diagnostics/status.json` under category `runtime`, and surface a Repair button next to the component's Requirements flip. Clicking it dispatches the agent with the error message and stack as the prompt.
