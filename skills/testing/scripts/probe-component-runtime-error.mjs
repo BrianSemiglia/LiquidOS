@@ -92,6 +92,35 @@ try {
         exitCode = 1;
     }
 
+    // 2c) Runtime error survives an incidental re-mount. render.js
+    // services routinely regenerate view.json on restart (port
+    // substitution), which flips htmlChanged true even though no code
+    // was fixed. The Repair button must not vanish on that path —
+    // re-mounts should leave runtime UI state alone, same shape as the
+    // modal's __requirementsOverlay filter. Simulate by directly
+    // rewriting view.json with a trivial difference; assert the button
+    // stays visible throughout the next ~250ms.
+    const viewJsonPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'presented', 'view.json');
+    const originalView = fs.readFileSync(viewJsonPath, 'utf8');
+    const parsed = JSON.parse(originalView);
+    parsed.html = String(parsed.html || '') + '<!-- regenerated -->';
+    fs.writeFileSync(viewJsonPath, JSON.stringify(parsed, null, 2) + '\n');
+    let flickerDetected = false;
+    for (let t = 0; t < 10; t++) {
+        await sleep(25);
+        await page.locator('.harness-component-frame-watcher').first().hover();
+        const stillVisible = await page.locator('[data-runtime-repair-callback] button').isVisible();
+        if (!stillVisible) {
+            flickerDetected = true;
+            console.error(`FAIL: Repair button disappeared at t=${(t * 25 + 25)}ms after view.json regeneration (re-mount cleared __runtimeError)`);
+            exitCode = 1;
+            break;
+        }
+    }
+    if (!flickerDetected) {
+        console.log('repair button persisted across re-mount: ok');
+    }
+
     // 3) Diagnostics/status.json gets runtime.ok:false. The POST is
     // best-effort and asynchronous so allow a short window to land.
     const statusPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'diagnostics', 'status.json');
