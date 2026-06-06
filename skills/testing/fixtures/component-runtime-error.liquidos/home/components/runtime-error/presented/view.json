@@ -1,0 +1,10 @@
+{
+  "title": "Runtime Error",
+  "html": "<p data-runtime-error>component that throws asynchronously after mount</p>",
+  "resources": {
+    "functions": {
+      "path": "components/runtime-error/presented/functions.js",
+      "mime": "text/javascript"
+    }
+  }
+}

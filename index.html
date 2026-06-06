@@ -973,6 +973,27 @@
             display: none;
         }
 
+        /* Runtime-error Repair: a Repair button that sits to the left of
+           Requirements on the same chrome row, hidden until the runtime
+           listener attributes an error to this component. The button itself
+           uses .requirements-repair styling; this wrapper just positions
+           and hover-reveals it like the Requirements flip. */
+        [data-runtime-repair-callback] {
+            position: absolute;
+            right: 9rem;
+            top: -1.1rem;
+            z-index: 40;
+            opacity: 0;
+            transition: opacity 120ms ease;
+        }
+        .harness-component-frame-watcher:hover [data-runtime-repair-callback],
+        [data-runtime-repair-callback]:focus-within {
+            opacity: 1;
+        }
+        [data-runtime-repair-callback][hidden] {
+            display: none;
+        }
+
         .requirements-overlay .component-requirements-status {
             justify-self: end;
         }
@@ -1970,6 +1991,134 @@
             }).catch(() => { /* best-effort */ });
         };
 
+        // Reverse map: functions.js URL → component path. Populated at mount
+        // time; consulted by the global error listeners to attribute
+        // post-mount runtime errors (window.onerror / unhandledrejection) to
+        // a specific component.
+        const componentPathByFunctionsUrl = new Map();
+
+        const stripQuery = url => String(url || '').split('?')[0];
+
+        const recordFunctionsUrlForComponent = (component, functionsUrl) => {
+            if (!functionsUrl) return;
+            const componentPath = component?.componentPath || component?.scope || '';
+            if (!componentPath) return;
+            componentPathByFunctionsUrl.set(stripQuery(functionsUrl), componentPath);
+        };
+
+        // --- Runtime error capture ----------------------------------------
+        //
+        // mount(surface) returns before the component's interactive lifetime
+        // begins. The harness's own diagnostics ("view", "service", "mount")
+        // only cover up to mount; nothing observes errors thrown later —
+        // failing SSE handlers, rejected fetches, dirty drag math, etc. —
+        // so the agent has no idea the component is broken.
+        //
+        // Two listeners catch what the runtime throws after mount:
+        // - 'error' covers synchronous throws, EventSource handlers,
+        //   setTimeout callbacks, anything that surfaces an ErrorEvent.
+        // - 'unhandledrejection' covers Promise chains the component
+        //   forgot to .catch().
+        //
+        // Attribution: hunt for any known resources.functions.url in the
+        // stack/filename. Hits POST to /diagnostics under category "runtime"
+        // and surface a wrench button next to the component's Requirements
+        // flip. Misses are dropped to console.warn — no visible UI; the
+        // dispatch path for unattributable runtime errors lives elsewhere
+        // (or doesn't yet, by design).
+
+        const RUNTIME_DEDUPE_MS = 1500;
+        const recentRuntimeKeys = new Map();
+
+        const lookupComponentPathFromText = text => {
+            if (!text) return '';
+            for (const [url, componentPath] of componentPathByFunctionsUrl) {
+                if (url && text.indexOf(url) !== -1) return componentPath;
+            }
+            return '';
+        };
+
+        const attributeRuntimeError = ({ filename, stack }) => {
+            const fromFilename = lookupComponentPathFromText(stripQuery(filename || ''));
+            if (fromFilename) return fromFilename;
+            return lookupComponentPathFromText(String(stack || ''));
+        };
+
+        const dedupeRuntimeError = key => {
+            const now = Date.now();
+            const seen = recentRuntimeKeys.get(key);
+            if (seen && now - seen < RUNTIME_DEDUPE_MS) return true;
+            recentRuntimeKeys.set(key, now);
+            if (recentRuntimeKeys.size > 64) {
+                const cutoff = now - RUNTIME_DEDUPE_MS * 4;
+                Array.from(recentRuntimeKeys.entries()).forEach(([k, t]) => {
+                    if (t < cutoff) recentRuntimeKeys.delete(k);
+                });
+            }
+            return false;
+        };
+
+        const recordRuntimeErrorForComponent = (componentPath, info) => {
+            const item = renderedItemsByPath.get(componentPath);
+            if (item) {
+                item.__runtimeError = info;
+                syncRuntimeRepairButton(item);
+            }
+            reportDiagnostic({ componentPath }, 'runtime', {
+                ok: false,
+                error: info.message,
+                stack: info.stack || '',
+                source: info.filename || '',
+                kind: info.kind
+            });
+        };
+
+        const ingestRuntimeError = info => {
+            if (!info.message) return;
+            const key = (info.componentPath || '__unknown__') + '|' + info.message;
+            if (dedupeRuntimeError(key)) return;
+            if (info.componentPath) {
+                recordRuntimeErrorForComponent(info.componentPath, info);
+            } else {
+                console.warn('runtime error not attributed to any component:', info.message);
+            }
+        };
+
+        window.addEventListener('error', event => {
+            // Ignore resource (img/script/etc.) load errors — those have no
+            // .error and reach window.error with target !== window.
+            if (event.target && event.target !== window && !(event.error instanceof Error)) {
+                return;
+            }
+            const message = event.error && event.error.message
+                ? event.error.message
+                : (event.message || 'unknown error');
+            const stack = event.error && event.error.stack ? event.error.stack : '';
+            const filename = event.filename || '';
+            ingestRuntimeError({
+                kind: 'error',
+                message,
+                stack,
+                filename,
+                componentPath: attributeRuntimeError({ filename, stack })
+            });
+        });
+
+        window.addEventListener('unhandledrejection', event => {
+            const reason = event.reason;
+            const message = reason && reason.message
+                ? reason.message
+                : (typeof reason === 'string' ? reason : 'unhandled rejection');
+            const stack = reason && reason.stack ? reason.stack : '';
+            ingestRuntimeError({
+                kind: 'unhandledrejection',
+                message,
+                stack,
+                filename: '',
+                componentPath: attributeRuntimeError({ filename: '', stack })
+            });
+        });
+
         const mountComponentFunctions = (item, component) => {
             destroyComponentFunctions(item);
 
@@ -1985,6 +2134,8 @@
                 scheduleWireIO();
                 return;
             }
+
+            recordFunctionsUrlForComponent(component, functionsUrl);
 
             const token = {};
             item.__componentMountToken = token;
@@ -2136,6 +2287,7 @@
                 scheduleWireIO();
                 return;
             }
+            recordFunctionsUrlForComponent({ componentPath: scope }, functionsUrl);
             const cacheKey = relationship?.resources?.functions?.version || '';
             import(functionsUrl + (cacheKey ? '?v=' + encodeURIComponent(cacheKey) : '')).then(module => {
                 if (relationshipNodesByPath.get(scope) !== entry) return;
@@ -2244,6 +2396,32 @@
                 'history; last resort, recreate from the code.');
             const isEmpty = !textarea || textarea.value.trim().length === 0;
             callback.hidden = !isEmpty;
+        };
+
+        // Runtime-error Repair button. Sits next to the Requirements flip on
+        // the front, hidden by default. Visible only when a post-mount
+        // window.error / unhandledrejection has been attributed to this
+        // component (item.__runtimeError set by ingestRuntimeError). Wraps a
+        // liquidos-callback so clicking it dispatches the agent with the
+        // error context; the frame-level liquidos:callback listener handles
+        // the dispatch and uses the same submitPrompt path as Requirements
+        // repair.
+        const syncRuntimeRepairButton = item => {
+            const callback = item.querySelector('[data-runtime-repair-callback]');
+            if (!callback) return;
+            const error = item.__runtimeError;
+            if (!error) {
+                callback.hidden = true;
+                return;
+            }
+            const scope = item.__component?.componentPath || '';
+            const stack = String(error.stack || '').slice(0, 1200);
+            const indentedStack = stack ? stack.split('\n').map(line => '    ' + line).join('\n') : '';
+            const prompt = 'The component threw a runtime error: ' + String(error.message || 'unknown error')
+                + (indentedStack ? '\n' + indentedStack : '');
+            callback.setAttribute('scope', scope);
+            callback.setAttribute('prompt', prompt);
+            callback.hidden = false;
         };
 
         const loadComponentFeatures = async item => {
@@ -2517,12 +2695,25 @@
             flipButton.dataset.componentFlip = 'true';
             flipButton.textContent = 'Requirements';
 
+            // Runtime-error Repair button: sits next to Requirements, hidden
+            // until the runtime listener attributes an error to this
+            // component. The <liquidos-callback> wrapper means clicking it
+            // dispatches the agent via the existing frame-level
+            // liquidos:callback handler. Uses the shared .requirements-repair
+            // styling so it reads as the same kind of action as the other
+            // Repair buttons in the app.
+            const runtimeRepair = document.createElement('liquidos-callback');
+            runtimeRepair.setAttribute('on', 'click');
+            runtimeRepair.dataset.runtimeRepairCallback = 'true';
+            runtimeRepair.hidden = true;
+            runtimeRepair.innerHTML = '<button type="button" class="requirements-repair">Repair</button>';
+
             const status = document.createElement('div');
             status.className = 'status';
             status.hidden = true;
 
             front.append(surface);
-            frame.append(flipButton, front, back);
+            frame.append(flipButton, runtimeRepair, front, back);
             item.append(frame, status);
             flipButton.addEventListener('click', () => {
                 showComponentSide(item, item.dataset.side === 'back' ? 'front' : 'back');
@@ -2682,6 +2873,13 @@
                 morphInto(surface, component.html || '');
             }
             if (htmlChanged || resourcesChanged) {
+                // A code change clears any prior runtime error — the new code
+                // gets a fresh shot. The new mount() may immediately fail
+                // again, in which case the error path re-records.
+                if (item.__runtimeError) {
+                    item.__runtimeError = null;
+                    syncRuntimeRepairButton(item);
+                }
                 mountComponentFunctions(item, component);
             }
         };

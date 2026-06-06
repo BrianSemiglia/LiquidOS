@@ -223,6 +223,20 @@ do:
 
 The exception is the escalation case (see Diagnostics → Escalation below): when the agent has determined it cannot perform the action — typically a harness or infrastructure bug — it says so plainly and stops. A button that loops back to the same failure is worse than no button.
 
+## Catch only when you can recover
+
+The harness installs `window.error` and `unhandledrejection` listeners that attribute a thrown error to the component whose `functions.js` is on the stack, POST it to `diagnostics/status.json` under category `runtime`, and surface a Repair button next to the component's Requirements flip. Clicking it dispatches the agent with the error message and stack as the prompt.
+
+This means: **don't catch errors you cannot recover from.** A `try/catch` that ends in `setStatus("Bad state: " + error.message, false)` — or any other "rebrand the failure as a red message" — hides the problem from both the agent and the harness. The component looks broken to the user, but to the listener it looks fine, so no Repair is offered.
+
+Catch when you have an actual recovery move:
+
+- **Transient connection states.** `source.onerror = () => setStatus("Reconnecting…")` is fine — SSE auto-reconnects; this is UI state, not an error.
+- **Real fallback.** `fetch(url).catch(() => useCache())` where there's a cache to fall back to.
+- **Input validation.** "Please enter a number" on bad user input — the failure isn't a bug.
+
+Let the rest throw. A failed `JSON.parse` on an SSE frame, an unexpected schema, a "tried to call .map on undefined" — the component has no plan for these, so the harness's Repair button *is* the plan. The runtime listener deduplicates per (component, message) for ~1.5s so a noisy SSE source can't flood diagnostics.
+
 ## Diagnostics
 
 When something looks broken, look in `<component>/diagnostics/` first. The harness writes status info and logs there. The agent reads them; the agent does not write them.
