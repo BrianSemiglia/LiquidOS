@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const SOURCE_AGENTS_MD_PATH = path.join(__dirname, '..', 'AGENTS.md');
+const SOURCE_AGENTS_MD_PATH = path.join(__dirname, '..', 'skills', 'AGENTS.md');
 
 const writeAgentSystemPrompt = ({ filePath }) => {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
