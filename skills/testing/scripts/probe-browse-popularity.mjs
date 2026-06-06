@@ -189,30 +189,29 @@ try {
     }
 
     // Install affordance: every row should have a checkbox checked by
-    // default, plus a name input and Build button at the bottom of the
-    // block. We don't actually click Build here — that would dispatch the
-    // agent — but we verify the affordance is wired up correctly.
-    const installAffordance = await page.evaluate((topic) => {
+    // default, plus a Build button at the bottom. The agent picks the
+    // canvas name — no name input is presented to the user.
+    const installAffordance = await page.evaluate(() => {
         const block = document.querySelector('.browse-popularity');
         if (!block) return null;
         const picks = Array.from(block.querySelectorAll('.browse-popularity-pick'));
-        const nameInput = block.querySelector('.browse-popularity-name');
         const btn = block.querySelector('.browse-popularity-install');
+        const nameInput = block.querySelector('.browse-popularity-name');
         return {
             pickCount: picks.length,
             allChecked: picks.every(p => p.checked),
-            nameValue: nameInput?.value || '',
             buttonExists: !!btn,
-            buttonLabel: btn?.textContent || ''
+            buttonLabel: btn?.textContent || '',
+            hasNameInput: !!nameInput
         };
-    }, TOPIC);
+    });
     console.log('install affordance:', installAffordance);
     if (!installAffordance) fail('install affordance missing');
     else {
         if (installAffordance.pickCount !== EXPECTED.length) fail('expected ' + EXPECTED.length + ' checkboxes, got ' + installAffordance.pickCount);
         if (!installAffordance.allChecked) fail('checkboxes not all checked by default');
-        if (!installAffordance.nameValue.includes(TOPIC)) fail('name input should be pre-filled from the query: ' + installAffordance.nameValue);
         if (!installAffordance.buttonExists) fail('install button missing');
+        if (installAffordance.hasNameInput) fail('name input should NOT be present — the agent names the canvas');
     }
 
     if (exitCode === 0) console.log('PASS');

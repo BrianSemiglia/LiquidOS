@@ -387,21 +387,9 @@
             margin-top: 0.55rem;
             padding-top: 0.6rem;
             border-top: 1px dashed rgba(96, 165, 250, 0.18);
-            display: grid;
-            grid-template-columns: 1fr auto;
-            gap: 0.5rem;
-            align-items: center;
+            display: flex;
+            justify-content: flex-end;
         }
-        .browse-popularity-name {
-            font: inherit;
-            font-size: 0.85rem;
-            background: rgba(15, 15, 18, 0.55);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            border-radius: 6px;
-            padding: 0.4rem 0.6rem;
-            color: rgba(232, 232, 234, 0.95);
-        }
-        .browse-popularity-name:focus { outline: none; border-color: rgba(96, 165, 250, 0.55); }
         .browse-popularity-install {
             font: inherit;
             font-size: 0.78rem;
@@ -3360,56 +3348,31 @@
                 root.appendChild(row);
             }
 
-            // Install affordance: synthesize a new canvas from the selected
-            // bullets. Uses POST /canvases to create the canvas, then POST
-            // /canvas/requirements to write the feature-requirements text —
-            // the harness's own /canvas/requirements dispatcher kicks the
-            // active agent to reconcile the new canvas.
+            // Install affordance: send the selected bullets as a prompt to
+            // the agent. The agent decides the canvas name and creates it.
+            // The prompt body is just the bullet list — nothing else.
             const actions = document.createElement('div');
             actions.className = 'browse-popularity-actions';
-            const nameInput = document.createElement('input');
-            nameInput.type = 'text';
-            nameInput.className = 'browse-popularity-name';
-            nameInput.placeholder = 'canvas name';
-            nameInput.value = (query || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'popular';
             const installBtn = document.createElement('button');
             installBtn.type = 'button';
             installBtn.className = 'browse-popularity-install';
             installBtn.textContent = 'Build canvas';
-            installBtn.addEventListener('click', () => installPopularBullets({
-                pickEls, nameInput, installBtn
-            }));
-            actions.append(nameInput, installBtn);
+            installBtn.addEventListener('click', () => installPopularBullets({ pickEls, installBtn }));
+            actions.append(installBtn);
             root.appendChild(actions);
             return root;
         };
 
-        const installPopularBullets = async ({ pickEls, nameInput, installBtn }) => {
+        const installPopularBullets = async ({ pickEls, installBtn }) => {
             const bullets = pickEls.filter(p => p.checked).map(p => p.dataset.bulletText);
             if (bullets.length === 0) return;
-            const name = (nameInput.value || '').trim();
-            if (!name) return;
             installBtn.disabled = true;
             const originalLabel = installBtn.textContent;
             installBtn.textContent = 'Building…';
             try {
-                const create = await fetch('/canvases', {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({ name })
-                });
-                if (!create.ok) throw new Error('create canvas failed: ' + create.status);
-                const createBody = await create.json();
-                const newCanvas = createBody.current || name;
-                const text = bullets.map(b => '- ' + b).join('\n') + '\n';
-                const set = await fetch('/canvas/requirements', {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({ canvas: newCanvas, text })
-                });
-                if (!set.ok) throw new Error('set requirements failed: ' + set.status);
+                const prompt = bullets.map(b => '- ' + b).join('\n');
+                await submitPrompt('./', prompt);
                 closeBrowseOverlay();
-                await switchCanvas(newCanvas);
             } catch (error) {
                 console.error('build canvas failed:', error);
                 installBtn.disabled = false;
