@@ -356,11 +356,22 @@
         }
         .browse-popularity-row {
             display: grid;
-            grid-template-columns: 2.6em 1fr;
+            grid-template-columns: 1.1em 2.6em 1fr;
             align-items: baseline;
-            gap: 0.65rem;
+            gap: 0.55rem;
             font-size: 0.85rem;
             color: rgba(232, 232, 234, 0.92);
+            cursor: pointer;
+            padding: 0.1rem 0.05rem;
+            border-radius: 4px;
+        }
+        .browse-popularity-row:hover {
+            background: rgba(96, 165, 250, 0.06);
+        }
+        .browse-popularity-pick {
+            margin: 0;
+            cursor: pointer;
+            transform: translateY(2px);
         }
         .browse-popularity-count {
             font-family: ui-monospace, Menlo, monospace;
@@ -372,6 +383,38 @@
         .browse-popularity-text {
             line-height: 1.35;
         }
+        .browse-popularity-actions {
+            margin-top: 0.55rem;
+            padding-top: 0.6rem;
+            border-top: 1px dashed rgba(96, 165, 250, 0.18);
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .browse-popularity-name {
+            font: inherit;
+            font-size: 0.85rem;
+            background: rgba(15, 15, 18, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 6px;
+            padding: 0.4rem 0.6rem;
+            color: rgba(232, 232, 234, 0.95);
+        }
+        .browse-popularity-name:focus { outline: none; border-color: rgba(96, 165, 250, 0.55); }
+        .browse-popularity-install {
+            font: inherit;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #fff;
+            background: rgba(59, 130, 246, 0.9);
+            border: 1px solid rgba(96, 165, 250, 0.65);
+            border-radius: 6px;
+            padding: 0.4rem 0.85rem;
+            cursor: pointer;
+        }
+        .browse-popularity-install:hover:not(:disabled) { background: rgba(59, 130, 246, 1); }
+        .browse-popularity-install:disabled { opacity: 0.6; cursor: progress; }
         .browse-result {
             padding: 0.7rem 0.85rem;
             margin: 0.3rem 0;
@@ -3283,31 +3326,95 @@
                 .map(([norm, count]) => ({ text: canonical.get(norm) || norm, count }));
         };
 
-        const renderBrowsePopularity = (results) => {
+        const renderBrowsePopularity = (results, query) => {
             if (!results || results.length < 2) return null;
             const histogram = computeBulletHistogram(results);
             if (histogram.length === 0) return null;
             const root = document.createElement('div');
             root.className = 'browse-popularity';
             root.dataset.popularitySample = String(results.length);
+
             const heading = document.createElement('div');
             heading.className = 'browse-popularity-heading';
             heading.textContent = 'Across ' + results.length + ' result' + (results.length === 1 ? '' : 's');
             root.appendChild(heading);
+
+            const pickEls = [];
             for (const { text, count } of histogram) {
-                const row = document.createElement('div');
+                const row = document.createElement('label');
                 row.className = 'browse-popularity-row';
                 row.dataset.count = String(count);
+                const pick = document.createElement('input');
+                pick.type = 'checkbox';
+                pick.className = 'browse-popularity-pick';
+                pick.checked = true;
+                pick.dataset.bulletText = text;
+                pickEls.push(pick);
                 const countEl = document.createElement('span');
                 countEl.className = 'browse-popularity-count';
                 countEl.textContent = count + '/' + results.length;
                 const textEl = document.createElement('span');
                 textEl.className = 'browse-popularity-text';
                 textEl.textContent = text;
-                row.append(countEl, textEl);
+                row.append(pick, countEl, textEl);
                 root.appendChild(row);
             }
+
+            // Install affordance: synthesize a new canvas from the selected
+            // bullets. Uses POST /canvases to create the canvas, then POST
+            // /canvas/requirements to write the feature-requirements text —
+            // the harness's own /canvas/requirements dispatcher kicks the
+            // active agent to reconcile the new canvas.
+            const actions = document.createElement('div');
+            actions.className = 'browse-popularity-actions';
+            const nameInput = document.createElement('input');
+            nameInput.type = 'text';
+            nameInput.className = 'browse-popularity-name';
+            nameInput.placeholder = 'canvas name';
+            nameInput.value = (query || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'popular';
+            const installBtn = document.createElement('button');
+            installBtn.type = 'button';
+            installBtn.className = 'browse-popularity-install';
+            installBtn.textContent = 'Build canvas';
+            installBtn.addEventListener('click', () => installPopularBullets({
+                pickEls, nameInput, installBtn
+            }));
+            actions.append(nameInput, installBtn);
+            root.appendChild(actions);
             return root;
+        };
+
+        const installPopularBullets = async ({ pickEls, nameInput, installBtn }) => {
+            const bullets = pickEls.filter(p => p.checked).map(p => p.dataset.bulletText);
+            if (bullets.length === 0) return;
+            const name = (nameInput.value || '').trim();
+            if (!name) return;
+            installBtn.disabled = true;
+            const originalLabel = installBtn.textContent;
+            installBtn.textContent = 'Building…';
+            try {
+                const create = await fetch('/canvases', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                if (!create.ok) throw new Error('create canvas failed: ' + create.status);
+                const createBody = await create.json();
+                const newCanvas = createBody.current || name;
+                const text = bullets.map(b => '- ' + b).join('\n') + '\n';
+                const set = await fetch('/canvas/requirements', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ canvas: newCanvas, text })
+                });
+                if (!set.ok) throw new Error('set requirements failed: ' + set.status);
+                closeBrowseOverlay();
+                await switchCanvas(newCanvas);
+            } catch (error) {
+                console.error('build canvas failed:', error);
+                installBtn.disabled = false;
+                installBtn.textContent = originalLabel;
+            }
         };
 
         const renderBrowseResults = (results) => {
@@ -3316,7 +3423,7 @@
                 return;
             }
             const frag = document.createDocumentFragment();
-            const popularity = renderBrowsePopularity(results);
+            const popularity = renderBrowsePopularity(results, browseInput.value);
             if (popularity) frag.appendChild(popularity);
             for (const r of results) frag.appendChild(renderBrowseResult(r));
             browseResults.replaceChildren(frag);
