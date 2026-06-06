@@ -58,7 +58,7 @@
             width: min(24rem, 100%);
         }
 
-        .canvas-repair-item .component-flip-button {
+        .canvas-repair-item .component-chrome {
             display: none;
         }
 
@@ -950,18 +950,41 @@
             color: rgba(17, 24, 39, 0.94) !important;
         }
 
-        .component-flip-button {
+        .component-flip-button:focus-visible {
+            outline: 2px solid rgba(96, 165, 250, 0.65);
+            outline-offset: 2px;
+        }
+
+        /* Shared chrome row at the component frame's top-right. Holds the
+           Requirements flip-button and (when a runtime error has been
+           attributed to this component) the runtime Repair button. Both are
+           regular flex children — no hardcoded right-offsets per button,
+           sizes naturally without re-aligning math. */
+        .component-chrome {
             position: absolute;
             right: 0.75rem;
             top: -1.1rem;
             z-index: 40;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
             opacity: 0;
-            transition: opacity 120ms ease, background 120ms ease;
+            transition: opacity 120ms ease;
         }
 
-        .harness-component-frame-watcher:hover .component-flip-button,
-        .component-flip-button:focus-visible {
+        .harness-component-frame-watcher:hover .component-chrome,
+        .component-chrome:focus-within {
             opacity: 1;
+        }
+
+        [data-runtime-repair-callback][hidden] {
+            display: none;
+        }
+        /* When visible, dissolve the wrapper into its parent's flex layout
+           so the inner button becomes a direct flex child of .component-chrome.
+           Avoids the "inline custom element as flex item" rendering edge case. */
+        [data-runtime-repair-callback]:not([hidden]) {
+            display: contents;
         }
 
         .component-requirements-status {
@@ -970,27 +993,6 @@
         }
 
         .component-requirements-status:empty {
-            display: none;
-        }
-
-        /* Runtime-error Repair: a Repair button that sits to the left of
-           Requirements on the same chrome row, hidden until the runtime
-           listener attributes an error to this component. The button itself
-           uses .requirements-repair styling; this wrapper just positions
-           and hover-reveals it like the Requirements flip. */
-        [data-runtime-repair-callback] {
-            position: absolute;
-            right: 9rem;
-            top: -1.1rem;
-            z-index: 40;
-            opacity: 0;
-            transition: opacity 120ms ease;
-        }
-        .harness-component-frame-watcher:hover [data-runtime-repair-callback],
-        [data-runtime-repair-callback]:focus-within {
-            opacity: 1;
-        }
-        [data-runtime-repair-callback][hidden] {
             display: none;
         }
 
@@ -1048,7 +1050,7 @@
             overflow: hidden;
         }
 
-        .requirements-overlay .component-flip-button {
+        .requirements-overlay .component-chrome {
             display: none;
         }
 
@@ -2689,31 +2691,41 @@
                 '<div class="component-requirements-status" data-feature-status aria-live="polite"></div>'
             ].join('');
 
+            // Chrome row at the top-right of the frame: holds Requirements
+            // (always present) and the runtime Repair button (only visible
+            // when a runtime error has been attributed to this component).
+            // Flex layout means padding/size changes never force re-aligning
+            // hardcoded offsets, and both buttons share the same hover/focus
+            // reveal because the chrome owns it.
+            const chrome = document.createElement('div');
+            chrome.className = 'component-chrome';
+
+            // Runtime-error Repair button. Hidden by default; the runtime
+            // listener flips it on via syncRuntimeRepairButton when a throw
+            // is attributed here. The <liquidos-callback> wrapper means
+            // clicking it dispatches the agent via the existing frame-level
+            // liquidos:callback handler. Wears the same .component-flip-button
+            // class as Requirements so the two read as a matched pair.
+            const runtimeRepair = document.createElement('liquidos-callback');
+            runtimeRepair.setAttribute('on', 'click');
+            runtimeRepair.dataset.runtimeRepairCallback = 'true';
+            runtimeRepair.hidden = true;
+            runtimeRepair.innerHTML = '<button type="button" class="component-flip-button">Repair</button>';
+
             const flipButton = document.createElement('button');
             flipButton.type = 'button';
             flipButton.className = 'component-flip-button';
             flipButton.dataset.componentFlip = 'true';
             flipButton.textContent = 'Requirements';
 
-            // Runtime-error Repair button: sits next to Requirements, hidden
-            // until the runtime listener attributes an error to this
-            // component. The <liquidos-callback> wrapper means clicking it
-            // dispatches the agent via the existing frame-level
-            // liquidos:callback handler. Uses the shared .requirements-repair
-            // styling so it reads as the same kind of action as the other
-            // Repair buttons in the app.
-            const runtimeRepair = document.createElement('liquidos-callback');
-            runtimeRepair.setAttribute('on', 'click');
-            runtimeRepair.dataset.runtimeRepairCallback = 'true';
-            runtimeRepair.hidden = true;
-            runtimeRepair.innerHTML = '<button type="button" class="requirements-repair">Repair</button>';
+            chrome.append(runtimeRepair, flipButton);
 
             const status = document.createElement('div');
             status.className = 'status';
             status.hidden = true;
 
             front.append(surface);
-            frame.append(flipButton, runtimeRepair, front, back);
+            frame.append(chrome, front, back);
             item.append(frame, status);
             flipButton.addEventListener('click', () => {
                 showComponentSide(item, item.dataset.side === 'back' ? 'front' : 'back');
@@ -2873,13 +2885,12 @@
                 morphInto(surface, component.html || '');
             }
             if (htmlChanged || resourcesChanged) {
-                // A code change clears any prior runtime error — the new code
-                // gets a fresh shot. The new mount() may immediately fail
-                // again, in which case the error path re-records.
-                if (item.__runtimeError) {
-                    item.__runtimeError = null;
-                    syncRuntimeRepairButton(item);
-                }
+                // Don't clear __runtimeError on re-mount. render.js regenerates
+                // view.json with a fresh port every time it restarts, which
+                // flips htmlChanged true on every service blip — that's noise,
+                // not a code fix. Same shape as the modal's __requirementsOverlay
+                // filter: render leaves overlaid UI state alone. The next
+                // throw overwrites; a page reload clears.
                 mountComponentFunctions(item, component);
             }
         };

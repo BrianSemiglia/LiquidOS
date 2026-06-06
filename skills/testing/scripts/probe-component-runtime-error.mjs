@@ -79,6 +79,19 @@ try {
         exitCode = 1;
     }
 
+    // 2b) Hover the component frame and confirm the Repair button is
+    // actually visible (i.e. the wrapper is hidden=false AND the chrome's
+    // hover-reveal opacity transition completed). This catches the class
+    // of regression where the wrapper exists in the DOM but is visually
+    // hidden by CSS.
+    await page.locator('.harness-component-frame-watcher').first().hover();
+    await sleep(300);
+    const repairVisible = await page.locator('[data-runtime-repair-callback] button').isVisible();
+    if (!repairVisible) {
+        console.error('FAIL: Repair button not visible after hovering the frame');
+        exitCode = 1;
+    }
+
     // 3) Diagnostics/status.json gets runtime.ok:false. The POST is
     // best-effort and asynchronous so allow a short window to land.
     const statusPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'diagnostics', 'status.json');
