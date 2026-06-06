@@ -2030,11 +2030,11 @@
         //   forgot to .catch().
         //
         // Attribution: hunt for any known resources.functions.url in the
-        // stack/filename. Hits POST to /diagnostics under category "runtime"
-        // and surface a wrench button next to the component's Requirements
-        // flip. Misses are dropped to console.warn — no visible UI; the
-        // dispatch path for unattributable runtime errors lives elsewhere
-        // (or doesn't yet, by design).
+        // stack/filename. Hits POST to /diagnostics under category "runtime".
+        // The server broadcasts on that POST → client refetches /input →
+        // component.needsRepair flips → the Repair button renders.
+        // No in-memory state on the item; no event-specific clearance.
+        // Misses (no attribution) drop to console.warn.
 
         const RUNTIME_DEDUPE_MS = 1500;
         const recentRuntimeKeys = new Map();
@@ -2067,30 +2067,26 @@
             return false;
         };
 
-        const recordRuntimeErrorForComponent = (componentPath, info) => {
-            const item = renderedItemsByPath.get(componentPath);
-            if (item) {
-                item.__runtimeError = info;
-                syncRuntimeRepairButton(item);
+        const ingestRuntimeError = info => {
+            if (!info.message) return;
+            const key = (info.componentPath || '__unknown__') + '|' + info.message;
+            if (dedupeRuntimeError(key)) return;
+            if (!info.componentPath) {
+                console.warn('runtime error not attributed to any component:', info.message);
+                return;
             }
-            reportDiagnostic({ componentPath }, 'runtime', {
+            // POST runtime status to diagnostics. The server broadcasts on
+            // POST /diagnostics, which triggers /input refresh, which sets
+            // component.needsRepair = true. The Repair button renders from
+            // that — no in-memory state on the item, no special-case
+            // tracking of "did the user click it" or "has time passed".
+            reportDiagnostic({ componentPath: info.componentPath }, 'runtime', {
                 ok: false,
                 error: info.message,
                 stack: info.stack || '',
                 source: info.filename || '',
                 kind: info.kind
             });
-        };
-
-        const ingestRuntimeError = info => {
-            if (!info.message) return;
-            const key = (info.componentPath || '__unknown__') + '|' + info.message;
-            if (dedupeRuntimeError(key)) return;
-            if (info.componentPath) {
-                recordRuntimeErrorForComponent(info.componentPath, info);
-            } else {
-                console.warn('runtime error not attributed to any component:', info.message);
-            }
         };
 
         window.addEventListener('error', event => {
@@ -2424,29 +2420,23 @@
             callback.hidden = false;
         };
 
-        // Runtime-error Repair button. Sits next to the Requirements flip on
-        // the front, hidden by default. Visible only when a post-mount
-        // window.error / unhandledrejection has been attributed to this
-        // component (item.__runtimeError set by ingestRuntimeError). Wraps a
-        // liquidos-callback so clicking it dispatches the agent with the
-        // error context; the frame-level liquidos:callback listener handles
-        // the dispatch and uses the same submitPrompt path as Requirements
-        // repair.
+        // Runtime-error Repair button. Pure render: visible iff this
+        // component's needsRepair is true in /input (derived from
+        // diagnostics/status.json by canvas/graph.js). No in-memory state,
+        // no event tracking. State changes upstream (POST /diagnostics →
+        // broadcast → /input → updateComponentItem here), the button
+        // tracks. The agent reads diagnostics for the error details — the
+        // prompt body just names the event.
         const syncRuntimeRepairButton = item => {
             const callback = item.querySelector('[data-runtime-repair-callback]');
             if (!callback) return;
-            const error = item.__runtimeError;
-            if (!error) {
+            const component = item.__component;
+            if (!component?.needsRepair) {
                 callback.hidden = true;
                 return;
             }
-            const scope = item.__component?.componentPath || '';
-            const stack = String(error.stack || '').slice(0, 1200);
-            const indentedStack = stack ? stack.split('\n').map(line => '    ' + line).join('\n') : '';
-            const prompt = 'The component threw a runtime error: ' + String(error.message || 'unknown error')
-                + (indentedStack ? '\n' + indentedStack : '');
-            callback.setAttribute('scope', scope);
-            callback.setAttribute('prompt', prompt);
+            callback.setAttribute('scope', component.componentPath || '');
+            callback.setAttribute('prompt', 'The component threw a runtime error.');
             callback.hidden = false;
         };
 
@@ -2924,14 +2914,13 @@
                 morphInto(surface, component.html || '');
             }
             if (htmlChanged || resourcesChanged) {
-                // Don't clear __runtimeError on re-mount. render.js regenerates
-                // view.json with a fresh port every time it restarts, which
-                // flips htmlChanged true on every service blip — that's noise,
-                // not a code fix. Same shape as the modal's __requirementsOverlay
-                // filter: render leaves overlaid UI state alone. The next
-                // throw overwrites; a page reload clears.
                 mountComponentFunctions(item, component);
             }
+            // Re-render chrome from current /input state. Runtime Repair is
+            // pure-render: visibility is component.needsRepair. State lives
+            // in diagnostics; the harness broadcasts on diagnostics writes;
+            // this call paints the result.
+            syncRuntimeRepairButton(item);
         };
 
 
@@ -2974,7 +2963,11 @@
                 // previous presentation set (transforms, absolute positions,
                 // animations) get cleared, so the new place() call starts from
                 // a known state without needing each presentation to do its
-                // own defensive resets.
+                // own defensive resets. Same logic for parents: items whose
+                // parent isn't currently in the document (e.g. items still
+                // pinned to a torn-down canvas's per-item wrapper) get
+                // detached, so the new presentation's place() doesn't see
+                // a stale `.foo-card` parent and skip re-wrapping.
                 nextItems.forEach(item => {
                     item.style.position = '';
                     item.style.left = '';
@@ -2984,6 +2977,9 @@
                     item.style.transform = '';
                     item.style.animation = '';
                     item.style.zIndex = '';
+                    if (item.parentElement && !document.contains(item.parentElement)) {
+                        item.parentElement.removeChild(item);
+                    }
                 });
                 // Items currently inside the requirements modal are physically
                 // outside the canvas tree. Don't hand them to place() — that

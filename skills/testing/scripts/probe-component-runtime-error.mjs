@@ -3,16 +3,18 @@
 // probe-component-runtime-error.mjs
 //
 // The fixture's runtime-error/functions.js mounts cleanly, then throws
-// asynchronously via setTimeout. window.onerror in the harness attributes
-// the error to the component by matching its stack against the known
-// functions.js URL, then:
-//   1. unhides [data-runtime-repair-callback] (the wrench button next to
-//      the Requirements flip on the front face), with the error message
-//      baked into its prompt attribute, and
-//   2. POSTs to /diagnostics so the component's diagnostics/status.json
-//      gets runtime.ok:false.
+// asynchronously via setTimeout. The harness:
+//   1. window.onerror attributes the throw to this component (matches
+//      the stack against the known functions.js URL),
+//   2. POSTs to /diagnostics with runtime.ok:false,
+//   3. the server broadcasts so /input refreshes,
+//   4. graph.js derives component.needsRepair = true,
+//   5. the client renders the Repair button.
 //
-// Probe asserts on both.
+// State drives render. The button persists across incidental re-mounts
+// because it's driven by the diagnostics file, not in-memory state. It
+// clears when diagnostics is updated to ok:true (no special-case event
+// handling, no timers).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -49,6 +51,8 @@ const sandbox = await new Promise((resolve, reject) => {
 const cleanup = () => { try { launcher.kill('SIGTERM'); } catch {} };
 process.on('SIGINT', () => { cleanup(); process.exit(130); });
 
+const statusPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'diagnostics', 'status.json');
+
 let exitCode = 0;
 try {
     const browser = await chromium.launch({ headless: true });
@@ -57,7 +61,7 @@ try {
     await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('[data-runtime-error]', { timeout: 20000 });
 
-    // 1) Wrench callback appears next to the flip button.
+    // 1) Repair callback appears once diagnostics shows runtime.ok:false.
     await page.waitForFunction(
         () => {
             const cb = document.querySelector('[data-runtime-repair-callback]');
@@ -65,25 +69,15 @@ try {
         },
         { timeout: 8000 }
     );
-    const promptOnCallback = await page.locator('[data-runtime-repair-callback]').getAttribute('prompt');
-    console.log('runtime repair prompt:', (promptOnCallback || '').slice(0, 140) + '…');
-    if (!promptOnCallback || !promptOnCallback.includes('SIMULATED_RUNTIME_ERROR_FOR_TEST')) {
-        console.error('FAIL: runtime repair prompt does not embed the error message');
-        exitCode = 1;
-    }
 
-    // 2) The button inside the callback is real and clickable.
+    // 2) Button reads "Repair".
     const buttonText = (await page.locator('[data-runtime-repair-callback] button').textContent() || '').trim();
     if (buttonText !== 'Repair') {
         console.error('FAIL: runtime repair button text is "' + buttonText + '", expected "Repair"');
         exitCode = 1;
     }
 
-    // 2b) Hover the component frame and confirm the Repair button is
-    // actually visible (i.e. the wrapper is hidden=false AND the chrome's
-    // hover-reveal opacity transition completed). This catches the class
-    // of regression where the wrapper exists in the DOM but is visually
-    // hidden by CSS.
+    // 2b) Visible after hovering the frame.
     await page.locator('.harness-component-frame-watcher').first().hover();
     await sleep(300);
     const repairVisible = await page.locator('[data-runtime-repair-callback] button').isVisible();
@@ -92,38 +86,7 @@ try {
         exitCode = 1;
     }
 
-    // 2c) Runtime error survives an incidental re-mount. render.js
-    // services routinely regenerate view.json on restart (port
-    // substitution), which flips htmlChanged true even though no code
-    // was fixed. The Repair button must not vanish on that path —
-    // re-mounts should leave runtime UI state alone, same shape as the
-    // modal's __requirementsOverlay filter. Simulate by directly
-    // rewriting view.json with a trivial difference; assert the button
-    // stays visible throughout the next ~250ms.
-    const viewJsonPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'presented', 'view.json');
-    const originalView = fs.readFileSync(viewJsonPath, 'utf8');
-    const parsed = JSON.parse(originalView);
-    parsed.html = String(parsed.html || '') + '<!-- regenerated -->';
-    fs.writeFileSync(viewJsonPath, JSON.stringify(parsed, null, 2) + '\n');
-    let flickerDetected = false;
-    for (let t = 0; t < 10; t++) {
-        await sleep(25);
-        await page.locator('.harness-component-frame-watcher').first().hover();
-        const stillVisible = await page.locator('[data-runtime-repair-callback] button').isVisible();
-        if (!stillVisible) {
-            flickerDetected = true;
-            console.error(`FAIL: Repair button disappeared at t=${(t * 25 + 25)}ms after view.json regeneration (re-mount cleared __runtimeError)`);
-            exitCode = 1;
-            break;
-        }
-    }
-    if (!flickerDetected) {
-        console.log('repair button persisted across re-mount: ok');
-    }
-
-    // 3) Diagnostics/status.json gets runtime.ok:false. The POST is
-    // best-effort and asynchronous so allow a short window to land.
-    const statusPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'diagnostics', 'status.json');
+    // 2c) Diagnostics gets runtime.ok:false.
     let runtimeWritten = false;
     for (let i = 0; i < 20 && !runtimeWritten; i++) {
         try {
@@ -138,9 +101,52 @@ try {
         if (!runtimeWritten) await sleep(150);
     }
     if (!runtimeWritten) {
-        console.error('FAIL: diagnostics/status.json did not get runtime.ok:false with the error message');
+        console.error('FAIL: diagnostics/status.json did not get runtime.ok:false');
         exitCode = 1;
     }
+
+    // 2d) Repair persists across incidental re-mounts (state lives on disk,
+    // not in JS memory). Touch view.json to flip htmlChanged → re-mount;
+    // assert the button stays visible.
+    const viewJsonPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'presented', 'view.json');
+    const originalView = fs.readFileSync(viewJsonPath, 'utf8');
+    const parsed = JSON.parse(originalView);
+    parsed.html = String(parsed.html || '') + '<!-- regenerated -->';
+    fs.writeFileSync(viewJsonPath, JSON.stringify(parsed, null, 2) + '\n');
+    let flickerDetected = false;
+    for (let t = 0; t < 10; t++) {
+        await sleep(25);
+        await page.locator('.harness-component-frame-watcher').first().hover();
+        const stillVisible = await page.locator('[data-runtime-repair-callback] button').isVisible();
+        if (!stillVisible) {
+            flickerDetected = true;
+            console.error(`FAIL: Repair button disappeared at t=${(t * 25 + 25)}ms after view.json regeneration`);
+            exitCode = 1;
+            break;
+        }
+    }
+    if (!flickerDetected) {
+        console.log('repair button persisted across re-mount: ok');
+    }
+
+    // 3) A code edit clears the Repair button. The harness's file watcher
+    // sees any presented/ edit (other than the auto-regenerated view.json)
+    // as a repair attempt and clears runtime — the new code gets a fresh
+    // slate. Replace functions.js with a version that doesn't throw and
+    // assert the button disappears.
+    const functionsJsPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'presented', 'functions.js');
+    fs.writeFileSync(functionsJsPath, 'export const mount = (surface) => { return () => {}; };\n');
+    await page.waitForFunction(
+        () => {
+            const cb = document.querySelector('[data-runtime-repair-callback]');
+            return cb && cb.hidden === true;
+        },
+        { timeout: 5000 }
+    ).catch(() => {
+        console.error('FAIL: Repair button did not disappear after editing presented/functions.js');
+        exitCode = 1;
+    });
+    if (!exitCode) console.log('repair button cleared after code edit: ok');
 
     if (!exitCode) console.log('PASS');
     await browser.close();

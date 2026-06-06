@@ -141,6 +141,24 @@ const createCanvasGraph = ({
         }
     };
 
+    // componentNeedsRepair derives one boolean per component from
+    // diagnostics/status.json — true iff any category recorded ok:false.
+    // Rendering reads this so the Repair button is a pure function of
+    // state. The file is the single source of truth (agent reads it per
+    // skills/component/SKILL.md convention); this is just a one-line
+    // summary at the harness/render boundary so the client doesn't have
+    // to know the file schema.
+    const componentNeedsRepair = componentPath => {
+        try {
+            const statusPath = path.join(componentDiagnosticsPath(componentPath), 'status.json');
+            if (!fs.existsSync(statusPath)) return false;
+            const data = JSON.parse(fs.readFileSync(statusPath, 'utf8')) || {};
+            return Object.values(data).some(entry => entry && entry.ok === false);
+        } catch (error) {
+            return false;
+        }
+    };
+
     const appendServiceLog = (componentPath, text) => {
         try {
             const diagnosticsDir = componentDiagnosticsPath(componentPath);
@@ -333,7 +351,8 @@ const createCanvasGraph = ({
                 scope: componentScope(componentPath),
                 repairLevel: component.repairLevel || '',
                 html: renderedHtml(componentPath, component),
-                resources: renderedResources(componentPath, component.resources || {})
+                resources: renderedResources(componentPath, component.resources || {}),
+                needsRepair: componentNeedsRepair(componentPath)
             });
             return {
                 canvasPath: getCanvasPath(),

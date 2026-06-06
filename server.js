@@ -1414,6 +1414,16 @@ const refreshGraphWatchers = () => {
                 if (entry.kind === 'component' && filename) {
                     const isPresented = filename === 'presented' || filename.startsWith('presented/');
                     if (!isPresented) return;
+                    // A presented/ edit is the agent's (or human's) attempt
+                    // to repair. Clear the runtime category so the Repair
+                    // button gets the new code a fresh slate. If the bug
+                    // is still there, the next throw POSTs ok:false again.
+                    // Exclude view.json — render.js auto-regenerates it on
+                    // every service restart (port substitution), which is
+                    // service-internal churn, not a code edit.
+                    if (filename !== 'presented/view.json') {
+                        canvasGraph.updateDiagnostics(entry.path, 'runtime', { ok: true, error: null });
+                    }
                 }
                 // The canvas-root watch covers canvas.js (presentation reload).
                 if (entry.kind === 'canvas-root' && filename) {
@@ -2201,6 +2211,11 @@ const server = http.createServer(async (req, res) => {
                 }
 
                 canvasGraph.updateDiagnostics(componentDir, category, data);
+                // Diagnostics files are deliberately outside the harness's
+                // file-watcher refresh path (they'd thrash on every status
+                // update). Broadcast here so the client refetches /input
+                // and the Repair button's needsRepair tracks state.
+                broadcast();
                 send(res, 204, '');
             } catch (error) {
                 send(res, 400, error.message);
