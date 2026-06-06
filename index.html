@@ -863,6 +863,13 @@
             justify-self: end;
         }
 
+        /* Requirements modal: the item is physically moved out of the
+           canvas tree into this overlay element on body, so descendant-
+           containing-block traps (transforms / perspective / backdrop-
+           filter set by 3D canvas presentations) can't affect it. The
+           render path leaves overlay'd items alone — see the placeholder
+           swap before place() in commit() — so the prior race that
+           stranded an empty overlay can't happen. */
         .requirements-overlay {
             position: fixed;
             inset: 0;
@@ -876,31 +883,34 @@
         }
 
         .requirements-overlay .item {
-            width: min(760px, calc(100vw - 3rem));
+            width: min(1200px, calc(100vw - 3rem));
             min-width: 0;
         }
 
+        /* Side-by-side: live component on the left, requirements editor
+           on the right. */
         .requirements-overlay .harness-component-frame-watcher {
             width: 100%;
             height: min(620px, calc(100vh - 4rem));
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(360px, 0.5fr);
+            column-gap: 1.5rem;
         }
 
         .requirements-overlay .component-face {
+            grid-area: auto;
+            min-width: 0;
             min-height: 0;
             height: 100%;
             box-sizing: border-box;
-        }
-
-        .requirements-overlay .component-front {
-            opacity: 0;
-            visibility: hidden;
-            pointer-events: none;
+            overflow: auto;
         }
 
         .requirements-overlay .component-back {
             display: grid;
             grid-template-rows: auto minmax(0, 1fr) auto;
             padding: 1.25rem;
+            overflow: hidden;
         }
 
         .requirements-overlay .component-flip-button {
@@ -917,6 +927,15 @@
             min-height: 3rem;
             visibility: hidden;
             pointer-events: none;
+        }
+
+        @media (max-width: 900px) {
+            .requirements-overlay .harness-component-frame-watcher {
+                grid-template-columns: 1fr;
+                grid-template-rows: minmax(0, 1fr) minmax(240px, 0.5fr);
+                column-gap: 0;
+                row-gap: 1rem;
+            }
         }
 
 
@@ -1803,10 +1822,11 @@
 
 
         const destroyComponentFunctions = item => {
-            if (item.__requirementsOverlay || item.__requirementsPlaceholder) {
-                closeRequirementsOverlay(item);
-            }
-
+            // Note: this is called for both EVICTION and benign RE-MOUNTS
+            // (mountComponentFunctions calls it first to clean up the prior
+            // mount). It must NOT close the requirements modal — re-mount
+            // happens any time html changes, including while the modal is
+            // open. Modal close on eviction is handled at the eviction site.
             const mounted = componentMountsByItem.get(item);
 
             // mount() may return either a cleanup function (React-style)
@@ -2144,43 +2164,54 @@
             }
         };
 
-        const clearRequirementsOverlayState = item => {
-            if (!item) {
-                return;
-            }
+        // The requirements editor opens by moving the item OUT of the
+        // canvas tree into a body-level overlay. We can't just CSS-pin
+        // it in place: presentation canvases that use perspective /
+        // transform-style:preserve-3d (e.g., the 3D gadgets scene) create
+        // containing blocks that trap descendant fixed elements, so the
+        // item never escapes to the viewport. Moving the item physically
+        // sidesteps that.
+        //
+        // The render path (commit() in renderCanvas) is taught to leave
+        // overlay'd items alone — see the .__requirementsOverlay filter
+        // before place() — so the prior race (render yanking the item back
+        // and stranding the overlay) is gone.
 
+        const clearRequirementsOverlayState = item => {
+            if (!item) return;
             if (item.__requirementsOverlay) {
                 item.__requirementsOverlay.remove();
             }
-
             item.__requirementsPlaceholder = null;
             item.__requirementsOverlay = null;
         };
 
         const closeRequirementsOverlay = item => {
+            if (!item) return;
             if (!item.__requirementsPlaceholder || !item.__requirementsOverlay) {
                 if (openRequirementsComponentPath === item?.dataset?.componentPath) {
                     openRequirementsComponentPath = '';
                 }
                 return;
             }
-
             item.dataset.side = 'front';
-            item.querySelector('[data-component-flip]').textContent = 'Requirements';
+            const flip = item.querySelector('[data-component-flip]');
+            if (flip) flip.textContent = 'Requirements';
             if (item.__requirementsPlaceholder.isConnected) {
                 item.__requirementsPlaceholder.replaceWith(item);
             }
             clearRequirementsOverlayState(item);
-
             if (openRequirementsComponentPath === item.dataset.componentPath) {
                 openRequirementsComponentPath = '';
             }
+            // Re-place the item: presentations like the 3D gadgets canvas
+            // assign per-item transforms in place(); without a render the
+            // returned item would sit at the default origin.
+            scheduleRepositionAfterModalClose();
         };
 
         const openRequirementsOverlay = item => {
-            if (!item) {
-                return;
-            }
+            if (!item) return;
 
             clearRequirementsOverlayState(item);
 
@@ -2195,25 +2226,69 @@
             overlay.append(item);
             document.body.append(overlay);
 
+            overlay.addEventListener('click', event => {
+                if (event.target === overlay) closeRequirementsOverlay(item);
+            });
+
             item.dataset.side = 'back';
-            item.querySelector('[data-component-flip]').textContent = 'Close';
+            const flip = item.querySelector('[data-component-flip]');
+            if (flip) flip.textContent = 'Close';
             openRequirementsComponentPath = item.dataset.componentPath || '';
+
+            // Force a harness render so the canvas's cached lastItems is
+            // updated to include the placeholder instead of the real item.
+            // Without this, the canvas's own state observers (e.g., the
+            // gadgets 3D canvas re-placing on state.json changes) iterate
+            // the stale cache and `cardWrap.appendChild(item)` yanks the
+            // real item out of the overlay back into the canvas.
+            scheduleRepositionAfterModal();
         };
 
+        // After a modal open or close, force a synchronous harness render.
+        //   - On open: updates the canvas's lastItems cache to point at the
+        //     placeholder, so its own state-driven re-places don't grab the
+        //     real item out of the overlay.
+        //   - On close: re-places the item that just returned to #app (for
+        //     transform-based canvases that assign per-item transforms in
+        //     place()).
+        const scheduleRepositionAfterModal = () => {
+            if (typeof renderCanvas !== 'function') return;
+            const items = latestComponents.map(component =>
+                renderedItemsByPath.get(component.scope) || renderComponent(component));
+            renderCanvas(items, null);
+        };
+
+        // Backwards-compatible alias kept since closeRequirementsOverlay
+        // already calls it. Both open and close go through the same path.
+        const scheduleRepositionAfterModalClose = scheduleRepositionAfterModal;
+
         const restoreOpenRequirementsOverlay = () => {
-            if (!openRequirementsComponentPath) {
-                return;
-            }
-
+            if (!openRequirementsComponentPath) return;
             const item = renderedItemsByPath.get(openRequirementsComponentPath);
-
             if (!item) {
                 openRequirementsComponentPath = '';
                 return;
             }
-
+            // If the item is already inside an overlay (we filtered it out
+            // of place(), so it stayed put), there's nothing to do.
+            if (item.closest('.requirements-overlay')) return;
             openRequirementsOverlay(item);
         };
+
+        // ESC closes the open requirements editor. Works on the item if
+        // we can find it, or falls back to removing any stray overlay.
+        document.addEventListener('keydown', event => {
+            if (event.key !== 'Escape') return;
+            const overlay = document.querySelector('.requirements-overlay');
+            if (!overlay) return;
+            const itemInOverlay = overlay.querySelector('.item');
+            if (itemInOverlay) {
+                closeRequirementsOverlay(itemInOverlay);
+            } else {
+                overlay.remove();
+                openRequirementsComponentPath = '';
+            }
+        });
 
         const showComponentSide = (item, side) => {
             if (side === 'back') {
@@ -2525,6 +2600,9 @@
                 const keepers = new Set(nextItems);
                 Array.from(renderedItemsByPath.entries()).forEach(([path, item]) => {
                     if (!keepers.has(item)) {
+                        if (item.__requirementsOverlay || item.__requirementsPlaceholder) {
+                            closeRequirementsOverlay(item);
+                        }
                         destroyComponentFunctions(item);
                         renderedItemsByPath.delete(path);
                     }
@@ -2545,9 +2623,19 @@
                     item.style.animation = '';
                     item.style.zIndex = '';
                 });
+                // Items currently inside the requirements modal are physically
+                // outside the canvas tree. Don't hand them to place() — that
+                // would move them back into #app and strand the overlay with
+                // no item inside. The modal's placeholder takes their seat in
+                // the presentation so layouts (grid spans, 3D positions) stay
+                // valid.
+                const presentationItems = nextItems.map(item =>
+                    item.__requirementsOverlay && item.__requirementsPlaceholder
+                        ? item.__requirementsPlaceholder
+                        : item);
                 if (currentCanvas) {
                     try {
-                        currentCanvas.place(nextItems, latestComponents);
+                        currentCanvas.place(presentationItems, latestComponents);
                     } catch (error) {
                         // A broken place() shouldn't freeze the canvas. Drop
                         // canvas.js back to "none" — the fallback below will
@@ -2556,13 +2644,13 @@
                         try { currentCanvas.teardown(); } catch {}
                         currentCanvas = null;
                         currentCanvasCacheKey = null;
-                        app.replaceChildren(...nextItems);
+                        app.replaceChildren(...presentationItems);
                         console.error('canvas.js place threw:', error);
                     }
                 } else {
                     // canvas.js not loaded yet; the next render after
                     // loadCanvas resolves will pick this up.
-                    app.replaceChildren(...nextItems);
+                    app.replaceChildren(...presentationItems);
                 }
                 restoreOpenRequirementsOverlay();
                 restoreScrollPosition();

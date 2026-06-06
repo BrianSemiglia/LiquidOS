@@ -1,0 +1,4 @@
+{
+  "title": "Widget",
+  "html": "<div data-widget style=\"padding:1rem;\"><h1>Widget</h1><p>A component with some content to render inside the requirements modal so we can verify both faces show.</p><button data-action type=\"button\">Action</button></div>"
+}
