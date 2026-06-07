@@ -54,6 +54,7 @@ const REQUIRED_GITIGNORE_ENTRIES = [
     '/.claude/',
     '/.codex/',
     '/.hermes/',
+    '/.liquidos/server.log',
     '/.pi/',
     '/.agents/',
     '/AGENTS.md',

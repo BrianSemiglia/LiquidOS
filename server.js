@@ -140,6 +140,38 @@ if (!fs.existsSync(WORKSPACE_PATH) || !fs.statSync(WORKSPACE_PATH).isDirectory()
     failStartup('--workspace does not exist or is not a folder: ' + WORKSPACE_PATH);
 }
 
+// Server log capture: tee every stdout/stderr line to
+// <workspace>/.liquidos/server.log so an agent debugging server-level
+// issues (hangs, agent dispatch loops, file watcher anomalies) has a
+// durable record. Always on — the Mac app pipes console output back into
+// itself and drops everything that isn't a native notification, so this
+// file is the only thing that survives a hung process. The file appends
+// across restarts; each session writes a startup banner with pid + time.
+try {
+    const logDir = path.join(WORKSPACE_PATH, '.liquidos');
+    fs.mkdirSync(logDir, { recursive: true });
+    const logStream = fs.createWriteStream(path.join(logDir, 'server.log'), { flags: 'a' });
+    logStream.write(`\n=== server.js started pid=${process.pid} at ${new Date().toISOString()} workspace=${WORKSPACE_PATH} ===\n`);
+    const tee = (origMethod, level) => (...args) => {
+        try {
+            const line = args
+                .map(a => typeof a === 'string' ? a : (() => { try { return JSON.stringify(a); } catch { return String(a); } })())
+                .join(' ');
+            logStream.write(`[${new Date().toISOString()}] [${level}] ${line}\n`);
+        } catch { /* never let logging break the server */ }
+        origMethod.apply(console, args);
+    };
+    console.log = tee(console.log, 'log');
+    console.error = tee(console.error, 'err');
+    console.warn = tee(console.warn, 'warn');
+    process.on('uncaughtException', error => {
+        try { logStream.write(`[${new Date().toISOString()}] [uncaught] ${error.stack || error.message || error}\n`); } catch {}
+    });
+    process.on('unhandledRejection', reason => {
+        try { logStream.write(`[${new Date().toISOString()}] [unhandled] ${reason && reason.stack ? reason.stack : String(reason)}\n`); } catch {}
+    });
+} catch { /* mkdir / createWriteStream failed — fall back to no file capture */ }
+
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'skills', 'canvas', 'scripts', 'templates');
 const ACTIVE_CANVAS_FILE = path.join(WORKSPACE_PATH, 'active-canvas.json');
 const ACTIVE_AGENT_FILE = path.join(WORKSPACE_PATH, 'active-agent.json');

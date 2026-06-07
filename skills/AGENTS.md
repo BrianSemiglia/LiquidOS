@@ -11,3 +11,5 @@ If you can't figure out what the user is intending, use the canvas to ask them a
 Immediately restore context using the history-and-undo skill.
 
 Do not read files outside the workspace unless the user asks.
+
+When investigating server-level issues (hangs, runaway CPU, agent dispatch loops, file-watcher anomalies), read `.liquidos/server.log` at the workspace root. The harness appends every `console.log` / `console.error` / `console.warn` and uncaught exception there with ISO timestamps. Component-level issues stay in `<component>/diagnostics/` as before.
