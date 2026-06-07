@@ -1278,10 +1278,12 @@ const componentChangePayload = (entries, rendered) => {
     if (entries.length === 0) return null;
     if (!rendered || rendered.canvasError) return null;
 
-    // When only component view files changed, ship the affected components
-    // in a typed event so the client can update them without a full reload.
-    if (entries.every(entry => entry.kind === 'component') && Array.isArray(rendered.components)) {
-        const dirtyFolders = new Set(entries.map(entry => entry.path));
+    // When only component watch entries fired (an edit anywhere inside a
+    // component's presented/ tree), ship the affected components in a typed
+    // event so the client can update them without a full reload.
+    const componentKinds = new Set(['component', 'relationship']);
+    if (entries.every(entry => componentKinds.has(entry.kind)) && Array.isArray(rendered.components)) {
+        const dirtyFolders = new Set(entries.map(entry => entry.componentPath));
         const components = rendered.components.filter(component =>
             dirtyFolders.has(canvasGraph.componentFolderPath(component.componentPath)));
 
@@ -1431,40 +1433,28 @@ const refreshGraphWatchers = () => {
     entries.forEach(entry => {
         try {
             watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, (eventType, filename) => {
-                // Every fs.watch event broadcasts a workspace-file SSE event
-                // so external listeners (canvas.js subscribers, component
-                // services) can re-fetch whatever they care about. The
-                // harness's own kind-specific routing happens after, on top.
                 broadcastWorkspaceFile(entry.path, filename);
 
-                // Component watches are opt-in by path: only events under
-                // presented/ (the live state) trigger the harness's render
-                // refresh. Anything else — data/, diagnostics/, .presented/,
-                // state.json, future siblings — is implicitly ignored by the
-                // harness, even though the workspace-file event still fires
-                // above so canvas.js can observe it if it wants.
-                if (entry.kind === 'component' && filename) {
-                    const isPresented = filename === 'presented' || filename.startsWith('presented/');
-                    if (!isPresented) return;
-                    // A presented/ edit is the agent's (or human's) attempt
-                    // to repair. Clear the runtime category so the Repair
-                    // button gets the new code a fresh slate. If the bug
-                    // is still there, the next throw POSTs ok:false again.
-                    // Exclude view.json — render.js auto-regenerates it on
-                    // every service restart (port substitution), which is
-                    // service-internal churn, not a code edit.
-                    if (filename !== 'presented/view.json') {
-                        canvasGraph.updateDiagnostics(entry.path, 'runtime', { ok: true, error: null });
-                    }
-                }
                 // The canvas-root watch covers canvas.js (presentation reload).
                 if (entry.kind === 'canvas-root' && filename) {
                     if (filename === 'canvas.js') {
                         scheduleWatchRefresh({ ...entry, kind: 'canvas-js' });
-                        return;
                     }
                     return;
                 }
+
+                if (entry.kind === 'component' || entry.kind === 'relationship') {
+                    if (!filename) return;
+                    // view.json is render.js's output, not an agent edit, so
+                    // it shouldn't clear runtime; every other file under
+                    // presented/ is an agent edit and counts as a fix attempt.
+                    if (filename !== 'view.json') {
+                        canvasGraph.updateDiagnostics(entry.componentPath, 'runtime', { ok: true, error: null });
+                    }
+                    scheduleWatchRefresh(entry);
+                    return;
+                }
+
                 scheduleWatchRefresh(entry);
             }));
         } catch (error) {

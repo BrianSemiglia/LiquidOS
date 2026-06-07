@@ -129,13 +129,12 @@ try {
         console.log('repair button persisted across re-mount: ok');
     }
 
-    // 3) A code edit clears the Repair button. The harness's file watcher
-    // sees any presented/ edit (other than the auto-regenerated view.json)
-    // as a repair attempt and clears runtime — the new code gets a fresh
-    // slate. Replace functions.js with a version that doesn't throw and
-    // assert the button disappears.
-    const functionsJsPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'presented', 'functions.js');
-    fs.writeFileSync(functionsJsPath, 'export const mount = (surface) => { return () => {}; };\n');
+    // 3) A services/ edit clears the Repair button. Per the documented
+    // contract (skills/component/SKILL.md), the harness watches
+    // presented/services/ — any edit there is treated as a fix attempt
+    // and clears runtime, giving the new code a fresh slate.
+    const startShPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'presented', 'services', 'start.sh');
+    fs.writeFileSync(startShPath, fs.readFileSync(startShPath, 'utf8') + '# probe edit\n');
     await page.waitForFunction(
         () => {
             const cb = document.querySelector('[data-runtime-repair-callback]');
@@ -143,10 +142,10 @@ try {
         },
         { timeout: 5000 }
     ).catch(() => {
-        console.error('FAIL: Repair button did not disappear after editing presented/functions.js');
+        console.error('FAIL: Repair button did not disappear after editing presented/services/start.sh');
         exitCode = 1;
     });
-    if (!exitCode) console.log('repair button cleared after code edit: ok');
+    if (!exitCode) console.log('repair button cleared after services/ edit: ok');
 
     if (!exitCode) console.log('PASS');
     await browser.close();

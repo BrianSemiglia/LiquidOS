@@ -382,14 +382,23 @@ const createCanvasGraph = ({
         return relative && !relative.startsWith('..') && !path.isAbsolute(relative);
     };
 
-    // One recursive watch per component folder picks up every event inside,
-    // including the presented/ directory swap. Events inside .presented/ (the
-    // agent's staging area) are filtered out at the watch callback in server.js.
-    const componentWatchPaths = componentPaths =>
-        Array.from(new Set(componentPaths
-            .map(componentFolderPath)
-            .filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
-            .filter(isInsideCanvas)));
+    const presentedEntries = (componentPaths, kind) =>
+        componentPaths.flatMap(componentPath => {
+            const presented = path.join(componentFolderPath(componentPath), 'presented');
+            if (!fs.existsSync(presented) || !fs.statSync(presented).isDirectory() || !isInsideCanvas(presented)) {
+                return [];
+            }
+            return [{ path: presented, recursive: true, kind, componentPath }];
+        });
+
+    const relationshipFolderEntries = (componentPaths, kind) =>
+        componentPaths.flatMap(componentPath => {
+            const folder = componentFolderPath(componentPath);
+            if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory() || !isInsideCanvas(folder)) {
+                return [];
+            }
+            return [{ path: folder, recursive: true, kind, componentPath }];
+        });
 
     const watchedPaths = () => {
         const componentPaths = inputEntries().map(entry => entry.componentPath);
@@ -404,15 +413,14 @@ const createCanvasGraph = ({
             // (active-canvas.json, state.json, etc.) don't trigger.
             ...[getCanvasPath()].filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
                 .map(file => ({ path: file, recursive: false, kind: 'canvas-root' })),
-            ...componentWatchPaths(componentPaths).map(file => ({ path: file, recursive: true, kind: 'component' })),
+            ...presentedEntries(componentPaths, 'component'),
             // Non-recursive watch on relationships/ catches add/remove of
             // relationships themselves (a new bridge folder appearing).
             ...(fs.existsSync(relationshipsDirPath) && fs.statSync(relationshipsDirPath).isDirectory()
                 ? [{ path: relationshipsDirPath, recursive: false, kind: 'relationships-root' }]
                 : []),
-            // Recursive watch inside each relationship folder so view/functions
-            // edits trigger a re-render the same way component edits do.
-            ...componentWatchPaths(relationshipPaths).map(file => ({ path: file, recursive: true, kind: 'relationship' }))
+            // Relationships use the same contract as components.
+            ...relationshipFolderEntries(relationshipPaths, 'relationship')
         ];
     };
 
