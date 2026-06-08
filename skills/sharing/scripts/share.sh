@@ -5,7 +5,7 @@ set -euo pipefail
 # share.sh — publish a canvas's requirements for peers to discover.
 #
 # Usage:
-#   bash skills/share/scripts/share.sh <workspace.liquidos> <canvas-name>
+#   bash skills/sharing/scripts/share.sh <workspace.liquidos> <canvas-name>
 #
 # Copies the canvas's feature-requirements.txt and each shared
 # component's feature-requirements.txt into <workspace>/.share/published/

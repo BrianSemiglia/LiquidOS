@@ -6,7 +6,7 @@ set -euo pipefail
 # regenerate the feed without it, set share.json = { "shared": false }.
 #
 # Usage:
-#   bash skills/share/scripts/unshare.sh <workspace.liquidos> <canvas-name>
+#   bash skills/sharing/scripts/unshare.sh <workspace.liquidos> <canvas-name>
 #
 # Tolerant of missing pieces (no bundle, no feed entry, no share.json).
 # Always sets the share flag off if the canvas still exists, even when

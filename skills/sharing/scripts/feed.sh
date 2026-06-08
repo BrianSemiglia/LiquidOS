@@ -5,7 +5,7 @@ set -euo pipefail
 # feed.sh — produce a feed.json from a directory of published bundles.
 #
 # Usage:
-#   bash skills/share/scripts/feed.sh <published-dir> [output-path]
+#   bash skills/sharing/scripts/feed.sh <published-dir> [output-path]
 #
 # Walks every immediate subdirectory of <published-dir> that looks
 # like a bundle (has feature-requirements.txt) and emits a JSON

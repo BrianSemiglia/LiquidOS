@@ -2255,8 +2255,14 @@
         const componentFeatureUrl = component =>
             '/component/' + encodeURIComponent(String(component.componentPath || '')) + '/features';
 
-        const componentShareUrl = component =>
-            '/component/' + encodeURIComponent(String(component.componentPath || '')) + '/share';
+        // /share/<canvas>/<component-leaf>. componentPath is canvas-
+        // relative (e.g. "components/gizmo"); leaf is its last segment.
+        const componentShareUrl = component => {
+            const canvas = (window.liquidos?.canvasName || currentCanvasName || '').trim();
+            const compPath = String(component?.componentPath || '');
+            const leaf = compPath.split('/').filter(Boolean).pop() || '';
+            return '/share/' + encodeURIComponent(canvas) + '/' + encodeURIComponent(leaf);
+        };
 
         // Reflect the per-component share state on the flip-back toggle. The
         // endpoint returns the effective shared state plus the canvas-level
@@ -2300,9 +2306,7 @@
             setShareSwitchUI(button, next, true);
             try {
                 const response = await fetch(componentShareUrl(item.__component), {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({ shared: next })
+                    method: next ? 'PUT' : 'DELETE'
                 });
                 if (!response.ok) throw new Error('toggle failed: ' + response.status);
                 // Re-read effective state so cascade and canvas-gating stay accurate.
@@ -3292,7 +3296,7 @@
             setShareSwitchUI(canvasShareSwitch, false, true);
             try {
                 const response = await fetch(
-                    '/canvas/share?canvas=' + encodeURIComponent(canvasName),
+                    '/share/' + encodeURIComponent(canvasName),
                     { cache: 'no-store' }
                 );
                 if (response.ok) {
@@ -3312,10 +3316,8 @@
             const next = !current;
             setShareSwitchUI(canvasShareSwitch, next, true);
             try {
-                const response = await fetch('/canvas/share', {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({ canvas: canvasReqEditingCanvas, shared: next })
+                const response = await fetch('/share/' + encodeURIComponent(canvasReqEditingCanvas), {
+                    method: next ? 'PUT' : 'DELETE'
                 });
                 if (!response.ok) throw new Error('toggle failed: ' + response.status);
                 const data = await response.json();
@@ -3811,7 +3813,7 @@
         const installBrowseResult = async (result, button) => {
             button.disabled = true;
             try {
-                const response = await fetch('/network/install', {
+                const response = await fetch('/share', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ peerId: result.peerId || null, hash: result.hash })
@@ -3838,7 +3840,7 @@
             }
             renderBrowseLoading();
             try {
-                const response = await fetch('/network/search?q=' + encodeURIComponent(query.trim()));
+                const response = await fetch('/share?q=' + encodeURIComponent(query.trim()));
                 if (token !== browseQueryToken) return; // superseded
                 if (!response.ok) {
                     renderBrowseEmpty('Search failed.');

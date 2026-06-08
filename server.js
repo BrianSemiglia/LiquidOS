@@ -1350,12 +1350,11 @@ const server = http.createServer(async (req, res) => {
             return parts[0] || '';
         };
 
-        // Share toggle is the single share.sh / unshare.sh invocation.
-        // Both scripts own writing share.json and updating .share/feed.json,
-        // so the endpoint doesn't have to coordinate any of the pieces.
+        // Share scripts. Each owns its piece of the share.json/feed.json
+        // shape; the endpoint just decides which one to call.
         const runShareScript = (script, args) => {
             const { spawnSync } = require('node:child_process');
-            const scriptPath = path.join(ROOT, 'skills', 'share', 'scripts', script);
+            const scriptPath = path.join(ROOT, 'skills', 'sharing', 'scripts', script);
             const result = spawnSync('bash', [scriptPath, WORKSPACE_PATH, ...args], { encoding: 'utf8' });
             if (result.status !== 0) {
                 return { ok: false, error: (result.stderr || result.stdout || 'unknown').trim() };
@@ -1363,76 +1362,227 @@ const server = http.createServer(async (req, res) => {
             return { ok: true };
         };
 
-        if (url.pathname === '/canvas/share') {
-            if (req.method === 'GET') {
-                const canvasName = url.searchParams.get('canvas') || '';
-                if (!canvasName) { send(res, 400, 'canvas required'); return; }
-                const flag = readShareFlag(canvasShareFile(canvasName));
-                send(res, 200, JSON.stringify({ shared: flag === true }), 'application/json; charset=utf-8');
+        // /share endpoint family. One namespace, HTTP verbs do the work.
+        //
+        //   GET    /share                       — list bundles
+        //                                         (?q=, ?n=, ?timeout_ms=)
+        //   POST   /share                       — install a bundle
+        //                                         (body: { peerId, hash })
+        //   GET    /share/<canvas>              — read canvas share state
+        //   PUT    /share/<canvas>              — share local canvas
+        //   DELETE /share/<canvas>              — unshare local canvas
+        //   GET    /share/<canvas>/<component>  — read component state
+        //   PUT    /share/<canvas>/<component>  — opt component back in
+        //   DELETE /share/<canvas>/<component>  — opt component out
+        if (url.pathname === '/share' || url.pathname.startsWith('/share/')) {
+            const parts = url.pathname.split('/').filter(Boolean);  // ['share', ...]
+
+            // --- GET /share — list -------------------------------------
+            if (req.method === 'GET' && parts.length === 1) {
+                const query = (url.searchParams.get('q') || '').trim().toLowerCase();
+                const wantN = Math.max(0, Number.parseInt(url.searchParams.get('n') || '0', 10) || 0);
+                const timeoutMs = Math.max(0, Number.parseInt(url.searchParams.get('timeout_ms') || '0', 10) || 0);
+                const matchesQuery = (bundle) => {
+                    if (!query) return true;
+                    const haystack = [
+                        bundle.name || '',
+                        bundle.canvasRequirements || '',
+                        Array.isArray(bundle.components)
+                            ? bundle.components.map(c => typeof c === 'string' ? c : (c?.name || '')).join(' ')
+                            : ''
+                    ].join(' ').toLowerCase();
+                    return haystack.includes(query);
+                };
+                const collectResults = () => {
+                    const acc = [];
+                    const feedFile = path.join(WORKSPACE_PATH, '.share', 'feed.json');
+                    if (fs.existsSync(feedFile)) {
+                        try {
+                            const localFeed = JSON.parse(fs.readFileSync(feedFile, 'utf8'));
+                            for (const bundle of (localFeed.bundles || [])) {
+                                if (matchesQuery(bundle)) acc.push({ ...bundle, peerId: null });
+                            }
+                        } catch { /* fall through */ }
+                    }
+                    if (peerFeedCache) {
+                        for (const [, entry] of peerFeedCache.cache) {
+                            const bundles = entry.feed && Array.isArray(entry.feed.bundles) ? entry.feed.bundles : [];
+                            for (const bundle of bundles) {
+                                if (matchesQuery(bundle)) acc.push({ ...bundle, peerId: entry.peerId });
+                            }
+                        }
+                    }
+                    return acc;
+                };
+                const sleep = ms => new Promise(r => setTimeout(r, ms));
+                const started = Date.now();
+                let results = collectResults();
+                while (wantN > 0 && results.length < wantN && Date.now() - started < timeoutMs) {
+                    await sleep(500);
+                    results = collectResults();
+                }
+                send(res, 200, JSON.stringify({ results }), 'application/json; charset=utf-8');
                 return;
             }
-            if (req.method === 'POST') {
+
+            // --- POST /share — install ---------------------------------
+            if (req.method === 'POST' && parts.length === 1) {
                 let body;
                 try { body = JSON.parse(await readBody(req) || '{}'); }
                 catch { send(res, 400, 'invalid json'); return; }
-                const canvasName = String(body.canvas || '');
+                const peerId = body.peerId || null;
+                const hash = body.hash || '';
+                if (!/^sha256-[0-9a-f]{64}$/.test(hash)) { send(res, 400, 'invalid hash'); return; }
+
+                let entry = null;
+                if (!peerId) {
+                    const feedFile = path.join(WORKSPACE_PATH, '.share', 'feed.json');
+                    let feed = { bundles: [] };
+                    try { feed = JSON.parse(fs.readFileSync(feedFile, 'utf8')); } catch {}
+                    entry = (feed.bundles || []).find(b => b.hash === hash);
+                    if (!entry) { send(res, 404, 'bundle not found in local feed'); return; }
+                } else {
+                    if (!networkNode || !networkModule || !peerFeedCache) {
+                        send(res, 503, 'network not running'); return;
+                    }
+                    for (const [pid, peerEntry] of peerFeedCache.cache) {
+                        if (pid !== peerId) continue;
+                        const bundles = peerEntry.feed && Array.isArray(peerEntry.feed.bundles) ? peerEntry.feed.bundles : [];
+                        entry = bundles.find(b => b.hash === hash) || null;
+                        if (entry) break;
+                    }
+                    if (!entry) { send(res, 404, 'bundle not in cached feed for that peer'); return; }
+                }
+
+                const tempDir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'liquidos-install-'));
+                const bundleSrc = path.join(tempDir, entry.name);
+                fs.mkdirSync(bundleSrc, { recursive: true });
+                fs.writeFileSync(path.join(bundleSrc, 'feature-requirements.txt'), entry.canvasRequirements || '');
+                for (const comp of (entry.components || [])) {
+                    if (!comp || typeof comp.name !== 'string') continue;
+                    const compDir = path.join(bundleSrc, 'components', comp.name);
+                    fs.mkdirSync(compDir, { recursive: true });
+                    fs.writeFileSync(path.join(compDir, 'feature-requirements.txt'), comp.requirements || '');
+                }
+
+                const { spawnSync } = require('node:child_process');
+                const installScript = path.join(ROOT, 'skills', 'sharing', 'scripts', 'install.sh');
+                const targetName = entry.name + '-' + hash.slice('sha256-'.length, 'sha256-'.length + 6);
+                const result = spawnSync('bash', [installScript, bundleSrc, WORKSPACE_PATH, targetName], {
+                    encoding: 'utf8'
+                });
+                try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+                if (result.status !== 0) {
+                    send(res, 500, 'install failed: ' + (result.stderr || result.stdout || 'unknown'));
+                    return;
+                }
+                const lines = (result.stdout || '').trim().split(/\r?\n/).filter(Boolean);
+                let summary;
+                try { summary = JSON.parse(lines[lines.length - 1]); } catch { summary = {}; }
+                const newCanvasName = summary.canvas || targetName;
+                const newCanvasPath = summary.canvasPath || path.join(WORKSPACE_PATH, newCanvasName);
+
+                // Queue an agent dispatch scoped to the new canvas. The
+                // agent's existing skills know what to do with scaffolded
+                // components that have feature-requirements.txt and a
+                // Loading… placeholder; this just kicks off the build so
+                // the user doesn't have to type "build it" after install.
+                try {
+                    await outputQueue.appendOutputJob({
+                        id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                        scope: newCanvasPath,
+                        status: 'pending',
+                        createdAt: new Date().toISOString(),
+                        componentKey: newCanvasPath,
+                        prompt: 'Build this canvas and its components.'
+                    });
+                    outputQueue.feedHermesOutput();
+                } catch (error) {
+                    logServer('network', 'install dispatch enqueue failed', {
+                        canvas: newCanvasName, error: error.message
+                    });
+                }
+
+                send(res, 200, JSON.stringify({
+                    canvas: newCanvasName,
+                    canvasPath: newCanvasPath,
+                    components: summary.components || null
+                }), 'application/json; charset=utf-8');
+                return;
+            }
+
+            // --- /share/<canvas> ---------------------------------------
+            if (parts.length === 2) {
+                const canvasName = decodeURIComponent(parts[1]);
                 if (!canvasName) { send(res, 400, 'canvas required'); return; }
+
+                if (req.method === 'GET') {
+                    const flag = readShareFlag(canvasShareFile(canvasName));
+                    send(res, 200, JSON.stringify({ shared: flag === true }), 'application/json; charset=utf-8');
+                    return;
+                }
+
                 const canvasPath = path.join(WORKSPACE_PATH, canvasName);
                 if (!pathIsInside(canvasPath, WORKSPACE_PATH) || !fs.existsSync(canvasPath) || !fs.statSync(canvasPath).isDirectory()) {
                     send(res, 404, 'canvas not found');
                     return;
                 }
-                const shared = Boolean(body.shared);
-                // share.sh / unshare.sh own everything: bundle build,
-                // tarball, feed regeneration, and the share.json flag.
-                // The endpoint just invokes the right one. Peers learn
-                // about the change on their next feed-cache refresh.
-                const result = shared
-                    ? runShareScript('share.sh', [canvasName])
-                    : runShareScript('unshare.sh', [canvasName]);
-                if (!result.ok) {
-                    send(res, 500, (shared ? 'share failed: ' : 'unshare failed: ') + result.error);
+
+                if (req.method === 'PUT') {
+                    const result = runShareScript('share.sh', [canvasName]);
+                    if (!result.ok) { send(res, 500, 'share failed: ' + result.error); return; }
+                    send(res, 200, JSON.stringify({ shared: true }), 'application/json; charset=utf-8');
                     return;
                 }
-                send(res, 200, JSON.stringify({ shared }), 'application/json; charset=utf-8');
-                return;
-            }
-        }
-
-        const componentShare = url.pathname.match(/^\/component\/(.+)\/share$/);
-        if (componentShare) {
-            const componentPath = decodeURIComponent(componentShare[1]);
-            const entry = canvasGraph.findAnyByPath(componentPath);
-            if (!entry) { send(res, 404, 'component not found'); return; }
-            const folder = canvasGraph.componentFolderPath(entry.componentPath);
-            if (req.method === 'GET') {
-                const canvasName = canvasOfComponent(folder);
-                const canvasFlag = readShareFlag(canvasShareFile(canvasName));
-                const compFlag = readShareFlag(componentShareFile(folder));
-                // Effective: canvas must be opted in. Within an opted-in
-                // canvas, components cascade unless explicitly opted out.
-                const effective = canvasFlag === true && compFlag !== false;
-                send(res, 200, JSON.stringify({
-                    shared: effective,
-                    canvasShared: canvasFlag === true,
-                    componentOverride: compFlag
-                }), 'application/json; charset=utf-8');
-                return;
-            }
-            if (req.method === 'POST') {
-                let body;
-                try { body = JSON.parse(await readBody(req) || '{}'); }
-                catch { send(res, 400, 'invalid json'); return; }
-                writeShareFlag(componentShareFile(folder), Boolean(body.shared));
-                // Re-publish if the canvas is currently shared, so peers
-                // see the opt-out (or opt-back-in) reflected in the bundle
-                // without requiring a manual canvas re-share.
-                const canvasName = canvasOfComponent(folder);
-                if (readShareFlag(canvasShareFile(canvasName)) === true) {
-                    runShareScript('share.sh', [canvasName]);
+                if (req.method === 'DELETE') {
+                    const result = runShareScript('unshare.sh', [canvasName]);
+                    if (!result.ok) { send(res, 500, 'unshare failed: ' + result.error); return; }
+                    send(res, 200, JSON.stringify({ shared: false }), 'application/json; charset=utf-8');
+                    return;
                 }
-                send(res, 200, JSON.stringify({ shared: Boolean(body.shared) }), 'application/json; charset=utf-8');
-                return;
+            }
+
+            // --- /share/<canvas>/<component> ---------------------------
+            if (parts.length === 3) {
+                const canvasName = decodeURIComponent(parts[1]);
+                const componentName = decodeURIComponent(parts[2]);
+                if (!canvasName || !componentName) { send(res, 400, 'canvas and component required'); return; }
+
+                const componentFolder = path.join(WORKSPACE_PATH, canvasName, 'components', componentName);
+                if (!pathIsInside(componentFolder, WORKSPACE_PATH) || !fs.existsSync(componentFolder)) {
+                    send(res, 404, 'component not found');
+                    return;
+                }
+
+                if (req.method === 'GET') {
+                    const canvasFlag = readShareFlag(canvasShareFile(canvasName));
+                    const compFlag = readShareFlag(componentShareFile(componentFolder));
+                    const effective = canvasFlag === true && compFlag !== false;
+                    send(res, 200, JSON.stringify({
+                        shared: effective,
+                        canvasShared: canvasFlag === true,
+                        componentOverride: compFlag
+                    }), 'application/json; charset=utf-8');
+                    return;
+                }
+
+                const writeOptAndRepublish = (sharedValue) => {
+                    writeShareFlag(componentShareFile(componentFolder), sharedValue);
+                    if (readShareFlag(canvasShareFile(canvasName)) === true) {
+                        runShareScript('share.sh', [canvasName]);
+                    }
+                };
+
+                if (req.method === 'PUT') {
+                    writeOptAndRepublish(true);
+                    send(res, 200, JSON.stringify({ shared: true }), 'application/json; charset=utf-8');
+                    return;
+                }
+                if (req.method === 'DELETE') {
+                    writeOptAndRepublish(false);
+                    send(res, 200, JSON.stringify({ shared: false }), 'application/json; charset=utf-8');
+                    return;
+                }
             }
         }
 
@@ -1462,181 +1612,6 @@ const server = http.createServer(async (req, res) => {
                 send(res, 200, JSON.stringify({ ok: true }), 'application/json; charset=utf-8');
             } catch (error) {
                 send(res, 502, 'dial failed: ' + (error?.message || error));
-            }
-            return;
-        }
-
-        if (req.method === 'GET' && url.pathname === '/network/search') {
-            // Search is a pure local-cache lookup over (a) our own feed and
-            // (b) every peer feed in the peer-feed cache. The network
-            // never sees the query string — that's the privacy story.
-            // Install (below) is the only thing that dials a peer.
-            //
-            // Optional `n` and `timeout_ms` let the caller wait for the
-            // local cache to grow. The handler polls the cache every
-            // ~500ms until `n` matching results are present or the timeout
-            // expires; it returns whatever is in hand when one of those
-            // conditions hits. The recipient just looks at results.length.
-            const query = (url.searchParams.get('q') || '').trim().toLowerCase();
-            const wantN = Math.max(0, Number.parseInt(url.searchParams.get('n') || '0', 10) || 0);
-            const timeoutMs = Math.max(0, Number.parseInt(url.searchParams.get('timeout_ms') || '0', 10) || 0);
-            const matchesQuery = (bundle) => {
-                if (!query) return true;
-                const haystack = [
-                    bundle.name || '',
-                    bundle.canvasRequirements || '',
-                    Array.isArray(bundle.components)
-                        ? bundle.components.map(c => typeof c === 'string' ? c : (c?.name || '')).join(' ')
-                        : ''
-                ].join(' ').toLowerCase();
-                return haystack.includes(query);
-            };
-
-            const collectResults = () => {
-                const acc = [];
-                // Local bundles (tagged peerId: null so the UI labels them "local").
-                const feedFile = path.join(WORKSPACE_PATH, '.share', 'feed.json');
-                if (fs.existsSync(feedFile)) {
-                    try {
-                        const localFeed = JSON.parse(fs.readFileSync(feedFile, 'utf8'));
-                        for (const bundle of (localFeed.bundles || [])) {
-                            if (matchesQuery(bundle)) acc.push({ ...bundle, peerId: null });
-                        }
-                    } catch { /* fall through */ }
-                }
-                // Remote bundles from the peer-feed cache.
-                if (peerFeedCache) {
-                    for (const [, entry] of peerFeedCache.cache) {
-                        const bundles = entry.feed && Array.isArray(entry.feed.bundles) ? entry.feed.bundles : [];
-                        for (const bundle of bundles) {
-                            if (matchesQuery(bundle)) acc.push({ ...bundle, peerId: entry.peerId });
-                        }
-                    }
-                }
-                return acc;
-            };
-
-            const sleep = ms => new Promise(r => setTimeout(r, ms));
-            const started = Date.now();
-            let results = collectResults();
-            while (wantN > 0 && results.length < wantN && Date.now() - started < timeoutMs) {
-                await sleep(500);
-                results = collectResults();
-            }
-            send(res, 200, JSON.stringify({ results }), 'application/json; charset=utf-8');
-            return;
-        }
-
-        if (req.method === 'POST' && url.pathname === '/network/install') {
-            let body;
-            try { body = JSON.parse(await readBody(req) || '{}'); }
-            catch (e) { send(res, 400, 'invalid json'); return; }
-            const peerId = body.peerId || null;
-            const hash = body.hash || '';
-            if (!/^sha256-[0-9a-f]{64}$/.test(hash)) {
-                send(res, 400, 'invalid hash');
-                return;
-            }
-
-            // Local (peerId null) reads from our own feed.json; remote
-            // (peerId set) reads from the peer-feed cache. Either way
-            // the entry has the canvas + per-component requirements
-            // text inlined, so install is just "write the files."
-            let entry = null;
-            if (!peerId) {
-                const feedFile = path.join(WORKSPACE_PATH, '.share', 'feed.json');
-                let feed = { bundles: [] };
-                try { feed = JSON.parse(fs.readFileSync(feedFile, 'utf8')); } catch {}
-                entry = (feed.bundles || []).find(b => b.hash === hash);
-                if (!entry) { send(res, 404, 'bundle not found in local feed'); return; }
-            } else {
-                if (!networkNode || !networkModule || !peerFeedCache) {
-                    send(res, 503, 'network not running'); return;
-                }
-                for (const [pid, peerEntry] of peerFeedCache.cache) {
-                    if (pid !== peerId) continue;
-                    const bundles = peerEntry.feed && Array.isArray(peerEntry.feed.bundles) ? peerEntry.feed.bundles : [];
-                    entry = bundles.find(b => b.hash === hash) || null;
-                    if (entry) break;
-                }
-                if (!entry) { send(res, 404, 'bundle not in cached feed for that peer'); return; }
-            }
-
-            // Materialize the entry as a bundle directory under a temp
-            // path so install.sh sees the file layout it expects.
-            const tempDir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'liquidos-install-'));
-            const bundleSrc = path.join(tempDir, entry.name);
-            fs.mkdirSync(bundleSrc, { recursive: true });
-            fs.writeFileSync(path.join(bundleSrc, 'feature-requirements.txt'), entry.canvasRequirements || '');
-            for (const comp of (entry.components || [])) {
-                if (!comp || typeof comp.name !== 'string') continue;
-                const compDir = path.join(bundleSrc, 'components', comp.name);
-                fs.mkdirSync(compDir, { recursive: true });
-                fs.writeFileSync(path.join(compDir, 'feature-requirements.txt'), comp.requirements || '');
-            }
-
-            // Suffix the canvas name with a short hash slice so a
-            // re-install doesn't collide with the existing canvas.
-            const { spawnSync } = require('node:child_process');
-            const installScript = path.join(ROOT, 'skills', 'share', 'scripts', 'install.sh');
-            const targetName = entry.name + '-' + hash.slice('sha256-'.length, 'sha256-'.length + 6);
-            const result = spawnSync('bash', [installScript, bundleSrc, WORKSPACE_PATH, targetName], {
-                encoding: 'utf8'
-            });
-            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
-            if (result.status !== 0) {
-                send(res, 500, 'install failed: ' + (result.stderr || result.stdout || 'unknown'));
-                return;
-            }
-            // Parse the last line of stdout — install.sh prints a JSON summary.
-            const lines = (result.stdout || '').trim().split(/\r?\n/).filter(Boolean);
-            let summary;
-            try { summary = JSON.parse(lines[lines.length - 1]); } catch { summary = {}; }
-            const newCanvasName = summary.canvas || targetName;
-            const newCanvasPath = summary.canvasPath || path.join(WORKSPACE_PATH, newCanvasName);
-
-            // Queue an agent dispatch scoped to the new canvas. The
-            // agent's existing skills know what to do with scaffolded
-            // components that have feature-requirements.txt and a
-            // Loading… placeholder; this just kicks off the build so
-            // the user doesn't have to type "build it" after install.
-            try {
-                await outputQueue.appendOutputJob({
-                    id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
-                    scope: newCanvasPath,
-                    status: 'pending',
-                    createdAt: new Date().toISOString(),
-                    componentKey: newCanvasPath,
-                    prompt: 'Build this canvas and its components.'
-                });
-                outputQueue.feedHermesOutput();
-            } catch (error) {
-                logServer('network', 'install dispatch enqueue failed', {
-                    canvas: newCanvasName, error: error.message
-                });
-            }
-
-            send(res, 200, JSON.stringify({
-                canvas: newCanvasName,
-                canvasPath: newCanvasPath,
-                components: summary.components || null
-            }), 'application/json; charset=utf-8');
-            return;
-        }
-
-        const networkFeed = url.pathname.match(/^\/network\/feed\/(.+)$/);
-
-        if (req.method === 'GET' && networkFeed) {
-            if (!networkNode || !networkModule) {
-                send(res, 503, 'network not running');
-                return;
-            }
-            const target = decodeURIComponent(networkFeed[1]);
-            try {
-                const bytes = await networkModule.fetchFeed(networkNode, target);
-                send(res, 200, bytes.toString('utf8'), 'application/json; charset=utf-8');
-            } catch (error) {
-                send(res, 502, 'feed fetch failed: ' + (error?.message || error));
             }
             return;
         }
