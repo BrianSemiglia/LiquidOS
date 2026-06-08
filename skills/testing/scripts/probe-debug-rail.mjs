@@ -42,7 +42,7 @@ const cleanup = () => { try { launcher.kill('SIGTERM'); } catch {} };
 process.on('SIGINT', () => { cleanup(); process.exit(130); });
 
 const readRailWidth = (page) => page.evaluate(() =>
-    getComputedStyle(document.documentElement).getPropertyValue('--debug-rail-width').trim());
+    getComputedStyle(document.body).getPropertyValue('--debug-rail-width').trim());
 
 let exitCode = 0;
 try {
@@ -50,6 +50,9 @@ try {
     const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Debug rail is hidden by default; open it before exercising resize.
+    await page.waitForFunction(() => typeof window.liquidos?.setDebugOpen === 'function', { timeout: 10000 });
+    await page.evaluate(() => window.liquidos.setDebugOpen(true));
     await page.waitForSelector('#debug-resizer', { timeout: 10000 });
     await sleep(800);
 

@@ -795,6 +795,14 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         let viewMenuItem = NSMenuItem()
         viewMenuItem.submenu = NSMenu(title: "View")
         viewMenuItem.submenu?.addItem(withTitle: "Reload", action: #selector(WKWebView.reload(_:)), keyEquivalent: "r")
+        viewMenuItem.submenu?.addItem(NSMenuItem.separator())
+        let debugItem = viewMenuItem.submenu?.addItem(
+            withTitle: "Show Debug Panel",
+            action: #selector(toggleDebugPanel(_:)),
+            keyEquivalent: "d")
+        debugItem?.keyEquivalentModifierMask = [.command, .option]
+        debugItem?.target = NSApp.delegate
+        viewMenuItem.submenu?.addItem(NSMenuItem.separator())
         viewMenuItem.submenu?.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f").keyEquivalentModifierMask = [.command, .control]
         mainMenu.addItem(viewMenuItem)
 
@@ -817,6 +825,17 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
 
     @objc private func newWindow(_ sender: Any?) {
         showWindow()
+    }
+
+    @objc private func toggleDebugPanel(_ sender: Any?) {
+        // Web side owns the state (persists in localStorage); we just
+        // ask it to flip and update the menu item's check mark from the
+        // returned bool.
+        let menuItem = sender as? NSMenuItem
+        webView?.evaluateJavaScript("window.liquidos?.toggleDebug?.()") { (result, _) in
+            let open = (result as? Bool) == true || (result as? NSNumber)?.boolValue == true
+            menuItem?.state = open ? .on : .off
+        }
     }
     
     private static func escapeHTML(_ value: String) -> String {

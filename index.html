@@ -61,6 +61,27 @@
         window.liquidos.noteSuccessfulMount = elementsLib.noteSuccessfulMount;
         window.liquidos.reportComponentRuntimeError = elementsLib.reportComponentRuntimeError;
 
+        // Debug panel: hidden by default, toggled by the Mac app's View
+        // menu (which calls window.liquidos.toggleDebug via JS bridge),
+        // state persists in localStorage. Use data-debug-open on body —
+        // CSS at the top of <style> drives visibility from it.
+        const DEBUG_OPEN_KEY = 'liquidos:debug-open';
+        const applyDebugState = (open) => {
+            if (open) document.body.setAttribute('data-debug-open', 'true');
+            else      document.body.removeAttribute('data-debug-open');
+            try { localStorage.setItem(DEBUG_OPEN_KEY, open ? '1' : '0'); } catch {}
+        };
+        window.liquidos.toggleDebug = () => {
+            const next = document.body.getAttribute('data-debug-open') !== 'true';
+            applyDebugState(next);
+            return next;
+        };
+        window.liquidos.setDebugOpen = (open) => applyDebugState(!!open);
+        window.liquidos.isDebugOpen = () => document.body.getAttribute('data-debug-open') === 'true';
+        try {
+            if (localStorage.getItem(DEBUG_OPEN_KEY) === '1') applyDebugState(true);
+        } catch {}
+
         // Component-internal <liquidos-callback> events. The legacy harness's
         // per-frame listener (in renderComponent) only fires for components
         // it rendered itself. New-shape components are painted by canvas.js
@@ -89,10 +110,18 @@
 
         :root {
             --prompt-chrome-space: 8rem;
-            --debug-rail-width: 22rem;
+            --debug-rail-width: 0px;
+            --debug-rail-gap: 0px;
+            --debug-rail-space: 0px;
+        }
+        body[data-debug-open="true"] {
+            --debug-rail-width: var(--debug-rail-width-stored, 22rem);
             --debug-rail-gap: 1rem;
             --debug-rail-space: calc(var(--debug-rail-width) + var(--debug-rail-gap));
         }
+        /* Higher-specificity hide so it beats the later `.debug-rail { display: grid }` rule. */
+        body:not([data-debug-open="true"]) .debug-rail,
+        body:not([data-debug-open="true"]) .debug-resizer { display: none !important; }
 
         body {
             display: grid;
@@ -1492,7 +1521,11 @@
 
         const applyDebugRailWidth = width => {
             const nextWidth = clampDebugRailWidth(width);
-            document.documentElement.style.setProperty('--debug-rail-width', nextWidth + 'px');
+            // Stored width — body[data-debug-open="true"] rule reads
+            // this for the actual --debug-rail-width. When the panel
+            // is closed, the CSS default of 0px wins and we don't
+            // reserve a grid column.
+            document.documentElement.style.setProperty('--debug-rail-width-stored', nextWidth + 'px');
 
             try {
                 localStorage.setItem(debugRailWidthKey, String(nextWidth));
