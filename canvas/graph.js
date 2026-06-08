@@ -295,6 +295,19 @@ const createCanvasGraph = ({
                 throw new Error('input.json must contain { "components": [...] }');
             }
 
+            // Each entry must resolve to an existing file. Folder paths
+            // (foo7-style: "components/X" pointing at the old presented/
+            // shape) and stale entries (component was renamed/deleted)
+            // both fall through here and surface the canvas Repair card
+            // instead of leaving the user staring at an empty canvas.
+            const missing = inputEntries()
+                .filter(({ componentPath }) =>
+                    !fs.existsSync(componentPath) || !fs.statSync(componentPath).isFile());
+            if (missing.length > 0) {
+                const names = missing.map(m => input.components[m.index]).join(', ');
+                throw new Error('input.json references components without a valid entry file: ' + names);
+            }
+
             const leaves = leafComponents();
             const renderEntry = ({ componentPath, component }) => ({
                 componentPath,

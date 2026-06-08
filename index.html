@@ -3087,12 +3087,29 @@
             // broken (bad input.json, bad canvas.js), in which case the
             // canvas can't render itself and the harness has to surface
             // the repair affordance.
-            if (typeof currentCanvas?.place !== 'function') {
-                if (data.canvasError) {
-                    const items = latestComponents.map(component =>
-                        renderedItemsByPath.get(component.scope) || renderComponent(component));
-                    renderCanvas(items, null);
+            // A broken canvas owns nothing on screen — tear down whatever
+            // the canvas's own code painted (cssLayout's <liquidos-file>
+            // entries, a custom canvas's decorative overlay, etc.) and
+            // render just the Repair card. Otherwise the user sees the
+            // card sitting next to leftover noise from the canvas that
+            // can't actually render anyway.
+            if (data.canvasError) {
+                if (currentCanvas) {
+                    try { currentCanvas.teardown(); } catch {}
+                    currentCanvas = null;
+                    currentCanvasCacheKey = null;
                 }
+                const items = latestComponents.map(component =>
+                    renderedItemsByPath.get(component.scope) || renderComponent(component));
+                renderCanvas(items, null);
+                lastCanvasSnapshot = snapshot;
+                return;
+            }
+            // New-shape canvases (foo7-style) own their own components via
+            // <liquidos-file> tags. They don't expose place() — skip the
+            // harness's component painting so they don't fight the
+            // canvas's own render.
+            if (typeof currentCanvas?.place !== 'function') {
                 lastCanvasSnapshot = snapshot;
                 return;
             }

@@ -25,6 +25,7 @@ process.env.LIQUIDOS_HARNESS_PID = String(process.pid);
 
 const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none',
     'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'component-build-test', 'canvas-repair-test',
+    'canvas-damaged-repair-test', 'component-runtime-repair-test',
     'prompt-bar-test']);
 
 const failStartup = message => {
