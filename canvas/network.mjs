@@ -32,7 +32,7 @@ import path from 'node:path';
 // without breaking peers that still speak the old one. Returns the
 // peer's feed.json — a list of their published bundles with each
 // bundle's requirements text inlined.
-export const FEED_PROTOCOL = '/liquidos/share/feed/1.0.0';
+const FEED_PROTOCOL = '/liquidos/share/feed/1.0.0';
 
 // Public IPFS bootstrap peers — used to enter the DHT. These same peers
 // bootstrap IPFS, Filecoin, and other libp2p networks; piggybacking on
@@ -223,7 +223,7 @@ const dialAndCollect = async (node, target, protocol, requestBytes) => {
     }
 };
 
-export const fetchFeed = async (node, target) =>
+const fetchFeed = async (node, target) =>
     dialAndCollect(node, target, FEED_PROTOCOL, null);
 
 export const statusOf = (node) => {

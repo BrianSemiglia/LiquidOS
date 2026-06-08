@@ -1108,21 +1108,6 @@ const streamFile = (req, res, file, type = 'application/octet-stream') => {
     fs.createReadStream(file, { start, end }).pipe(res);
 };
 
-const workspaceFileType = file => ({
-    '.json': 'application/json; charset=utf-8',
-    '.js': 'text/javascript; charset=utf-8',
-    '.mjs': 'text/javascript; charset=utf-8',
-    '.html': 'text/html; charset=utf-8',
-    '.css': 'text/css; charset=utf-8',
-    '.txt': 'text/plain; charset=utf-8',
-    '.svg': 'image/svg+xml',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp'
-})[path.extname(file).toLowerCase()] || 'application/octet-stream';
-
 const staticPath = pathname => {
     const file = path.resolve(ROOT, pathname === '/' ? 'index.html' : '.' + decodeURIComponent(pathname));
     return file.startsWith(ROOT + path.sep) || file === ROOT ? file : undefined;
@@ -1771,37 +1756,6 @@ const server = http.createServer(async (req, res) => {
             } catch (error) {
                 send(res, 400, error.message);
             }
-            return;
-        }
-
-        const workspaceFile = url.pathname.match(/^\/workspace\/file\/(.+)$/);
-
-        if (req.method === 'GET' && workspaceFile) {
-            // Generic read access to anything under WORKSPACE_PATH. canvas.js
-            // and component code use this to fetch files the harness doesn't
-            // hand them directly (state.json, custom presets, anything). A
-            // directory path returns a JSON listing so callers can discover
-            // children. The harness stays agnostic about what's inside.
-            const rel = decodeURIComponent(workspaceFile[1]);
-            const file = path.resolve(WORKSPACE_PATH, rel);
-            if (!file.startsWith(WORKSPACE_PATH + path.sep) && file !== WORKSPACE_PATH) {
-                send(res, 403, 'path escapes workspace');
-                return;
-            }
-            if (!fs.existsSync(file)) {
-                send(res, 404, 'not found');
-                return;
-            }
-            if (fs.statSync(file).isDirectory()) {
-                const entries = fs.readdirSync(file, { withFileTypes: true })
-                    .map(entry => ({
-                        name: entry.name,
-                        type: entry.isDirectory() ? 'directory' : 'file'
-                    }));
-                send(res, 200, JSON.stringify({ path: rel, entries }), 'application/json; charset=utf-8');
-                return;
-            }
-            streamFile(req, res, file, workspaceFileType(file));
             return;
         }
 
