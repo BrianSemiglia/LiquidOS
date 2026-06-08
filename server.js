@@ -319,7 +319,6 @@ let dirtyWatchEntries = [];
 let graphWatchStarted = false;
 let graphWatchKey = '';
 let activeCanvasRuntime = null;
-const componentServices = new Map();
 let outputQueue = null;
 const agentDebugState = {
     current: {
@@ -431,174 +430,6 @@ const shortText = value => {
     return text.length > 160 ? text.slice(0, 157) + '...' : text;
 };
 
-const createServiceDispatchId = folder => [
-    // folder is <component>/presented/services. The component name is two
-    // dirnames up.
-    path.basename(path.dirname(path.dirname(folder))).replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'component',
-    crypto.randomUUID().slice(0, 8)
-].join('-');
-
-// Hash every regular file in the services directory by content. This
-// is what we sign a running service against so a same-content
-// atomic-swap (the agent's `.presented/ → presented/` idiom) doesn't
-// look like a change — only an actual byte-level edit to start.sh,
-// render.js, etc. should cause a restart. mtime-based signatures
-// were wrong: the atomic swap brings in new inodes with new mtimes
-// but identical content, so the service was killed and restarted on
-// every iteration the agent did, leaving multi-minute windows where
-// view.html → view.json was broken.
-const computeServiceSignature = folder => {
-    const hash = crypto.createHash('sha256');
-    const walk = (dir, rel) => {
-        let entries;
-        try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-        catch { return; }
-        entries.sort((a, b) => a.name.localeCompare(b.name));
-        for (const entry of entries) {
-            const full = path.join(dir, entry.name);
-            const sub = rel ? rel + '/' + entry.name : entry.name;
-            if (entry.isDirectory()) {
-                walk(full, sub);
-            } else if (entry.isFile()) {
-                let buf;
-                try { buf = fs.readFileSync(full); } catch { continue; }
-                hash.update(sub);
-                hash.update(Buffer.from([0]));
-                hash.update(buf);
-            }
-        }
-    };
-    walk(folder, '');
-    return hash.digest('hex');
-};
-
-const startComponentService = folder => {
-    const startPath = path.join(folder, 'start.sh');
-
-    if (!fs.existsSync(startPath)) {
-        return;
-    }
-
-    const signature = computeServiceSignature(folder);
-    const current = componentServices.get(folder);
-
-    if (current && current.signature === signature) {
-        return;
-    }
-
-    if (current) {
-        stopComponentService(folder);
-    }
-
-    const dispatchId = createServiceDispatchId(folder);
-    // folder is <component>/presented/services. The component dir is two up.
-    const componentDir = path.dirname(path.dirname(folder));
-    const child = childProcess.spawn('/bin/bash', [startPath, dispatchId], {
-        cwd: folder,
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    const processGroups = [child.pid];
-    let stderr = '';
-
-    componentServices.set(folder, { signature, processGroups, dispatchId });
-    logServer('component-service', 'started', { folder, processGroups, dispatchId });
-    canvasGraph.updateDiagnostics(componentDir, 'service', { running: true, lastExit: null, lastStderr: '', dispatchId });
-
-    child.stdout.on('data', chunk => {
-        writeProcessOutput('[component-service]', chunk, process.stdout);
-        canvasGraph.appendServiceLog(componentDir, String(chunk));
-    });
-    child.stderr.on('data', chunk => {
-        stderr += String(chunk);
-        writeProcessOutput('[component-service]', chunk, process.stderr);
-        canvasGraph.appendServiceLog(componentDir, String(chunk));
-    });
-    child.on('error', error => {
-        componentServices.delete(folder);
-        logHermesError('component-service', error, { folder, message: 'start failed' });
-        canvasGraph.updateDiagnostics(componentDir, 'service', { running: false, error: error.message, lastStderr: shortText(stderr) });
-    });
-    child.on('close', code => {
-        const current = componentServices.get(folder);
-
-        if (current && current.signature === signature) {
-            componentServices.delete(folder);
-        }
-
-        if (code !== 0) {
-            logHermesError('component-service', new Error('start.sh exited ' + code), { folder, stderr: shortText(stderr), processGroups, dispatchId });
-            canvasGraph.updateDiagnostics(componentDir, 'service', { running: false, lastExit: { code, at: new Date().toISOString() }, lastStderr: shortText(stderr) });
-            return;
-        }
-
-        logServer('component-service', 'exited', { folder, processGroups, dispatchId });
-        canvasGraph.updateDiagnostics(componentDir, 'service', { running: false, lastExit: { code: 0, at: new Date().toISOString() }, lastStderr: shortText(stderr) });
-    });
-    child.unref();
-};
-
-const stopProcessGroup = (processGroup, forceImmediately = false) => {
-    try {
-        process.kill(-processGroup, 'SIGTERM');
-    } catch (error) {
-        if (error.code !== 'ESRCH') {
-            logHermesError('component-service', error, { processGroup, message: 'terminate failed' });
-        }
-    }
-
-    const forceTerminate = () => {
-        try {
-            process.kill(-processGroup, 'SIGKILL');
-        } catch (error) {
-            if (error.code !== 'ESRCH') {
-                logHermesError('component-service', error, { processGroup, message: 'force terminate failed' });
-            }
-        }
-    };
-
-    if (forceImmediately) {
-        forceTerminate();
-        return;
-    }
-
-    setTimeout(forceTerminate, 1500).unref();
-};
-
-const stopComponentService = (folder, forceImmediately = false) => {
-    const current = componentServices.get(folder);
-
-    if (!current) {
-        return;
-    }
-
-    current.processGroups.forEach(processGroup => stopProcessGroup(processGroup, forceImmediately));
-    componentServices.delete(folder);
-    logServer('component-service', 'stopped', { folder });
-};
-
-const reconcileComponentServices = () => {
-    try {
-        const desired = new Set(canvasGraph.componentServiceFolders());
-
-        Array.from(componentServices.keys())
-            .filter(folder => !desired.has(folder))
-            .forEach(stopComponentService);
-
-        desired.forEach(startComponentService);
-    } catch (error) {
-        // Canvas input damage should render as a canvas repair card from /input,
-        // not crash startup or canvas switching.
-        stopAllComponentServices();
-        logHermesError('component-service', error, {
-            message: 'component services paused until canvas config is repaired'
-        });
-    }
-};
-
-const stopAllComponentServices = (forceImmediately = false) => {
-    Array.from(componentServices.keys()).forEach(folder => stopComponentService(folder, forceImmediately));
-};
 
 runtimeSet.configureHosts({
     output: writeProcessOutput,
@@ -661,7 +492,6 @@ const createCanvasRuntime = canvasPath => {
             activityPersistence.ensureActivityPersistenceRepo();
             outputQueue.resetQueue();
             outputQueue.feedHermesOutput();
-            reconcileComponentServices();
             broadcastQueueState();
             return this;
         },
@@ -678,7 +508,6 @@ if (workspaceWatcher) {
 }
             watchers.forEach(watcher => watcher.close());
             watchers = [];
-            stopAllComponentServices();
             graphWatchStarted = false;
             graphWatchKey = '';
             outputQueue.clearActiveLanes();
@@ -829,9 +658,6 @@ const processOutputJob = async job => {
 
         canvasGraph.validateCanvasConfig();
 
-        if (componentPath) {
-            canvasGraph.validateComponentFile(componentPath);
-        }
         await outputQueue.updateOutputJob(jobId, {
             status: 'done',
             completedAt: new Date().toISOString()
@@ -1204,7 +1030,6 @@ const scheduleWatchRefresh = entry => {
     try {
         rendered = canvasGraph.renderedInput();
         refreshGraphWatchers();
-        reconcileComponentServices();
     } catch (error) {
         logHermesError('watch', error, { message: 'watch error' });
         broadcast();
@@ -2420,7 +2245,6 @@ const server = http.createServer(async (req, res) => {
             try {
                 canvasGraph.renderedInput();
                 refreshGraphWatchers();
-                reconcileComponentServices();
             } catch (error) {
                 logHermesError('writes', error, { message: 'post-writes refresh failed' });
             }
@@ -2558,7 +2382,6 @@ const commitShutdownState = reason => {
 };
 
 const shutdownCanvasRuntime = reason => {
-    stopAllComponentServices(true);
     commitShutdownState(reason || 'application was shut down');
 
     if (networkNode && networkModule) {

@@ -70,14 +70,8 @@ const createCanvasGraph = ({
             ? componentPath
             : path.dirname(componentPath);
 
-    // data/, diagnostics/ live at the component folder root.
-    const componentDataPath = componentPath =>
-        path.join(componentFolderPath(componentPath), 'data');
-
     const componentDiagnosticsPath = componentPath =>
         path.join(componentFolderPath(componentPath), 'diagnostics');
-
-    const componentViewCache = new Map();
 
     // updateDiagnostics writes <component>/diagnostics/status.json. The agent
     // reads this file as its first move when debugging. Each call merges into
@@ -124,16 +118,6 @@ const createCanvasGraph = ({
             return Object.values(data).some(entry => entry && entry.ok === false);
         } catch (error) {
             return false;
-        }
-    };
-
-    const appendServiceLog = (componentPath, text) => {
-        try {
-            const diagnosticsDir = componentDiagnosticsPath(componentPath);
-            fs.mkdirSync(diagnosticsDir, { recursive: true });
-            fs.appendFileSync(path.join(diagnosticsDir, 'service.log'), text);
-        } catch (error) {
-            // Best-effort.
         }
     };
 
@@ -372,22 +356,6 @@ const createCanvasGraph = ({
         ];
     };
 
-    const watchedFiles = () =>
-        watchedPaths().map(entry => entry.path);
-
-    const validateComponentFile = componentPath => {
-        const component = readJson(componentViewPath(componentPath));
-        const html = String(component.html || '');
-
-        if (/<[^>]*<script\b/i.test(html)) {
-            throw new Error('Component HTML contains a <script> tag inside another opening tag');
-        }
-
-        componentScripts(html).forEach(script => {
-            new Function(script);
-        });
-    };
-
     const validateCanvasConfig = () => {
         const input = readJson(getInputPath());
 
@@ -402,39 +370,18 @@ const createCanvasGraph = ({
         });
     };
 
-    // Service supervision now lives in the <liquidos-file run> element —
-    // canvas.js asks the harness to spawn scripts directly via /spawn.
-    const componentServiceFolders = () => [];
-
     return {
         componentScopePath,
         componentScope,
         componentFolderPath,
-        componentDataPath,
-        componentDiagnosticsPath,
         canvasJsPath,
-        canvasJsVersion,
         updateDiagnostics,
-        appendServiceLog,
-        resourceUrl,
         componentResources,
-        renderedResources,
-        renderedHtml,
         renderedInput,
         watchedPaths,
-        watchedFiles,
-        inputEntries,
-        componentServiceFolders,
-        leafComponents,
-        relationshipEntries,
-        relationshipComponents,
         findLeafComponentByPath,
-        findRelationshipByPath,
         findAnyByPath,
-        validateCanvasConfig,
-        validateComponentFile,
-        loadLeafComponent,
-        invalidCanvasCard
+        validateCanvasConfig
     };
 };
 

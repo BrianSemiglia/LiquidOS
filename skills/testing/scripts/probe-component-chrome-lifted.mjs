@@ -54,19 +54,21 @@ try {
     await sleep(200);
 
     const layout = await page.evaluate(() => {
+        const item   = document.querySelector('.harness-component-frame-watcher')?.closest('.item');
         const frame  = document.querySelector('.harness-component-frame-watcher');
         const chrome = frame?.querySelector('.component-chrome');
         const front  = frame?.querySelector('.component-front');
         const rect = (el) => el ? el.getBoundingClientRect() : null;
         return {
+            item:   rect(item),
             chrome: rect(chrome),
             front:  rect(front)
         };
     });
     console.log('layout:', layout);
 
-    if (!layout.chrome || !layout.front) {
-        console.error('FAIL: chrome or front not found');
+    if (!layout.chrome || !layout.front || !layout.item) {
+        console.error('FAIL: chrome, front, or item not found');
         exitCode = 1;
     } else {
         // Chrome must sit ABOVE the front, not overlap it.
@@ -74,8 +76,13 @@ try {
             console.error('FAIL: chrome overlaps the front card — chrome.bottom=' + layout.chrome.bottom + ', front.top=' + layout.front.top);
             exitCode = 1;
         }
-        // Chrome should be aligned to the right edge of the card so
-        // both buttons (Requirements + Repair) sit at the top-right.
+        // Chrome must stay INSIDE the item's bounds — not lifted above
+        // into a neighboring component's space.
+        if (layout.chrome.top < layout.item.top - 1) {
+            console.error('FAIL: chrome leaks above item — chrome.top=' + layout.chrome.top + ', item.top=' + layout.item.top);
+            exitCode = 1;
+        }
+        // Chrome should be aligned to the right edge of the card.
         if (Math.abs(layout.chrome.right - layout.front.right) > 2) {
             console.error('FAIL: chrome not right-aligned with card — chrome.right=' + layout.chrome.right + ', front.right=' + layout.front.right);
             exitCode = 1;
