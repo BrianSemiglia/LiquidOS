@@ -197,6 +197,7 @@
             color: rgba(232, 232, 234, 0.6);
         }
         .canvas-requirements-textarea {
+            width: 100%;
             min-height: 12rem;
             font: inherit;
             font-size: 0.88rem;
@@ -3287,6 +3288,7 @@
         // showing. We snapshot it on open so a canvas-switch mid-edit doesn't
         // misroute the save.
         let canvasReqEditingCanvas = '';
+        let canvasReqWatchUnsubscribe = null;
 
         const closeCanvasRequirements = () => {
             canvasReqOverlay.hidden = true;
@@ -3297,6 +3299,7 @@
             if (recover) recover.hidden = true;
             const loading = document.getElementById('canvas-requirements-loading');
             if (loading) loading.hidden = true;
+            if (canvasReqWatchUnsubscribe) { canvasReqWatchUnsubscribe(); canvasReqWatchUnsubscribe = null; }
         };
 
         const canvasShareSwitch = document.getElementById('canvas-share-switch');
@@ -3434,6 +3437,25 @@
             canvasReqSave.disabled = false;
             syncCanvasReqRepairCallback();
             canvasReqTextarea.focus();
+            // Watch for the agent (or anyone else) writing the
+            // file while the modal is open: Generate flashes, finishes,
+            // the agent writes — without this subscription the textarea
+            // sits empty and the user thinks nothing happened.
+            if (canvasReqWatchUnsubscribe) canvasReqWatchUnsubscribe();
+            const watchPath = canvasName + '/feature-requirements.txt';
+            canvasReqWatchUnsubscribe = window.liquidos?.onWorkspaceEvent?.(async (payload) => {
+                if (payload?.type !== 'workspace-file' || payload.path !== watchPath) return;
+                if (canvasReqEditingCanvas !== canvasName || canvasReqOverlay.hidden) return;
+                // Don't blow away the user's in-progress edit.
+                if (document.activeElement === canvasReqTextarea) return;
+                try {
+                    const r = await fetch('/workspace/' + encodeURIComponent(watchPath), { cache: 'no-store' });
+                    if (!r.ok) return;
+                    canvasReqTextarea.value = await r.text();
+                    canvasReqLoadOutcome = canvasReqTextarea.value.trim().length === 0 ? 'empty' : 'present';
+                    syncCanvasReqRepairCallback();
+                } catch {}
+            }) || null;
         };
 
         const saveCanvasRequirements = async () => {
