@@ -1484,8 +1484,6 @@ const server = http.createServer(async (req, res) => {
                 if (!query) return true;
                 const haystack = [
                     bundle.name || '',
-                    bundle.subtitle || '',
-                    (bundle.tags || []).join(' '),
                     bundle.canvasRequirements || '',
                     Array.isArray(bundle.components)
                         ? bundle.components.map(c => typeof c === 'string' ? c : (c?.name || '')).join(' ')

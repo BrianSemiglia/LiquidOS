@@ -18,7 +18,7 @@ The network ships **raw text** and lets you enumerate it. Popularity, clustering
 GET /network/search?q=<query>
 ```
 
-Returns every bundle in the local feed plus every peer feed cached via gossipsub whose `name`, `subtitle`, `tags`, `canvasRequirements`, or `components` contains the query substring (case-insensitive). Each result has `peerId` (null for local), `hash`, `name`, `subtitle`, and **`canvasRequirements`** — the raw text of the canvas's `feature-requirements.txt`. The network never sees the query string; the cache is local.
+Returns every bundle in the local feed plus every peer feed in the local cache whose `name`, `canvasRequirements`, or component names contain the query substring (case-insensitive). Each result has `peerId` (null for local), `hash`, `name`, and **`canvasRequirements`** — the raw text of the canvas's `feature-requirements.txt`. The network never sees the query string; the cache is local.
 
 ## The recipient pattern
 

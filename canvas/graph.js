@@ -267,10 +267,9 @@ const createCanvasGraph = ({
             }
 
             // Each entry must resolve to an existing file. Folder paths
-            // (foo7-style: "components/X" pointing at the old presented/
-            // shape) and stale entries (component was renamed/deleted)
-            // both fall through here and surface the canvas Repair card
-            // instead of leaving the user staring at an empty canvas.
+            // and stale entries (component was renamed/deleted) both fall
+            // through here and surface the canvas Repair card instead of
+            // leaving the user staring at an empty canvas.
             const missing = inputEntries()
                 .filter(({ componentPath }) =>
                     !fs.existsSync(componentPath) || !fs.statSync(componentPath).isFile());

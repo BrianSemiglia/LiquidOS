@@ -9,24 +9,17 @@ triggers:
 
 # Share
 
-Sharing a canvas makes it discoverable to peers. The shared form is a **bundle**: a plain folder containing the canvas's `feature-requirements.txt` and each component's `feature-requirements.txt`, plus a one-line subtitle and tags for browsing. The receiver reads the requirements and rebuilds the implementation locally — nothing in a bundle executes.
+Sharing a canvas makes it discoverable to peers. The shared form is a **bundle**: a plain folder containing the canvas's `feature-requirements.txt` and each shared component's `feature-requirements.txt`. The receiver reads the requirements and rebuilds the implementation locally — nothing in a bundle executes.
 
 ## Share
 
 ```bash
-bash skills/share/scripts/share.sh <workspace.liquidos> <canvas-name> \
-    --subtitle "A 3D diorama of small tools and ambient widgets" \
-    --tags "3d,spatial,tools,widgets"
+bash skills/share/scripts/share.sh <workspace.liquidos> <canvas-name>
 ```
 
-One shot. Builds the bundle, writes the metadata you passed, installs it into `<workspace>/.share/`, regenerates the local feed, and sets the canvas's `share.json` to `{ "shared": true }`. Peers see it next time they query this peer's feed.
+One shot. Copies the requirements files into `<workspace>/.share/published/<canvas>/`, regenerates the local feed, and sets the canvas's `share.json` to `{ "shared": true }`. Peers see it next time they pull this peer's feed.
 
-**Subtitle and tags matter.** Without them, the bundle still goes out — but it lands in others' feeds with no description and few people will install it. Author them from the canvas's intent:
-
-- **subtitle** — one line, 6–12 words. What this canvas is for, said in one breath. The user reads this when deciding whether to look closer.
-- **tags** — 3–8 short, lowercase, hyphenated terms separated by commas. Used for feed filtering.
-
-Republishing (calling `share.sh` again on a canvas that's already shared) overwrites the previous version with updated content and metadata.
+Republishing (calling `share.sh` again on a canvas that's already shared) overwrites the previous version with updated content.
 
 ## Unshare
 

@@ -49,7 +49,6 @@ const workspaceName = workspacePath =>
 const REQUIRED_GITIGNORE_ENTRIES = [
     '**/diagnostics/',
     '**/data/.runtime/',
-    '**/.presented/',
     '.DS_Store',
     '/.claude/',
     '/.codex/',

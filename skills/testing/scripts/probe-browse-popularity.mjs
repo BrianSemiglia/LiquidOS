@@ -210,11 +210,9 @@ try {
     await page.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
     await page.locator('#browse-query').fill(TOPIC);
 
-    // Wait for the publisher bundles to surface in the Browse UI. As
-    // gossipsub delivers each bundle, the Browse overlay appends a
-    // result card; the popularity block renders once we have multiple
-    // matches. This naturally absorbs propagation timing through the
-    // user-facing search path.
+    // Wait for the publisher bundles to surface in the Browse UI. Each
+    // publisher's feed was fetched on peer:connect (right after dial);
+    // the popularity block renders once we have multiple matches.
     await page.waitForFunction(
         (peerIds) => {
             const cards = document.querySelectorAll('#browse-results .browse-result');

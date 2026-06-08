@@ -540,25 +540,6 @@
             font-family: ui-monospace, Menlo, monospace;
             margin-left: auto;
         }
-        .browse-result-subtitle {
-            margin-top: 0.25rem;
-            font-size: 0.82rem;
-            color: rgba(232, 232, 234, 0.72);
-            line-height: 1.35;
-        }
-        .browse-result-tags {
-            margin-top: 0.45rem;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.3rem;
-        }
-        .browse-tag {
-            font-size: 0.68rem;
-            padding: 0.1rem 0.4rem;
-            border-radius: 999px;
-            background: rgba(96, 165, 250, 0.15);
-            color: rgba(147, 197, 253, 0.9);
-        }
         .browse-result-detail {
             margin-top: 0.7rem;
             padding-top: 0.7rem;
@@ -3572,25 +3553,6 @@
             peer.title = result.peerId || 'local';
             row.appendChild(peer);
             root.appendChild(row);
-
-            if (result.subtitle) {
-                const subtitle = document.createElement('div');
-                subtitle.className = 'browse-result-subtitle';
-                subtitle.textContent = result.subtitle;
-                root.appendChild(subtitle);
-            }
-
-            if (Array.isArray(result.tags) && result.tags.length > 0) {
-                const tags = document.createElement('div');
-                tags.className = 'browse-result-tags';
-                for (const tag of result.tags) {
-                    const chip = document.createElement('span');
-                    chip.className = 'browse-tag';
-                    chip.textContent = tag;
-                    tags.appendChild(chip);
-                }
-                root.appendChild(tags);
-            }
 
             // Expanded detail: requirements + components + install button.
             const detail = document.createElement('div');

@@ -14,8 +14,8 @@
 // the new canvas. The probe opens the installed component's
 // Requirements modal and asserts the sentinel requirement string from
 // the publisher's fixture survives the full round-trip: through
-// share.sh's bundle build → gossipsub feed → libp2p TAR fetch →
-// install.sh's scaffold → into the textarea the user reads.
+// share.sh → peer-feed fetch → install.sh's scaffold → into the
+// textarea the user reads.
 //
 // The two programmatic precursors that aren't user-reachable — a
 // /network/status fetch to grab the publisher's loopback multiaddr,
@@ -166,10 +166,10 @@ try {
     await conPage.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
     await conPage.locator('#browse-query').fill('home');
 
-    // Wait for the publisher's bundle to surface in the UI. Browse
-    // re-queries the network as results arrive; this absorbs the
-    // gossipsub propagation timing through the user-facing path
-    // (typing into the search box) instead of polling /network/search.
+    // Wait for the publisher's bundle to surface in the UI. The
+    // consumer fetches the publisher's feed on peer:connect (right
+    // after dial), so by the time Browse opens the bundle should
+    // already be in the cache. Allow some slack for that first fetch.
     await conPage.waitForFunction(
         (peerId) => Array.from(document.querySelectorAll('#browse-results .browse-result'))
             .some(c => c.dataset.peer === peerId),

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #
-# unshare.sh — stop sharing a canvas: remove its bundle + tarball,
+# unshare.sh — stop sharing a canvas: remove the published bundle,
 # regenerate the feed without it, set share.json = { "shared": false }.
 #
 # Usage:
@@ -39,23 +39,7 @@ esac
 CANVAS_DIR="$WORKSPACE_DIR/$CANVAS_NAME"
 SHARE_DIR="$WORKSPACE_DIR/.share"
 PUBLISHED_DIR="$SHARE_DIR/published"
-BUNDLES_DIR="$SHARE_DIR/bundles"
 FEED_FILE="$SHARE_DIR/feed.json"
-
-# Find the bundle's tar by looking up the hash in feed.json.
-if [ -f "$FEED_FILE" ]; then
-    BUNDLE_HASH="$(node -e '
-const fs = require("fs");
-try {
-    const feed = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    const match = (feed.bundles || []).find(b => b && b.name === process.argv[2]);
-    if (match && match.hash) process.stdout.write(match.hash);
-} catch {}
-' "$FEED_FILE" "$CANVAS_NAME")"
-    if [ -n "$BUNDLE_HASH" ]; then
-        rm -f "$BUNDLES_DIR/$BUNDLE_HASH.tar"
-    fi
-fi
 
 # Remove the published bundle folder.
 rm -rf "$PUBLISHED_DIR/$CANVAS_NAME"
@@ -69,7 +53,6 @@ else
     node -e '
 process.stdout.write(JSON.stringify({
     feedVersion: 1,
-    generatedAt: new Date().toISOString(),
     bundles: []
 }, null, 2) + "\n");
 ' > "$FEED_FILE"

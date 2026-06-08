@@ -23,7 +23,6 @@ Workspace.liquidos/
   .share/                     — sharing tree (appears once a bundle is published)
     feed.json
     published/<name>/
-    bundles/<hash>.tar
   .liquidos/                  — harness scratch (logs, errors); don't edit
 ```
 

@@ -5,36 +5,36 @@ set -euo pipefail
 # feed.sh — produce a feed.json from a directory of published bundles.
 #
 # Usage:
-#   bash skills/share/scripts/feed.sh <bundles-dir> [output-path]
+#   bash skills/share/scripts/feed.sh <published-dir> [output-path]
 #
-# Walks every immediate subdirectory of <bundles-dir> that looks like a
-# bundle (has feature-requirements.txt) and emits a JSON manifest listing
-# each one: name, canvas-level requirements text (inline), component
-# requirements (inline), and the content hash.
+# Walks every immediate subdirectory of <published-dir> that looks
+# like a bundle (has feature-requirements.txt) and emits a JSON
+# manifest listing each one: name, canvas-level requirements text
+# (inline), component requirements (inline), and the content hash.
 #
 
-BUNDLES_DIR="${1:-}"
-OUTPUT_PATH="${2:-${BUNDLES_DIR:+$BUNDLES_DIR/feed.json}}"
+PUBLISHED_DIR="${1:-}"
+OUTPUT_PATH="${2:-${PUBLISHED_DIR:+$PUBLISHED_DIR/feed.json}}"
 
-if [ -z "$BUNDLES_DIR" ]; then
-    echo "Usage: $0 <bundles-dir> [output-path]" >&2
+if [ -z "$PUBLISHED_DIR" ]; then
+    echo "Usage: $0 <published-dir> [output-path]" >&2
     echo "" >&2
-    echo "Produces a feed.json describing each bundle in <bundles-dir>." >&2
-    echo "Default output-path is <bundles-dir>/feed.json." >&2
+    echo "Produces a feed.json describing each bundle in <published-dir>." >&2
+    echo "Default output-path is <published-dir>/feed.json." >&2
     exit 1
 fi
 
-if [ ! -d "$BUNDLES_DIR" ]; then
-    echo "Error: bundles directory does not exist: $BUNDLES_DIR" >&2
+if [ ! -d "$PUBLISHED_DIR" ]; then
+    echo "Error: published directory does not exist: $PUBLISHED_DIR" >&2
     exit 1
 fi
 
-BUNDLES_DIR="$(cd "$BUNDLES_DIR" && pwd)"
+PUBLISHED_DIR="$(cd "$PUBLISHED_DIR" && pwd)"
 
 # Collect bundle directories. A bundle is any immediate subdirectory
 # with a feature-requirements.txt at its root.
 BUNDLE_DIRS=()
-for D in "$BUNDLES_DIR"/*/; do
+for D in "$PUBLISHED_DIR"/*/; do
     [ -d "$D" ] || continue
     if [ -f "$D/feature-requirements.txt" ]; then
         BUNDLE_DIRS+=("${D%/}")
