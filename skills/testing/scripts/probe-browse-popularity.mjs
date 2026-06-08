@@ -3,16 +3,15 @@
 // probe-browse-popularity.mjs
 //
 // UI test for the two-level recipient-side popularity histogram rendered
-// in the Browse overlay. Boots 3 publishers, each carrying a shared
-// `restaurant-list` component with overlapping-but-distinct bullets; one
-// also has a niche `wait-times` component so the outer cluster pass shows
-// real divergence.
+// in the Browse overlay. Boots 3 publishers, each carrying overlapping-
+// but-distinct `restaurant-list` bullets; one also has a niche
+// `wait-times` component so the outer cluster pass shows real divergence.
 //
 //   Publisher A: restaurant-list { 1, 2, 3, 4 }
 //   Publisher B: restaurant-list { 1, 2, 3, 5 }
 //   Publisher C: restaurant-list { 1, 2, 6, 7 } + wait-times { a, b }
 //
-// Expected UI:
+// Expected histogram:
 //   restaurant-list (3/3)
 //     - bullet 1   3/3
 //     - bullet 2   3/3
@@ -21,6 +20,13 @@
 //   wait-times (1/3)
 //     - bullet a   1/1
 //     - bullet b   1/1
+//
+// Every action is driven through the actual UI: each publisher opens its
+// Canvas Info modal and clicks the Shared toggle; the consumer opens the
+// Browse overlay and types the search; the histogram is read out of the
+// rendered DOM. The only programmatic precursor is `/network/dial` to
+// short-circuit libp2p DHT bootstrap (no UI for that — peer discovery is
+// designed to be automatic).
 //
 
 import fs from 'node:fs';
@@ -57,15 +63,18 @@ const PUBLISHERS = [
     { label: 'C', components: { 'restaurant-list': [1, 2, 6, 7], 'wait-times': ['a', 'b'] } }
 ];
 
-// Recipient-side bullet normalization, same as the client uses.
 const normalizeBullet = s => s
     .replace(/^[-*•\s]+/, '')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
 
+// Lay down a component in new shape: component.html at the folder root
+// (referenced from input.json), view.json and feature-requirements.txt
+// alongside. The publisher's UI mounts the component the same way a real
+// canvas would.
 const writeComponent = (workspace, name, bullets, lookup) => {
-    const compDir = path.join(workspace, 'home', 'components', name, 'presented');
+    const compDir = path.join(workspace, 'home', 'components', name);
     fs.mkdirSync(compDir, { recursive: true });
     fs.writeFileSync(
         path.join(compDir, 'feature-requirements.txt'),
@@ -75,9 +84,15 @@ const writeComponent = (workspace, name, bullets, lookup) => {
         path.join(compDir, 'view.json'),
         JSON.stringify({ html: '<div></div>' }) + '\n'
     );
+    fs.writeFileSync(
+        path.join(compDir, 'component.html'),
+        '<liquidos-component path="components/' + name + '">\n' +
+        '    <liquidos-file path="components/' + name + '/view.json"></liquidos-file>\n' +
+        '</liquidos-component>\n'
+    );
     const inputPath = path.join(workspace, 'home', 'input.json');
     const input = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
-    const compPath = 'components/' + name;
+    const compPath = 'components/' + name + '/component.html';
     if (!Array.isArray(input.components)) input.components = [];
     if (!input.components.includes(compPath)) input.components.push(compPath);
     fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + '\n');
@@ -124,8 +139,7 @@ try {
     for (const def of PUBLISHERS) {
         const handle = await bootSandbox(publisherFixture);
         // Canvas-level requirements: minimal, just enough text to be
-        // searchable on TOPIC even if the topic isn't in the component
-        // names. Two-level clustering ignores this anyway.
+        // searchable on TOPIC even if the topic isn't in component names.
         fs.writeFileSync(
             path.join(handle.workspace, 'home/feature-requirements.txt'),
             '- ' + TOPIC + '\n'
@@ -138,22 +152,43 @@ try {
         console.log(`publisher ${def.label}: ${handle.url}`);
     }
 
-    // --- Share each publisher's home canvas -------------------------
+    browser = await chromium.launch({ headless: true });
+
+    // --- Share each publisher's home canvas through the UI ------------
+    // One tab per publisher: open Canvas Info, click Shared, wait for
+    // aria-checked='true' AND !disabled (server-committed, not just the
+    // optimistic flip).
     for (const pub of publishers) {
-        const result = await fetch(pub.url + '/canvas/share', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ canvas: 'home', shared: true })
-        }).then(r => r.json());
-        if (result?.shared !== true) throw new Error(`publisher ${pub.label} did not flip to shared`);
+        const tab = await browser.newPage();
+        tab.on('pageerror', err => console.warn(`[${pub.label} pageerror]`, err.message));
+        await tab.goto(pub.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await tab.waitForSelector('#canvas-info', { timeout: 20000 });
+        await tab.locator('#canvas-info').click();
+        await tab.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
+        await tab.locator('#canvas-share-switch').click();
+        await tab.waitForFunction(
+            () => {
+                const btn = document.getElementById('canvas-share-switch');
+                return btn
+                    && btn.getAttribute('aria-checked') === 'true'
+                    && !btn.hasAttribute('disabled');
+            },
+            undefined,
+            { timeout: 30000 }
+        );
+        console.log(`publisher ${pub.label}: share toggle ON`);
+        await tab.close();
     }
 
-    // --- Boot consumer, dial each publisher -------------------------
+    // --- Boot consumer, dial each publisher ---------------------------
     consumer = await bootSandbox(consumerFixture);
     console.log(`consumer: ${consumer.url}`);
 
     const expectedPeerIds = new Set();
     for (const pub of publishers) {
+        // /network/status to get the loopback multiaddr and peerId, and
+        // /network/dial to skip libp2p DHT bootstrap. Both are
+        // documented test-setup precursors with no UI equivalent.
         const status = await fetch(pub.url + '/network/status').then(r => r.json());
         expectedPeerIds.add(status.peerId);
         const addr = (status.multiaddrs || []).find(a => a.startsWith('/ip4/127.0.0.1/'));
@@ -165,30 +200,40 @@ try {
         if (!dial.ok) throw new Error(`dial ${pub.label} failed`);
     }
 
-    // Wait for gossipsub via the new ?n=&timeout_ms= shape.
-    const warm = await fetch(consumer.url + '/network/search?q=' + TOPIC + '&n=3&timeout_ms=30000')
-        .then(r => r.json());
-    const bundles = (warm.results || []).filter(r => r.peerId && expectedPeerIds.has(r.peerId));
-    console.log(`saw ${bundles.length}/3 publisher bundles before opening UI`);
-    if (bundles.length < 3) throw new Error('consumer did not see all publishers within timeout');
-
-    // --- Drive the Browse overlay via Playwright -------------------
-    browser = await chromium.launch({ headless: true });
+    // --- Drive the Browse overlay -------------------------------------
     const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
     page.on('pageerror', err => console.log('[pageerror]', err.message));
     await page.goto(consumer.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('#new-canvas', { timeout: 20000 });
     await sleep(500);
-    await page.locator('#new-canvas').dispatchEvent('click');
+    await page.locator('#new-canvas').click();
     await page.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
     await page.locator('#browse-query').fill(TOPIC);
+
+    // Wait for the publisher bundles to surface in the Browse UI. As
+    // gossipsub delivers each bundle, the Browse overlay appends a
+    // result card; the popularity block renders once we have multiple
+    // matches. This naturally absorbs propagation timing through the
+    // user-facing search path.
+    await page.waitForFunction(
+        (peerIds) => {
+            const cards = document.querySelectorAll('#browse-results .browse-result');
+            const seen = new Set();
+            for (const c of cards) if (peerIds.includes(c.dataset.peer)) seen.add(c.dataset.peer);
+            return seen.size >= 3;
+        },
+        Array.from(expectedPeerIds),
+        { timeout: 60000 }
+    );
+    console.log('consumer saw all 3 publisher bundles in Browse');
+
     try {
         await page.waitForSelector('.browse-popularity', { timeout: 10000 });
     } catch {
         throw new Error('.browse-popularity never appeared after typing the query');
     }
 
-    // --- Assertions on the rendered two-level histogram -------------
+    // --- Assertions on the rendered two-level histogram ---------------
     const observed = await page.evaluate(() => {
         const block = document.querySelector('.browse-popularity');
         if (!block) return null;

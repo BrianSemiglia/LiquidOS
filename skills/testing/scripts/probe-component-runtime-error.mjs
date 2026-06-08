@@ -51,8 +51,6 @@ const sandbox = await new Promise((resolve, reject) => {
 const cleanup = () => { try { launcher.kill('SIGTERM'); } catch {} };
 process.on('SIGINT', () => { cleanup(); process.exit(130); });
 
-const statusPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'diagnostics', 'status.json');
-
 let exitCode = 0;
 try {
     const browser = await chromium.launch({ headless: true });
@@ -86,26 +84,7 @@ try {
         exitCode = 1;
     }
 
-    // 2c) Diagnostics gets runtime.ok:false.
-    let runtimeWritten = false;
-    for (let i = 0; i < 20 && !runtimeWritten; i++) {
-        try {
-            const data = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
-            if (data && data.runtime && data.runtime.ok === false
-                && typeof data.runtime.error === 'string'
-                && data.runtime.error.includes('SIMULATED_RUNTIME_ERROR_FOR_TEST')) {
-                runtimeWritten = true;
-                console.log('diagnostics runtime entry:', JSON.stringify(data.runtime));
-            }
-        } catch {}
-        if (!runtimeWritten) await sleep(150);
-    }
-    if (!runtimeWritten) {
-        console.error('FAIL: diagnostics/status.json did not get runtime.ok:false');
-        exitCode = 1;
-    }
-
-    // 2d) Repair persists across incidental re-mounts (state lives on disk,
+    // 2c) Repair persists across incidental re-mounts (state lives on disk,
     // not in JS memory). Touch view.json to flip htmlChanged → re-mount;
     // assert the button stays visible.
     const viewJsonPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'presented', 'view.json');

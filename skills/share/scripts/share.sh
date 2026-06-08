@@ -114,7 +114,7 @@ printf '%s' "$SUBTITLE" > "$BUNDLE_DIR/canvas-subtitle.txt"
 printf '%s' "$TAGS" | tr ',' '\n' | awk 'NF{$1=$1;print}' > "$BUNDLE_DIR/canvas-tags.txt"
 
 # Component requirements: walk input.json.components, copy each
-# component's presented/feature-requirements.txt under its leaf name.
+# component's feature-requirements.txt under its leaf name.
 COMPONENT_PATHS=()
 while IFS= read -r line; do
     [ -n "$line" ] && COMPONENT_PATHS+=("$line")
@@ -128,8 +128,26 @@ for (const c of components) {
 ' "$INPUT_PATH")
 
 for COMPONENT_REL in "${COMPONENT_PATHS[@]+"${COMPONENT_PATHS[@]}"}"; do
-    COMPONENT_LEAF="$(basename "$COMPONENT_REL")"
-    COMPONENT_REQ_SRC="$CANVAS_DIR/$COMPONENT_REL/presented/feature-requirements.txt"
+    COMPONENT_DIR="$(dirname "$COMPONENT_REL")"
+    COMPONENT_LEAF="$(basename "$COMPONENT_DIR")"
+
+    # Per-component opt-out: components default to inheriting the canvas's
+    # share state. A component's share.json with { "shared": false } excludes
+    # it from the bundle.
+    COMPONENT_SHARE_FILE="$CANVAS_DIR/$COMPONENT_DIR/share.json"
+    if [ -f "$COMPONENT_SHARE_FILE" ]; then
+        IS_SHARED="$(node -e '
+try {
+    const obj = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    process.stdout.write(obj && obj.shared === false ? "no" : "yes");
+} catch { process.stdout.write("yes"); }
+' "$COMPONENT_SHARE_FILE")"
+        if [ "$IS_SHARED" = "no" ]; then
+            continue
+        fi
+    fi
+
+    COMPONENT_REQ_SRC="$CANVAS_DIR/$COMPONENT_DIR/feature-requirements.txt"
     COMPONENT_REQ_DEST="$BUNDLE_DIR/components/$COMPONENT_LEAF/feature-requirements.txt"
     mkdir -p "$BUNDLE_DIR/components/$COMPONENT_LEAF"
     if [ -f "$COMPONENT_REQ_SRC" ]; then

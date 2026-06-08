@@ -1,2 +1,0 @@
-- Cards float in a stack.
-- Each card pings on tap.

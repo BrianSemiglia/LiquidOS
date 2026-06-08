@@ -10,7 +10,6 @@ const createOutputQueue = ({
     resolveCanvasReference,
     isCanvasScope
 }) => {
-    const isObject = value => value !== null && typeof value === 'object';
     const resolveFromWorkspacePath = value =>
         path.isAbsolute(value) ? value : path.resolve(workspacePath, value);
 
@@ -88,14 +87,6 @@ const createOutputQueue = ({
     };
 
     // Called when the canvas runtime starts (initial load or canvas switch).
-    // Initial load: queue is already empty. Canvas switch: drops stale jobs
-    // from the prior canvas and clears any lane reservations. Process restart
-    // gives an empty queue by definition, so there is no normalization step.
-    const resetQueue = () => {
-        jobs = [];
-        activeOutputKeys.clear();
-    };
-
     const activeOutputJobs = () =>
         jobs.filter(job => ['pending', 'running'].includes(job.status) && callbackPromptText(job));
 
@@ -225,7 +216,6 @@ const createOutputQueue = ({
         outputJobSummary,
         appendOutputJob,
         updateOutputJob,
-        resetQueue,
         currentBusyState,
         feedHermesOutput,
         clearActiveLanes,

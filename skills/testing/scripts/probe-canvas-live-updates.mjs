@@ -337,47 +337,47 @@ await test('source canvas with async post-teardown work → destination renders'
     return 'destination rendered 10/10 switches';
 });
 
-// A second client (think: a second browser window) listening for
-// canvases-changed must see it fire when the canvas is switched via
-// the /canvas endpoint. fs.watch on macOS doesn't reliably fire for
-// the server's own writes, so /canvas has to emit canvases-changed
-// itself — this scenario catches a regression of that fact.
-await test('POST /canvas emits canvases-changed for other listeners', async () => {
-    const events = [];
-    await page.exposeFunction('__sse2', (data) => events.push(data));
-    await page.evaluate(() => {
-        const src = new EventSource('/events');
-        src.onmessage = e => window.__sse2(e.data);
-    });
-    await sleep(500);  // let the second EventSource subscribe
-    events.length = 0;  // drop any startup chatter
-    const resp = await page.evaluate(async () => {
-        const r = await fetch('/canvas', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ name: 'other' })
-        });
-        return { ok: r.ok, status: r.status };
-    });
-    if (!resp.ok) throw new Error('POST /canvas failed: ' + resp.status);
-    await sleep(1500);
-    const sawCanvasesChanged = events.some(d => {
-        try { return JSON.parse(d).type === 'canvases-changed'; } catch { return false; }
-    });
-    if (!sawCanvasesChanged) {
-        throw new Error('canvases-changed never fired; events: ' + events.slice(0, 10).join(' | '));
+// A second client (think: a second browser window) must see the active
+// canvas change when the first client switches via the dropdown. fs.watch
+// on macOS doesn't reliably fire for the server's own writes, so the
+// /canvas POST has to emit canvases-changed itself — this scenario
+// catches a regression of that fact, from the user's perspective.
+await test('user switches canvas in one tab → other tab follows', async () => {
+    // Open a second page on the same workspace. Same sandbox, same server,
+    // independent dropdown state.
+    const pageB = await browser.newPage();
+    pageB.on('pageerror', err => console.warn('[pageerror-B]', err.message));
+    await pageB.goto(sandbox.url, { waitUntil: 'domcontentloaded' });
+    await pageB.waitForSelector('#canvas-select', { timeout: 10000 });
+    // Both tabs should start on /home (the workspace's active canvas).
+    await pageB.waitForFunction(
+        () => document.getElementById('canvas-select')?.value === 'home',
+        undefined, { timeout: 5000 }
+    );
+
+    try {
+        // Page A drives the change through the dropdown.
+        await page.selectOption('#canvas-select', 'other');
+
+        // Page B's dropdown must follow without a reload.
+        await pageB.waitForFunction(
+            () => document.getElementById('canvas-select')?.value === 'other',
+            undefined, { timeout: 5000 }
+        );
+
+        // Restore /home in both tabs for downstream scenarios.
+        await page.selectOption('#canvas-select', 'home');
+        await pageB.waitForFunction(
+            () => document.getElementById('canvas-select')?.value === 'home',
+            undefined, { timeout: 5000 }
+        );
+        await page.waitForFunction(() => Array.from(document.querySelectorAll('main .item'))
+            .some(item => (item.dataset.componentPath || '').includes('/alpha')), null, { timeout: 5000 });
+
+        return 'second tab followed the switch';
+    } finally {
+        await pageB.close();
     }
-    // Restore /home for downstream scenarios.
-    await page.evaluate(async () => {
-        await fetch('/canvas', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ name: 'home' })
-        });
-    });
-    await page.waitForFunction(() => Array.from(document.querySelectorAll('main .item'))
-        .some(item => (item.dataset.componentPath || '').includes('/alpha')), null, { timeout: 5000 });
-    return 'canvases-changed fired';
 });
 
 

@@ -104,7 +104,7 @@ To override the folder name (e.g., for fanout or fan-in patterns), pass `--name 
 
 Then:
 
-1. Read both endpoints' `presented/functions.js` to see which channels they actually publish (`on`) and accept (`send`). The relationship can only wire what's already exposed. If a needed channel isn't there yet, extend the endpoint to expose it.
+1. Read both endpoints' `functions.js` to see which channels they actually publish (`on`) and accept (`send`). The relationship can only wire what's already exposed. If a needed channel isn't there yet, extend the endpoint to expose it.
 2. Fill in `connect()` — channel names, payload transform, anything else specific to this wire.
 3. Write `feature-requirements.txt` in plain language describing what the wire does ("Pressing a key on the keyboard sets the color picker's color; multiple keys mix into one color").
 

@@ -94,7 +94,7 @@ What the endpoint does, in one shot:
 
 The user sees a single coherent update instead of a per-file flicker. If any write fails partway, the response is 500 with a count of how many landed; the workspace is left in a partial state and a refresh is emitted so the client sees what actually happened.
 
-Workspace-relative paths look like `"home/components/foo/presented/view.html"`. Absolute paths and `..` traversal are rejected for `path`.
+Workspace-relative paths look like `"home/components/foo/view.html"`. Absolute paths and `..` traversal are rejected for `path`.
 
 ## Useful checks
 

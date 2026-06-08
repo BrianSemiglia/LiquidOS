@@ -17,6 +17,8 @@ const { ComponentRuntimeRepairTestAgent } = require('./test/component-runtime-re
 const { PromptBarSingleDispatchTestAgent } = require('./test/prompt-bar-single-dispatch-test-agent');
 const { CanvasRepairTestAgent } = require('./test/canvas-repair-test-agent');
 const { PromptBarTestAgent } = require('./test/prompt-bar-test-agent');
+const { InstallBuildTestAgent } = require('./test/install-build-test-agent');
+const { CrossCanvasPersistenceTestAgent } = require('./test/cross-canvas-persistence-test-agent');
 
 // NoneAgent is for runs that should not have a working agent — sandbox boots
 // for smoke tests, recursion guards, anything where callbacks should fail
@@ -65,7 +67,9 @@ const createRuntimes = ({
         ComponentRuntimeRepairTestAgent(),
         PromptBarSingleDispatchTestAgent(),
         CanvasRepairTestAgent(),
-        PromptBarTestAgent()
+        PromptBarTestAgent(),
+        InstallBuildTestAgent(),
+        CrossCanvasPersistenceTestAgent()
     ];
 
     const ownedRuntimePaths = () =>

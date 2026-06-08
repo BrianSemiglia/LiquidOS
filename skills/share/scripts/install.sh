@@ -10,10 +10,9 @@ if [ -z "$BUNDLE_DIR" ] || [ -z "$WORKSPACE_DIR" ]; then
     echo "" >&2
     echo "Installs a requirements bundle (the output of share.sh) into the" >&2
     echo "workspace as a NEW canvas. Components are scaffolded with the same" >&2
-    echo "shape any new component gets (presented/, services/, etc.) but with" >&2
-    echo "the bundle's feature-requirements.txt copied into place. The agent" >&2
-    echo "then reads each component's requirements and builds the actual" >&2
-    echo "implementation." >&2
+    echo "shape any new component gets, with the bundle's" >&2
+    echo "feature-requirements.txt copied into place. The agent then reads" >&2
+    echo "each component's requirements and builds the actual implementation." >&2
     echo "" >&2
     echo "The canvas takes the bundle folder's name by default; pass a third" >&2
     echo "argument to import under a different name." >&2
@@ -120,7 +119,7 @@ for COMPONENT_PATH in "$BUNDLE_DIR/components"/*/; do
     # import.
     if bash "$CREATE_COMPONENT" "$CANVAS_PATH" "$COMPONENT_NAME" >/dev/null 2>&1; then
         if [ -f "$REQ_SRC" ]; then
-            cp "$REQ_SRC" "$CANVAS_PATH/components/$COMPONENT_NAME/presented/feature-requirements.txt"
+            cp "$REQ_SRC" "$CANVAS_PATH/components/$COMPONENT_NAME/feature-requirements.txt"
         fi
         CREATED_NAMES+=("$COMPONENT_NAME")
     else

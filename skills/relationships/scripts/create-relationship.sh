@@ -15,9 +15,9 @@ set -euo pipefail
 #   - Verifies <from> and <to> exist under the canvas's components/.
 #   - Errors if the relationship folder already exists.
 #   - Writes functions.js, feature-requirements.txt, and a test.js stub
-#     directly at the relationship folder root. No presented/ wrapper,
-#     no view.json — relationships don't render, so the harness
-#     synthesizes their component shape from convention.
+#     at the relationship folder root. No view.json — relationships
+#     don't render, so the harness synthesizes their component shape
+#     from convention.
 #   - Does NOT touch input.json. The server discovers relationships by
 #     scanning <canvas>/relationships/.
 #

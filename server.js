@@ -26,7 +26,7 @@ process.env.LIQUIDOS_HARNESS_PID = String(process.pid);
 const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none',
     'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'component-build-test', 'canvas-repair-test',
     'canvas-damaged-repair-test', 'component-runtime-repair-test', 'prompt-bar-single-dispatch-test',
-    'prompt-bar-test']);
+    'prompt-bar-test', 'install-build-test', 'cross-canvas-persistence-test']);
 
 const failStartup = message => {
     console.error(message);
@@ -127,15 +127,26 @@ const absoluteScope = scope => {
     return path.resolve(CANVAS_PATH, relative);
 };
 
+// Each queued job carries its own absolute scope. The job's canvas is
+// derived from that scope — the first path segment under WORKSPACE_PATH.
+// This makes jobs self-contained: a pending job for canvas A still runs
+// against canvas A's folder even after the user has switched to canvas B,
+// so the queue doesn't need to be reset on canvas change.
+const canvasPathFromScope = scope => {
+    const value = String(scope || '').trim();
+    if (!value) return CANVAS_PATH;
+    const absolute = path.isAbsolute(value) ? path.normalize(value) : path.resolve(WORKSPACE_PATH, value);
+    const relative = path.relative(WORKSPACE_PATH, absolute);
+    if (!relative || relative.startsWith('..')) return CANVAS_PATH;
+    return path.join(WORKSPACE_PATH, relative.split(path.sep)[0]);
+};
+
 const WORKSPACE_PATH = resolveConfigPath(requiredArg('--workspace'));
 const DEFAULT_AGENT_KIND = String(requiredArg('--agent')).trim().toLowerCase();
 
 if (!VALID_AGENT_KINDS.has(DEFAULT_AGENT_KIND)) {
     failStartup('Invalid --agent. Expected one of: codex, claude-code, hermes, pi');
 }
-
-const optionalArg = (name, fallback) =>
-    REQUIRED_ARGUMENTS.has(name) ? REQUIRED_ARGUMENTS.get(name) : fallback;
 
 if (path.extname(WORKSPACE_PATH) !== '.liquidos') {
     failStartup('--workspace must be a .liquidos folder');
@@ -438,12 +449,6 @@ runtimeSet.configureHosts({
 
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
-const writeJson = (file, value) => {
-    const temp = file + '.' + process.pid + '.tmp';
-    fs.writeFileSync(temp, JSON.stringify(value, null, 2) + '\n');
-    fs.renameSync(temp, file);
-};
-
 const canvasFiles = createCanvasFiles({
     fs,
     workspacePath: WORKSPACE_PATH,
@@ -490,7 +495,6 @@ const createCanvasRuntime = canvasPath => {
             this.started = true;
             ensureActiveCanvasFiles();
             activityPersistence.ensureActivityPersistenceRepo();
-            outputQueue.resetQueue();
             outputQueue.feedHermesOutput();
             broadcastQueueState();
             return this;
@@ -598,14 +602,20 @@ let shutdownCommitAttempted = false;
 
 const processOutputJob = async job => {
     const jobId = job.id || 'job-' + Date.now();
-    const componentPath = job.componentPath ? resolveCanvasReference(job.componentPath) : null;
+    // Derive everything from the job's own scope so the job runs against
+    // its target canvas regardless of which canvas the user is currently
+    // viewing. This is what makes the queue safe to keep across canvas
+    // switches.
+    const jobCanvasPath = canvasPathFromScope(job.scope);
+    const componentPath = job.componentPath
+        ? (path.isAbsolute(job.componentPath) ? path.normalize(job.componentPath) : path.resolve(jobCanvasPath, job.componentPath))
+        : null;
     const laneKey = outputQueue.outputJobKey(job);
-    const isCanvasJob = isCanvasScope(job.scope) || laneKey === 'canvas';
     const startedAt = Date.now();
     activeOutputJob = { ...job, id: jobId, componentPath };
 
     logServer('queue', 'job claimed', {
-        canvas: CANVAS_PATH,
+        canvas: jobCanvasPath,
         job: outputQueue.outputJobSummary({ ...job, id: jobId, componentPath }),
         lane: laneKey
     });
@@ -628,8 +638,8 @@ const processOutputJob = async job => {
     try {
         agentResponse = await runQueuedAgentJob(buildAgentPrompt({ ...job, id: jobId, componentPath }), {
             job: outputQueue.outputJobSummary({ ...job, id: jobId, componentPath, status: 'running' }),
-            canvasPath: CANVAS_PATH,
-            inputPath: INPUT_PATH,
+            canvasPath: jobCanvasPath,
+            inputPath: path.join(jobCanvasPath, 'input.json'),
             workingDirectory: WORKSPACE_PATH,
             systemPromptPath: AGENTS_RUNTIME_PATH
         });
@@ -672,7 +682,7 @@ const processOutputJob = async job => {
 
         emitNativeNotification({
             title: 'Agent finished',
-            body: canvasName(CANVAS_PATH)
+            body: canvasName(jobCanvasPath)
         });
     } catch (error) {
         const activityRecord = activityPersistence.persistActivity({
@@ -705,7 +715,7 @@ const processOutputJob = async job => {
 
         emitNativeNotification({
             title: 'Agent failed',
-            body: canvasName(CANVAS_PATH)
+            body: canvasName(jobCanvasPath)
         });
 
     } finally {
@@ -727,250 +737,6 @@ const send = (res, status, body, type = 'text/plain; charset=utf-8') => {
     res.end(body);
 };
 
-const resolveFromRoot = value =>
-    path.isAbsolute(value) ? value : path.resolve(ROOT, value);
-
-const pointerParts = pointer => {
-    if (pointer === '') {
-        return [];
-    }
-
-    if (!pointer.startsWith('/')) {
-        throw new Error('JSON Patch path must start with /: ' + pointer);
-    }
-
-    return pointer.slice(1).split('/').map(part =>
-        part.replace(/~1/g, '/').replace(/~0/g, '~')
-    );
-};
-
-const isObject = value =>
-    value !== null && typeof value === 'object';
-
-const hasKey = (value, key) =>
-    Object.prototype.hasOwnProperty.call(value, key);
-
-const arrayIndex = (key, length, allowEnd = false) => {
-    if (!/^(0|[1-9]\d*)$/.test(key)) {
-        throw new Error('Invalid array index: ' + key);
-    }
-
-    const index = Number(key);
-    const max = allowEnd ? length : length - 1;
-
-    if (index < 0 || index > max) {
-        throw new Error('Array index out of bounds: ' + key);
-    }
-
-    return index;
-};
-
-const pointerPath = parts =>
-    parts.length ? '/' + parts.map(part => part.replace(/~/g, '~0').replace(/\//g, '~1')).join('/') : '';
-
-const pointerParent = (document, pointer) => {
-    const parts = pointerParts(pointer);
-
-    if (!parts.length) {
-        return { key: undefined, parent: undefined };
-    }
-
-    let parent = document;
-
-    for (let index = 0; index < parts.length - 1; index += 1) {
-        const part = parts[index];
-
-        if (Array.isArray(parent)) {
-            parent = parent[arrayIndex(part, parent.length)];
-            continue;
-        }
-
-        if (!isObject(parent) || !hasKey(parent, part)) {
-            throw new Error('Path does not exist: ' + pointerPath(parts.slice(0, index + 1)));
-        }
-
-        parent = parent[part];
-    }
-
-    if (!isObject(parent)) {
-        throw new Error('Path parent is not an object or array: ' + pointer);
-    }
-
-    return {
-        parent,
-        key: parts[parts.length - 1]
-    };
-};
-
-const cloneJson = value =>
-    value === undefined ? undefined : JSON.parse(JSON.stringify(value));
-
-const lookupPointer = (document, pointer) => {
-    let current = document;
-
-    for (const part of pointerParts(pointer)) {
-        if (Array.isArray(current)) {
-            current = current[arrayIndex(part, current.length)];
-            continue;
-        }
-
-        if (!isObject(current) || !hasKey(current, part)) {
-            return { exists: false, value: undefined };
-        }
-
-        current = current[part];
-    }
-
-    return { exists: true, value: cloneJson(current) };
-};
-
-const addPointer = (document, pointer, value) => {
-    if (pointer === '') {
-        return cloneJson(value);
-    }
-
-    const { parent, key } = pointerParent(document, pointer);
-
-    if (Array.isArray(parent)) {
-        parent.splice(key === '-' ? parent.length : arrayIndex(key, parent.length, true), 0, cloneJson(value));
-    } else {
-        parent[key] = cloneJson(value);
-    }
-
-    return document;
-};
-
-const removePointer = (document, pointer) => {
-    if (pointer === '') {
-        return undefined;
-    }
-
-    const { parent, key } = pointerParent(document, pointer);
-
-    if (Array.isArray(parent)) {
-        parent.splice(arrayIndex(key, parent.length), 1);
-    } else {
-        if (!hasKey(parent, key)) {
-            throw new Error('Path does not exist: ' + pointer);
-        }
-
-        delete parent[key];
-    }
-
-    return document;
-};
-
-const replacePointer = (document, pointer, value) => {
-    if (pointer === '') {
-        return cloneJson(value);
-    }
-
-    const { parent, key } = pointerParent(document, pointer);
-
-    if (Array.isArray(parent)) {
-        parent[arrayIndex(key, parent.length)] = cloneJson(value);
-    } else {
-        if (!hasKey(parent, key)) {
-            throw new Error('Path does not exist: ' + pointer);
-        }
-
-        parent[key] = cloneJson(value);
-    }
-
-    return document;
-};
-
-const applyJsonPatch = (document, ops) =>
-    ops.reduce((next, op) => {
-        if (op.op === 'add') {
-            return addPointer(next, op.path, op.value);
-        }
-
-        if (op.op === 'remove') {
-            return removePointer(next, op.path);
-        }
-
-        if (op.op === 'replace') {
-            return replacePointer(next, op.path, op.value);
-        }
-
-        throw new Error('Unsupported JSON Patch op: ' + op.op);
-    }, cloneJson(document));
-
-const inverseOps = ops =>
-    [...ops].reverse().map(op => {
-        if (op.op === 'add') {
-            return op.beforeExists
-                ? { op: 'replace', path: op.appliedPath || op.path, value: op.before }
-                : { op: 'remove', path: op.appliedPath || op.path };
-        }
-
-        if (op.op === 'remove') {
-            return { op: 'add', path: op.path, value: op.before };
-        }
-
-        if (op.op === 'replace') {
-            return { op: 'replace', path: op.path, value: op.before };
-        }
-
-        throw new Error('Unsupported JSON Patch op: ' + op.op);
-    });
-
-const applyPatchSet = patchSet => {
-    patchSet.forEach(patch => {
-        const file = resolveFromRoot(patch.file);
-        const current = readJson(file);
-        writeJson(file, applyJsonPatch(current, patch.ops || []));
-    });
-};
-
-const ensurePatchBefores = patchSet =>
-    patchSet.map(patch => {
-        const file = resolveFromRoot(patch.file);
-        let current = readJson(file);
-
-        const ops = (patch.ops || []).map(op => {
-            const nextOp = { ...op };
-            let lookup;
-
-            if (op.op === 'add' && op.path !== '') {
-                const { parent } = pointerParent(current, op.path);
-
-                lookup = Array.isArray(parent)
-                    ? { exists: false, value: undefined }
-                    : lookupPointer(current, op.path);
-            } else {
-                lookup = lookupPointer(current, op.path);
-            }
-
-            if (!Object.hasOwn(nextOp, 'beforeExists')) {
-                nextOp.beforeExists = lookup.exists;
-            }
-
-            if (lookup.exists && !Object.hasOwn(nextOp, 'before')) {
-                nextOp.before = lookup.value;
-            }
-
-            if (op.op === 'add' && !Object.hasOwn(nextOp, 'appliedPath')) {
-                if (op.path === '') {
-                    nextOp.appliedPath = '';
-                } else {
-                    const parts = pointerParts(op.path);
-                    const { parent, key } = pointerParent(current, op.path);
-
-                    nextOp.appliedPath = Array.isArray(parent) && key === '-'
-                        ? pointerPath([...parts.slice(0, -1), String(parent.length)])
-                        : op.path;
-                }
-            }
-
-            current = applyJsonPatch(current, [op]);
-            return nextOp;
-        });
-
-        return { ...patch, ops };
-    });
-
 const broadcast = payload => {
     const message = payload ? JSON.stringify(payload) : 'update';
     clients.forEach(res => res.write('data: ' + message + '\n\n'));
@@ -991,8 +757,8 @@ const componentChangePayload = (entries, rendered) => {
     if (!rendered || rendered.canvasError) return null;
 
     // When only component watch entries fired (an edit anywhere inside a
-    // component's presented/ tree), ship the affected components in a typed
-    // event so the client can update them without a full reload.
+    // component's folder), ship the affected components in a typed event so
+    // the client can update them without a full reload.
     const componentKinds = new Set(['component', 'relationship']);
     if (entries.every(entry => componentKinds.has(entry.kind)) && Array.isArray(rendered.components)) {
         const dirtyFolders = new Set(entries.map(entry => entry.componentPath));
@@ -1659,6 +1425,14 @@ const server = http.createServer(async (req, res) => {
                 try { body = JSON.parse(await readBody(req) || '{}'); }
                 catch { send(res, 400, 'invalid json'); return; }
                 writeShareFlag(componentShareFile(folder), Boolean(body.shared));
+                // Re-publish if the canvas is currently shared, so peers
+                // see the opt-out (or opt-back-in) reflected in the bundle
+                // without requiring a manual canvas re-share.
+                const canvasName = canvasOfComponent(folder);
+                if (readShareFlag(canvasShareFile(canvasName)) === true) {
+                    const result = runShareScript('share.sh', [canvasName]);
+                    if (result.ok) rebroadcastFeed();
+                }
                 send(res, 200, JSON.stringify({ shared: Boolean(body.shared) }), 'application/json; charset=utf-8');
                 return;
             }

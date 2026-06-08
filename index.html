@@ -1768,16 +1768,6 @@
         };
 
 
-        const loadTextResource = async resourcePath => {
-            const response = await fetch(resourcePath, { cache: 'no-store' });
-
-            if (!response.ok) {
-                throw new Error(resourcePath + ' returned ' + response.status);
-            }
-
-            return response.text();
-        };
-
         const escapeHTML = value =>
             String(value || '')
                 .replace(/&/g, '&amp;')
@@ -1858,16 +1848,6 @@
             debugResizer.addEventListener('pointerdown', startDebugResize);
         }
         updatePromptChromeSpace();
-
-        const loadJsonResource = async resourcePath => {
-            const response = await fetch(resourcePath, { cache: 'no-store' });
-
-            if (!response.ok) {
-                throw new Error(resourcePath + ' returned ' + response.status);
-            }
-
-            return response.json();
-        };
 
         const absoluteScope = scope => {
             const value = String(scope || '').trim();
@@ -2351,6 +2331,16 @@
                 setShareSwitchUI(button, current, false);
             }
         };
+
+        // <liquidos-component> builds its own shell when it isn't nested
+        // inside a harness-rendered frame (the new-shape cssLayout flow).
+        // Its flip path doesn't go through showComponentSide, so the per-
+        // component Share switch would never sync without this bridge.
+        // The element calls liquidos.loadComponentShareState on flip-open
+        // and liquidos.toggleComponentShareState when the switch is
+        // clicked — both expect the .item to carry __component.componentPath.
+        window.liquidos.loadComponentShareState = loadComponentShareState;
+        window.liquidos.toggleComponentShareState = toggleComponentShareState;
 
         // Wire up the Repair callback's scope + prompt, and show it whenever
         // the textarea ends up empty — whether the file is missing, the file
@@ -2905,8 +2895,6 @@
         };
 
 
-        const orderedIndexes = () =>
-            latestComponents.map(component => component.index);
         const renderCanvas = (items, layout) => {
             const commit = () => {
                 const nextItems = [];

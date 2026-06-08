@@ -25,9 +25,6 @@ const createCanvasGraph = ({
     const localResourceFile = resource =>
         localResourcePath(resource) ? canvasLocalPath(localResourcePath(resource)) : null;
 
-    const componentScripts = html =>
-        Array.from(String(html || '').matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi), match => match[1]);
-
     const escapeHTML = value =>
         String(value || '')
             .replace(/&/g, '&amp;')
