@@ -110,9 +110,6 @@ const createCanvasFiles = ({
                 })
             : [];
 
-    const readCanvasInputAt = canvasPath =>
-        readJson(path.join(canvasPath, 'input.json'));
-
     const switchCanvas = name => {
         if (!/^[^/][^/]*$/.test(name)) {
             const error = new Error('Invalid canvas name');
@@ -161,7 +158,6 @@ const createCanvasFiles = ({
     return {
         ensureCanvasDefaults,
         availableCanvases,
-        readCanvasInputAt,
         switchCanvas,
         createCanvas
     };

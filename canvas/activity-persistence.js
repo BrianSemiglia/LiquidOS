@@ -81,15 +81,10 @@ const createActivityPersistence = ({ workspacePath, currentCanvasPath, logServer
 
     return {
         ensureActivityPersistenceRepo: timeline.ensureCanvasesGitRepo,
-        parseActivityPersistence,
         persistActivity
     };
 };
 
 module.exports = {
-    collapseWhitespace,
-    createActivityPersistence,
-    extractRestoreContextBlocks,
-    parseActivityPersistence,
-    stripRestoreContextBlocks
+    createActivityPersistence
 };

@@ -25,12 +25,6 @@ const createOutputQueue = ({
     let activeOutputKeys = new Set();
     let processJob = null;
 
-    const readOutputJobs = () => jobs.slice();
-
-    const readOutputJob = () =>
-        [...jobs].reverse().find(job => job.status === 'pending' || job.status === 'running')
-            || jobs[jobs.length - 1] || null;
-
     const outputJobKey = job => {
         if (!job) {
             return null;
@@ -226,22 +220,16 @@ const createOutputQueue = ({
         return processJob;
     };
 
-    const getActiveLanes = () => Array.from(activeOutputKeys);
-
     return {
-        readOutputJobs,
-        readOutputJob,
         outputJobKey,
         outputJobSummary,
         appendOutputJob,
         updateOutputJob,
         resetQueue,
-        activeOutputJobs,
         currentBusyState,
         feedHermesOutput,
         clearActiveLanes,
-        setProcessJob,
-        getActiveLanes
+        setProcessJob
     };
 };
 
