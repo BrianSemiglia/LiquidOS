@@ -177,6 +177,7 @@ const createCanvasGraph = ({
 
             return {
                 index,
+                entryPath: componentPath,
                 componentPath: resolveCanvasReference(componentPath)
             };
         });
@@ -314,8 +315,9 @@ const createCanvasGraph = ({
             }
 
             const leaves = leafComponents();
-            const renderEntry = ({ componentPath, component }) => ({
+            const renderEntry = ({ componentPath, entryPath, component }) => ({
                 componentPath,
+                entryPath: entryPath || '',
                 scope: componentScope(componentPath),
                 repairLevel: component.repairLevel || '',
                 html: renderedHtml(componentPath, component),

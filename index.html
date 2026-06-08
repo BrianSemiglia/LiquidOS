@@ -2861,7 +2861,21 @@
             // context, timers, etc.).
             const htmlChanged = !prev || prev.html !== component.html;
             const resourcesChanged = componentResourcesSig(prev) !== componentResourcesSig(component);
-            if (htmlChanged) {
+            const entryChanged = !prev || prev.entryPath !== component.entryPath;
+            // New-shape components are referenced by component.html paths in
+            // input.json — the snapshot's html field is empty since the
+            // harness no longer materializes view content server-side. Drop
+            // a <liquidos-file> that loads the entry; everything inside
+            // (chrome, view.json render, runtime scripts) follows from that.
+            const newShape = (component.entryPath || '').endsWith('.html');
+            if (newShape) {
+                if (entryChanged) {
+                    surface.innerHTML = '';
+                    const file = document.createElement('liquidos-file');
+                    file.setAttribute('path', component.entryPath);
+                    surface.appendChild(file);
+                }
+            } else if (htmlChanged) {
                 morphInto(surface, component.html || '');
             }
             if (htmlChanged || resourcesChanged) {
