@@ -18,12 +18,14 @@ Land here when the work is about *how components are presented and navigated*, n
 
 ```text
 <canvas-name>/
-  input.json                  — manifest: { "components": [<canvas-relative path>, ...] }
+  input.json                  — manifest: { "components": ["components/<name>/component.html", ...] }
   canvas.js                   — presentation, input, group behavior
   feature-requirements.txt    — plain-text intent: what this canvas is for
   components/                 — component folders (see Component Skill)
   relationships/              — wires between components (see Relationship Skill)
 ```
+
+Each entry in `input.json`'s `components` array is a canvas-relative path to a component's `component.html` entry file. Folder-only paths (`"components/<name>"`) won't render — the harness flags the canvas as damaged and surfaces a Repair affordance.
 
 Add or remove components by editing `input.json`. Change arrangement, navigation, or group behavior by editing `canvas.js`. Update intent in `feature-requirements.txt`.
 

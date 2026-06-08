@@ -3108,8 +3108,18 @@
             // New-shape canvases (foo7-style) own their own components via
             // <liquidos-file> tags. They don't expose place() — skip the
             // harness's component painting so they don't fight the
-            // canvas's own render.
+            // canvas's own render. First reconcile renderedItemsByPath:
+            // anything not in the current snapshot (notably the canvas-
+            // level Repair card from the previous broken state) gets
+            // removed, otherwise it sits in #app next to whatever the
+            // recovered canvas just painted.
             if (typeof currentCanvas?.place !== 'function') {
+                for (const [path, item] of Array.from(renderedItemsByPath.entries())) {
+                    if (!latestComponentByPath.has(path)) {
+                        item.remove();
+                        renderedItemsByPath.delete(path);
+                    }
+                }
                 lastCanvasSnapshot = snapshot;
                 return;
             }
