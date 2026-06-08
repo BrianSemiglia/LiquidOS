@@ -2,7 +2,7 @@
 //
 // probe-install-triggered-build.mjs
 //
-// /network/install enqueues a "Build this canvas and its components."
+// POST /share (install) enqueues a "Build this canvas and its components."
 // job scoped to the newly-installed canvas. The probe asserts that:
 //   - the install completes through the UI,
 //   - the dispatched agent job actually runs,
@@ -130,7 +130,7 @@ try {
     );
     console.log('consumer: installed gizmo rendered (pre-agent)');
 
-    // The /network/install handler enqueued a "Build this canvas..."
+    // The POST /share (install) handler enqueued a "Build this canvas..."
     // job; the install-build-test agent should pick it up and rewrite
     // each component's view.json with the sentinel marker. The
     // workspace-file watcher then re-imports view.json and the surface

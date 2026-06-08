@@ -1343,13 +1343,6 @@ const server = http.createServer(async (req, res) => {
             path.join(WORKSPACE_PATH, canvasName, 'share.json');
         const componentShareFile = (componentAbsPath) =>
             path.join(componentAbsPath, 'share.json');
-        const canvasOfComponent = (componentAbsPath) => {
-            // <workspace>/<canvas>/components/<name> → <canvas>
-            const rel = path.relative(WORKSPACE_PATH, componentAbsPath);
-            const parts = rel.split(path.sep).filter(Boolean);
-            return parts[0] || '';
-        };
-
         // Share scripts. Each owns its piece of the share.json/feed.json
         // shape; the endpoint just decides which one to call.
         const runShareScript = (script, args) => {
@@ -1364,8 +1357,7 @@ const server = http.createServer(async (req, res) => {
 
         // /share endpoint family. One namespace, HTTP verbs do the work.
         //
-        //   GET    /share                       — list bundles
-        //                                         (?q=, ?n=, ?timeout_ms=)
+        //   GET    /share                       — list bundles (?q=)
         //   POST   /share                       — install a bundle
         //                                         (body: { peerId, hash })
         //   GET    /share/<canvas>              — read canvas share state
@@ -1380,8 +1372,6 @@ const server = http.createServer(async (req, res) => {
             // --- GET /share — list -------------------------------------
             if (req.method === 'GET' && parts.length === 1) {
                 const query = (url.searchParams.get('q') || '').trim().toLowerCase();
-                const wantN = Math.max(0, Number.parseInt(url.searchParams.get('n') || '0', 10) || 0);
-                const timeoutMs = Math.max(0, Number.parseInt(url.searchParams.get('timeout_ms') || '0', 10) || 0);
                 const matchesQuery = (bundle) => {
                     if (!query) return true;
                     const haystack = [
@@ -1393,33 +1383,23 @@ const server = http.createServer(async (req, res) => {
                     ].join(' ').toLowerCase();
                     return haystack.includes(query);
                 };
-                const collectResults = () => {
-                    const acc = [];
-                    const feedFile = path.join(WORKSPACE_PATH, '.share', 'feed.json');
-                    if (fs.existsSync(feedFile)) {
-                        try {
-                            const localFeed = JSON.parse(fs.readFileSync(feedFile, 'utf8'));
-                            for (const bundle of (localFeed.bundles || [])) {
-                                if (matchesQuery(bundle)) acc.push({ ...bundle, peerId: null });
-                            }
-                        } catch { /* fall through */ }
-                    }
-                    if (peerFeedCache) {
-                        for (const [, entry] of peerFeedCache.cache) {
-                            const bundles = entry.feed && Array.isArray(entry.feed.bundles) ? entry.feed.bundles : [];
-                            for (const bundle of bundles) {
-                                if (matchesQuery(bundle)) acc.push({ ...bundle, peerId: entry.peerId });
-                            }
+                const results = [];
+                const feedFile = path.join(WORKSPACE_PATH, '.share', 'feed.json');
+                if (fs.existsSync(feedFile)) {
+                    try {
+                        const localFeed = JSON.parse(fs.readFileSync(feedFile, 'utf8'));
+                        for (const bundle of (localFeed.bundles || [])) {
+                            if (matchesQuery(bundle)) results.push({ ...bundle, peerId: null });
+                        }
+                    } catch { /* fall through */ }
+                }
+                if (peerFeedCache) {
+                    for (const [, entry] of peerFeedCache.cache) {
+                        const bundles = entry.feed && Array.isArray(entry.feed.bundles) ? entry.feed.bundles : [];
+                        for (const bundle of bundles) {
+                            if (matchesQuery(bundle)) results.push({ ...bundle, peerId: entry.peerId });
                         }
                     }
-                    return acc;
-                };
-                const sleep = ms => new Promise(r => setTimeout(r, ms));
-                const started = Date.now();
-                let results = collectResults();
-                while (wantN > 0 && results.length < wantN && Date.now() - started < timeoutMs) {
-                    await sleep(500);
-                    results = collectResults();
                 }
                 send(res, 200, JSON.stringify({ results }), 'application/json; charset=utf-8');
                 return;

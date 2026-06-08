@@ -15,7 +15,7 @@
 //
 // If the probe fails at the "widget should NOT be installed" assertion,
 // the per-component opt-out is broken at one of:
-//   - /component/.../share POST doesn't republish the bundle
+//   - DELETE /share/<canvas>/<component> doesn't republish the bundle
 //   - share.sh ignores component-level share.json when building the bundle
 //   - install.sh scaffolds every folder it finds in the TAR regardless
 // All three are real product gaps the probe surfaces.

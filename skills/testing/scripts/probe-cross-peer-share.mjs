@@ -92,8 +92,9 @@ try {
     await pubPage.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
     await pubPage.locator('#canvas-share-switch').click();
     // Wait for the server to actually accept the toggle, not just the
-    // optimistic UI flip. The button stays disabled until /canvas/share
-    // POST returns (which is when share.sh has finished publishing).
+    // optimistic UI flip. The button stays disabled until the PUT /share/
+    // <canvas> response lands (which is when share.sh has finished
+    // publishing).
     await pubPage.waitForFunction(
         () => {
             const btn = document.getElementById('canvas-share-switch');

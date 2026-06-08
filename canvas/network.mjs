@@ -249,8 +249,8 @@ export const stopNetworkNode = async (node) => {
 // direct dial, anything), we try to fetchFeed against them. Peers that
 // speak our protocol respond with their feed.json; everyone else fails
 // silently. The successful responses populate an in-memory cache; the
-// /network/search endpoint reads only from that cache so query text
-// never leaves the local process (privacy by construction).
+// GET /share endpoint reads only from that cache so query text never
+// leaves the local process (privacy by construction).
 //
 // We also re-poll known LiquidOS peers on a low-frequency timer so a
 // peer's share-toggle eventually shows up in our search results without

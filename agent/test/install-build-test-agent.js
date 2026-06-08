@@ -1,6 +1,6 @@
 // Test agent for the install-triggered build probe.
 //
-// /network/install enqueues a "Build this canvas and its components."
+// POST /share (install) enqueues a "Build this canvas and its components."
 // job scoped to the newly-installed canvas. A real agent would read each
 // scaffolded component's feature-requirements.txt and rewrite its
 // view.json with the actual UI. This agent simulates that minimally:
