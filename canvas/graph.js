@@ -81,33 +81,12 @@ const createCanvasGraph = ({
             ? componentPath
             : path.dirname(componentPath);
 
-    // Per the component contract, the harness reads what the agent has
-    // "presented" — everything inside the presented/ subdir of the component.
-    // The agent stages multi-file changes in .presented/ alongside and swaps
-    // atomically via `rm -rf presented && mv .presented presented`.
-    const componentPresentedPath = componentPath =>
-        path.join(componentFolderPath(componentPath), 'presented');
-
-    const componentServicesPath = componentPath =>
-        path.join(componentPresentedPath(componentPath), 'services');
-
-    // data/ lives at the component root (outside presented/) so persistent
-    // state survives presented/ swaps.
+    // data/, diagnostics/ live at the component folder root.
     const componentDataPath = componentPath =>
         path.join(componentFolderPath(componentPath), 'data');
 
-    // diagnostics/ also lives at the component root so the agent has a stable
-    // place to read failure info regardless of presented/ swaps.
     const componentDiagnosticsPath = componentPath =>
         path.join(componentFolderPath(componentPath), 'diagnostics');
-
-    const componentViewPath = componentPath =>
-        fs.existsSync(componentPath) && fs.statSync(componentPath).isDirectory()
-            ? path.join(componentPresentedPath(componentPath), 'view.json')
-            : componentPath;
-
-    const componentStartPath = componentPath =>
-        path.join(componentServicesPath(componentPath), 'start.sh');
 
     const componentViewCache = new Map();
 
@@ -169,38 +148,13 @@ const createCanvasGraph = ({
         }
     };
 
+    // Components own their own paint via <liquidos-file> tags inside
+    // component.html. /input doesn't ship view content — the canvas's
+    // canvas.js handles rendering and the chrome's load() short-circuits
+    // when the canvas exposes no place() method.
     const loadComponentView = componentPath => {
-        const viewPath = componentViewPath(componentPath);
-        let mtimeMs = null;
-
-        try {
-            mtimeMs = fs.statSync(viewPath).mtimeMs;
-        } catch (error) {
-            mtimeMs = null;
-        }
-
-        const cached = componentViewCache.get(viewPath);
-
-        if (cached && mtimeMs !== null && cached.mtimeMs === mtimeMs) {
-            return cached.component;
-        }
-
-        let component;
-
-        try {
-            validateComponentFile(componentPath);
-            component = readJson(viewPath);
-            updateDiagnostics(componentPath, 'view', { ok: true, error: null });
-        } catch (error) {
-            component = invalidComponentCard(viewPath, error);
-            updateDiagnostics(componentPath, 'view', { ok: false, error: error.message });
-        }
-
-        if (mtimeMs !== null) {
-            componentViewCache.set(viewPath, { mtimeMs, component });
-        }
-
-        return component;
+        updateDiagnostics(componentPath, 'view', { ok: true, error: null });
+        return { html: '', title: '' };
     };
 
     const loadLeafComponent = entry => ({
@@ -382,16 +336,10 @@ const createCanvasGraph = ({
         return relative && !relative.startsWith('..') && !path.isAbsolute(relative);
     };
 
-    const presentedEntries = (componentPaths, kind) =>
-        componentPaths.flatMap(componentPath => {
-            const presented = path.join(componentFolderPath(componentPath), 'presented');
-            if (!fs.existsSync(presented) || !fs.statSync(presented).isDirectory() || !isInsideCanvas(presented)) {
-                return [];
-            }
-            return [{ path: presented, recursive: true, kind, componentPath }];
-        });
-
-    const relationshipFolderEntries = (componentPaths, kind) =>
+    // Watch the entire component folder recursively. file-change events
+    // bubble up to the SSE stream so <liquidos-file> elements can re-render
+    // when the agent or a service writes to anything inside.
+    const componentFolderEntries = (componentPaths, kind) =>
         componentPaths.flatMap(componentPath => {
             const folder = componentFolderPath(componentPath);
             if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory() || !isInsideCanvas(folder)) {
@@ -413,14 +361,14 @@ const createCanvasGraph = ({
             // (active-canvas.json, state.json, etc.) don't trigger.
             ...[getCanvasPath()].filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
                 .map(file => ({ path: file, recursive: false, kind: 'canvas-root' })),
-            ...presentedEntries(componentPaths, 'component'),
+            ...componentFolderEntries(componentPaths, 'component'),
             // Non-recursive watch on relationships/ catches add/remove of
             // relationships themselves (a new bridge folder appearing).
             ...(fs.existsSync(relationshipsDirPath) && fs.statSync(relationshipsDirPath).isDirectory()
                 ? [{ path: relationshipsDirPath, recursive: false, kind: 'relationships-root' }]
                 : []),
             // Relationships use the same contract as components.
-            ...relationshipFolderEntries(relationshipPaths, 'relationship')
+            ...componentFolderEntries(relationshipPaths, 'relationship')
         ];
     };
 
@@ -460,21 +408,17 @@ const createCanvasGraph = ({
         });
     };
 
-    const componentServiceFolders = () =>
-        inputEntries()
-            .map(entry => componentServicesPath(entry.componentPath))
-            .filter(folder => fs.existsSync(path.join(folder, 'start.sh')));
+    // Service supervision now lives in the <liquidos-file run> element —
+    // canvas.js asks the harness to spawn scripts directly via /spawn.
+    const componentServiceFolders = () => [];
 
     return {
         componentScopePath,
         componentScope,
         componentFileUrl,
         componentFolderPath,
-        componentServicesPath,
         componentDataPath,
         componentDiagnosticsPath,
-        componentViewPath,
-        componentStartPath,
         canvasJsPath,
         canvasJsVersion,
         updateDiagnostics,

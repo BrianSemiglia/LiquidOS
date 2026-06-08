@@ -1,1 +1,6 @@
-{ "components": ["components/alpha", "components/beta"] }
+{
+  "components": [
+    "components/alpha/component.html",
+    "components/beta/component.html"
+  ]
+}

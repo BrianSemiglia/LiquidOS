@@ -5,19 +5,19 @@
 //      position: fixed elements get trapped inside it instead of escaping
 //      to the viewport. (Killed the CSS-pin "is-requirements-open" approach.)
 //
-//   2. A cached lastItems list that the canvas reuses on workspace-file
-//      SSE events to re-place without going through the harness's place().
-//      When the modal opens, the cached list still references the real item
-//      — so a state-driven re-place yanks the item out of the body overlay
+//   2. A cached lastItems list that the canvas re-reads on workspace-file
+//      SSE events to re-place without going through any harness API. When
+//      the modal opens, the cached list still references the real item —
+//      so a state-driven re-place would yank it out of the body overlay
 //      and back into the canvas tree. (Killed the bare "move item to body"
 //      approach.)
 //
-// The probe writes to state.json to trigger workspace-file SSE events; this
-// canvas then exercises both behaviors above. The fix lives in index.html:
-// the harness fires one render right after opening the modal so the canvas
-// caches the placeholder instead of the real item.
+// Both behaviors are reproduced here in the new-shape style: the canvas
+// owns its render loop and components are <liquidos-file path="component.html">
+// inside .item wrappers; the canvas never touches lib internals.
 
-export default (root) => {
+export default (root, context = {}) => {
+    const { canvasName, fetchJson, onWorkspaceEvent } = context;
     const style = document.createElement('style');
     style.textContent = `
         .stage { position: relative; width: 100%; min-height: 100vh; perspective: 1200px; background: #0e0b1f; }
@@ -31,43 +31,59 @@ export default (root) => {
     stage.appendChild(world);
     root.appendChild(stage);
 
+    const INPUT_PATH = canvasName + '/input.json';
     let lastItems = [];
 
+    const wrappersByPath = new Map();
+
     const applyPlacement = () => {
-        const kept = new Set();
-        lastItems.forEach((item, index) => {
-            let wrap = item.parentElement;
-            if (!wrap || !wrap.classList || !wrap.classList.contains('card')) {
-                wrap = document.createElement('div');
-                wrap.className = 'card';
-                wrap.appendChild(item);
-                world.appendChild(wrap);
+        lastItems.forEach((path, index) => {
+            let wrap = wrappersByPath.get(path);
+            if (!wrap) {
+                wrap = document.createElement('section');
+                wrap.className = 'item';
+                wrap.dataset.componentPath = path;
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.appendChild(wrap);
+                const file = document.createElement('liquidos-file');
+                file.setAttribute('path', canvasName + '/' + path);
+                wrap.appendChild(file);
+                world.appendChild(card);
+                wrappersByPath.set(path, wrap);
             }
-            wrap.style.transform = `translate3d(${index * 500}px, 0, 0)`;
-            kept.add(wrap);
+            const card = wrap.parentElement;
+            card.style.transform = 'translate3d(' + (index * 500) + 'px, 0, 0)';
         });
-        Array.from(world.querySelectorAll('.card')).forEach(wrap => {
-            if (!kept.has(wrap)) wrap.remove();
-        });
+        // Drop wrappers for components no longer in the list.
+        for (const [path, wrap] of wrappersByPath) {
+            if (!lastItems.includes(path)) {
+                wrap.parentElement?.remove();
+                wrappersByPath.delete(path);
+            }
+        }
     };
 
-    // Re-place on every workspace-file SSE — same pattern the gadgets 3D
-    // canvas uses to react to its state files.
-    const events = new EventSource('/events');
-    events.onmessage = event => {
-        try {
-            const payload = JSON.parse(event.data);
-            if (payload && payload.type === 'workspace-file') applyPlacement();
-        } catch {}
+    const loadInput = async () => {
+        if (typeof fetchJson !== 'function') return;
+        const json = await fetchJson(INPUT_PATH);
+        lastItems = Array.isArray(json?.components) ? json.components.map(String) : [];
+        applyPlacement();
     };
+
+    // Same pattern the original used to fail at: re-read state on every
+    // workspace-file SSE event, then re-place.
+    const unsubscribe = typeof onWorkspaceEvent === 'function'
+        ? onWorkspaceEvent(payload => {
+            if (payload?.type === 'workspace-file') applyPlacement();
+        })
+        : () => {};
+
+    loadInput();
 
     return {
-        place(items) {
-            lastItems = items;
-            applyPlacement();
-        },
         teardown() {
-            events.close();
+            unsubscribe();
             style.remove();
             stage.remove();
         }

@@ -39,7 +39,7 @@ const PromptBarTestAgent = () => {
             setStatus({ status: 'running', cwd: workingDirectory });
             try {
                 const inputPath = path.join(canvasFolder, 'input.json');
-                fs.writeFileSync(inputPath, JSON.stringify({ components: ['components/probe-built'] }, null, 2) + '\n');
+                fs.writeFileSync(inputPath, JSON.stringify({ components: ['components/probe-built/component.html'] }, null, 2) + '\n');
                 setStatus({ status: 'waiting' });
                 resolve('ok');
             } catch (error) {

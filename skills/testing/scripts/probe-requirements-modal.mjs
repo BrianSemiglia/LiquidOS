@@ -134,7 +134,7 @@ try {
     //         modal. Same UI surface, but the label flips to Generate
     //         because the file is present-but-empty (different repair
     //         path: write from implementation, not find/restore).
-    const featurePath = path.join(sandbox.workspace, 'home/components/widget/presented/feature-requirements.txt');
+    const featurePath = path.join(sandbox.workspace, 'home/components/widget/feature-requirements.txt');
     fs.mkdirSync(path.dirname(featurePath), { recursive: true });
     fs.writeFileSync(featurePath, '');
     await page.keyboard.press('Escape');

@@ -1,6 +1,6 @@
 {
   "components": [
-    "components/source",
-    "components/sink"
+    "components/source/component.html",
+    "components/sink/component.html"
   ]
 }

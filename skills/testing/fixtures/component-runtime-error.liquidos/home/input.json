@@ -1,1 +1,5 @@
-{ "components": ["components/runtime-error"] }
+{
+  "components": [
+    "components/runtime-error/component.html"
+  ]
+}

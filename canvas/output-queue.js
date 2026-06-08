@@ -79,24 +79,6 @@ const createOutputQueue = ({
         return job;
     };
 
-    // Same as append, but places the job in front of any existing pending
-    // jobs so it runs next. Used when the runtime needs an agent job to
-    // preempt user-initiated work — currently only workspace-fix jobs,
-    // which must run before any canvas job can safely proceed.
-    const prependOutputJob = async job => {
-        const firstPending = jobs.findIndex(item => item && item.status === 'pending');
-        if (firstPending === -1) {
-            jobs.push(job);
-        } else {
-            jobs.splice(firstPending, 0, job);
-        }
-        logServer('queue', 'job prepended', {
-            canvas: getCanvasPath(),
-            depth: jobs.filter(item => item && ['pending', 'running'].includes(item.status)).length,
-            job: outputJobSummary(job)
-        });
-        return job;
-    };
 
     const updateOutputJob = async (jobId, patch) => {
         let updated = false;
@@ -252,7 +234,6 @@ const createOutputQueue = ({
         outputJobKey,
         outputJobSummary,
         appendOutputJob,
-        prependOutputJob,
         updateOutputJob,
         resetQueue,
         activeOutputJobs,

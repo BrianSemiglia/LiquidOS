@@ -5,7 +5,7 @@
 // User opens the canvas requirements modal on an empty canvas, clicks
 // Repair → agent dispatched → test agent writes feature-requirements.txt.
 // User closes the modal and reopens it; openCanvasRequirements re-fetches
-// via /workspace/file/.../feature-requirements.txt every open, so the
+// via /workspace/.../feature-requirements.txt every open, so the
 // textarea now contains the agent's content. Probe asserts on that.
 
 import path from 'node:path';

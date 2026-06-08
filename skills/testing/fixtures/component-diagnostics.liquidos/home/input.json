@@ -1,1 +1,5 @@
-{ "components": ["components/broken"] }
+{
+  "components": [
+    "components/broken/component.html"
+  ]
+}

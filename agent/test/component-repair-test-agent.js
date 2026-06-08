@@ -40,7 +40,7 @@ const ComponentRepairTestAgent = () => {
             }
             setStatus({ status: 'running', cwd: workingDirectory });
             try {
-                const reqPath = path.join(scope, 'presented', 'feature-requirements.txt');
+                const reqPath = path.join(scope, 'feature-requirements.txt');
                 fs.writeFileSync(reqPath, MARKER + '\n');
                 setStatus({ status: 'waiting' });
                 resolve('ok');

@@ -129,12 +129,13 @@ try {
         console.log('repair button persisted across re-mount: ok');
     }
 
-    // 3) A services/ edit clears the Repair button. Per the documented
-    // contract (skills/component/SKILL.md), the harness watches
-    // presented/services/ — any edit there is treated as a fix attempt
-    // and clears runtime, giving the new code a fresh slate.
-    const startShPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'presented', 'services', 'start.sh');
-    fs.writeFileSync(startShPath, fs.readFileSync(startShPath, 'utf8') + '# probe edit\n');
+    // 3) After a fix — a re-mount that runs cleanly without throwing —
+    // the Repair button disappears. The agent's "fix" here is a fresh
+    // functions.js that no longer throws; the lib watches its own
+    // mounts and clears runtime once the quiet window elapses with no
+    // error. No harness-side file-edit heuristic involved.
+    const functionsJsPath = path.join(sandbox.workspace, 'home', 'components', 'runtime-error', 'presented', 'functions.js');
+    fs.writeFileSync(functionsJsPath, 'export const mount = () => () => {};\n');
     await page.waitForFunction(
         () => {
             const cb = document.querySelector('[data-runtime-repair-callback]');
@@ -142,10 +143,10 @@ try {
         },
         { timeout: 5000 }
     ).catch(() => {
-        console.error('FAIL: Repair button did not disappear after editing presented/services/start.sh');
+        console.error('FAIL: Repair button did not disappear after the source was fixed');
         exitCode = 1;
     });
-    if (!exitCode) console.log('repair button cleared after services/ edit: ok');
+    if (!exitCode) console.log('repair button cleared after clean re-mount: ok');
 
     if (!exitCode) console.log('PASS');
     await browser.close();

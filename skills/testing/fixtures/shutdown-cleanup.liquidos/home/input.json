@@ -1,5 +1,5 @@
 {
   "components": [
-    "components/sleeper"
+    "components/sleeper/component.html"
   ]
 }

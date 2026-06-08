@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 //
-// probe-component-diagnostics.mjs
+// probe-workspace-damaged.mjs
 //
-// Feature: when a component's script fails to load (syntax error,
-// missing export, etc.), the user sees the component is broken — the
-// Repair button surfaces, the same way a thrown error would surface it.
-// The harness doesn't need a separate "mount-error" presentation; load
-// failure and runtime throw are the same broken-component story from
-// the user's perspective.
+// Workspace is already broken when the server boots — input.json is
+// invalid JSON. The user shouldn't land on a dead UI: the canvas-level
+// Repair card surfaces just like it does when the file is corrupted
+// mid-session (probe-canvas-damaged).
+//
+// This is the boot-time counterpart to probe-canvas-damaged, the path
+// the workspace-migration overlay used to handle. Adding the assertion
+// here so we can rip the migration flow out without losing coverage of
+// "server boots into a broken workspace → user sees a way out."
 
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -16,8 +19,7 @@ import { chromium } from 'playwright';
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(scriptsDir, '../../..');
-const fixture = path.join(scriptsDir, '..', 'fixtures', 'component-diagnostics.liquidos');
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const fixture = path.join(scriptsDir, '..', 'fixtures', 'workspace-damaged.liquidos');
 
 const launcher = spawn('node', [
     path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
@@ -49,20 +51,17 @@ try {
     const page = await browser.newPage();
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('[data-broken]', { timeout: 20000 });
 
-    // Repair button surfaces — same affordance the user sees for any
-    // broken component. Reads "Repair", hover reveals it.
+    // A Repair button must appear on first paint — same affordance the
+    // user gets when a canvas breaks mid-session.
     await page.waitForFunction(
-        () => {
-            const buttons = Array.from(document.querySelectorAll('button'));
-            return buttons.some(b => (b.textContent || '').trim() === 'Repair'
-                && b.getBoundingClientRect().width > 0);
-        },
+        () => Array.from(document.querySelectorAll('button'))
+            .some(b => (b.textContent || '').trim() === 'Repair'
+                && b.getBoundingClientRect().width > 0),
         { timeout: 10000 }
     );
 
-    if (!exitCode) console.log('PASS');
+    console.log('PASS');
     await browser.close();
 } catch (e) {
     console.error('FAIL:', e.message);

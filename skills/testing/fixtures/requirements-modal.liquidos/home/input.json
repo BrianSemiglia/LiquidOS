@@ -1,5 +1,5 @@
 {
   "components": [
-    "components/widget"
+    "components/widget/component.html"
   ]
 }

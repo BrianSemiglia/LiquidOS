@@ -50,12 +50,16 @@ try {
     await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await sleep(1500);
 
-    // Pre-condition: no repair card yet. Use the role="group" wrapper that
-    // only repairCardHtml emits (the section.item also gets data-repair-level
-    // when canvasError fires, but it doesn't have role="group").
-    const cardSel = '[role="group"][data-repair-level="canvas"]';
-    if (await page.locator(cardSel).count() !== 0) {
-        console.error('FAIL: canvas repair card already present before damage');
+    // Pre-condition: no visible Repair button yet (an undamaged canvas
+    // with no failing components shouldn't show one).
+    const visibleRepairs = () => page.evaluate(() => {
+        return Array.from(document.querySelectorAll('button'))
+            .filter(b => (b.textContent || '').trim() === 'Repair'
+                && b.getBoundingClientRect().width > 0)
+            .length;
+    });
+    if (await visibleRepairs() !== 0) {
+        console.error('FAIL: a Repair button was already visible before damage');
         exitCode = 1;
     }
 
@@ -63,16 +67,13 @@ try {
     const inputPath = path.join(sandbox.workspace, 'home', 'input.json');
     fs.writeFileSync(inputPath, '{ this is not valid JSON', 'utf8');
 
-    // Harness re-renders with canvasError + repair card.
-    await page.waitForSelector(cardSel, { timeout: 8000 });
-    const cards = await page.locator(cardSel).count();
-    console.log('repair cards:', cards);
-    const buttonText = (await page.locator(cardSel + ' button').first().textContent() || '').trim();
-    console.log('button text:', buttonText);
-    if (buttonText !== 'Repair') {
-        console.error('FAIL: damage card did not surface a Repair button labeled "Repair"');
-        exitCode = 1;
-    }
+    // A Repair button surfaces — the user sees a broken canvas and can act on it.
+    await page.waitForFunction(
+        () => Array.from(document.querySelectorAll('button'))
+            .some(b => (b.textContent || '').trim() === 'Repair'
+                && b.getBoundingClientRect().width > 0),
+        { timeout: 8000 }
+    );
 
     if (!exitCode) console.log('PASS');
     await browser.close();

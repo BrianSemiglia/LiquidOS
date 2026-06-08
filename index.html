@@ -4,6 +4,84 @@
     <meta charset="utf-8">
     <title>Live Edit</title>
     <script src="/canvas/callback-element.js" defer></script>
+    <!-- New-shape helpers + element library. window.liquidos is the only
+         thing custom elements rely on; everything else is the legacy chrome. -->
+    <script type="module">
+        const fetchJson = async rel => {
+            const r = await fetch('/workspace/' + rel);
+            if (!r.ok) return null;
+            return r.json();
+        };
+        const fetchText = async rel => {
+            const r = await fetch('/workspace/' + rel);
+            if (!r.ok) return null;
+            return r.text();
+        };
+        const writeFile = async (rel, content) => {
+            const body = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+            const r = await fetch('/workspace/' + rel, { method: 'PUT', body });
+            return r.ok;
+        };
+        const fileExists = async rel => {
+            const r = await fetch('/workspace/' + rel, { method: 'HEAD' });
+            return r.ok;
+        };
+        const runService = async ({ script, label, dispatchId, args, env }) => {
+            const r = await fetch('/spawn', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ script, label, dispatchId, args, env })
+            });
+            if (!r.ok) return null;
+            return r.json();
+        };
+        const killService = async id => {
+            await fetch('/kill', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id })
+            });
+        };
+        const sseListeners = new Set();
+        const onWorkspaceEvent = fn => { sseListeners.add(fn); return () => sseListeners.delete(fn); };
+        new EventSource('/events').onmessage = event => {
+            let payload; try { payload = JSON.parse(event.data); } catch { return; }
+            for (const fn of sseListeners) { try { fn(payload); } catch (e) { console.error('sse listener threw', e); } }
+        };
+
+        window.liquidos = window.liquidos || {};
+        Object.assign(window.liquidos, {
+            fetchJson, fetchText, writeFile, fileExists,
+            runService, killService, onWorkspaceEvent
+        });
+
+        const elementsLib = await import('/lib/liquidos-elements/index.js');
+        window.liquidos.registerComponentScript = elementsLib.registerComponentScript;
+        window.liquidos.unregisterComponentScript = elementsLib.unregisterComponentScript;
+        window.liquidos.noteSuccessfulMount = elementsLib.noteSuccessfulMount;
+        window.liquidos.reportComponentRuntimeError = elementsLib.reportComponentRuntimeError;
+
+        // Component-internal <liquidos-callback> events. The legacy harness's
+        // per-frame listener (in renderComponent) only fires for components
+        // it rendered itself. New-shape components are painted by canvas.js
+        // and don't sit inside a harness frame; their callbacks bubble all
+        // the way to document. Catch them here and dispatch via /output.
+        document.addEventListener('liquidos:callback', async event => {
+            if (event.defaultPrevented) return;
+            const { scope, prompt } = event.detail || {};
+            if (!scope || !prompt) return;
+            event.preventDefault();
+            try {
+                await fetch('/output', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ scope, prompt })
+                });
+            } catch (e) {
+                console.error('callback dispatch failed', e);
+            }
+        });
+    </script>
     <style>
         * {
             box-sizing: border-box;
@@ -63,61 +141,10 @@
         }
 
 
-        .workspace-migration-overlay {
-            position: fixed;
-            inset: 0;
-            z-index: 100;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(15, 15, 18, 0.78);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            color: rgba(232, 232, 234, 0.95);
-        }
-        /* The custom display:flex above outranks the user-agent
-           [hidden]{display:none}, so without this rule the overlay would be
-           visible even when toggled hidden by JS. */
-        .workspace-migration-overlay[hidden] { display: none; }
-        .workspace-migration-card {
-            max-width: 32rem;
-            padding: 1.4rem 1.6rem;
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            border-radius: 14px;
-            background: rgba(34, 34, 35, 0.92);
-            box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45);
-        }
-        .workspace-migration-title { font-weight: 600; font-size: 1rem; margin-bottom: 0.5rem; }
-        .workspace-migration-detail { font-size: 0.85rem; line-height: 1.45; color: rgba(232, 232, 234, 0.75); }
-        .workspace-migration-actions { margin-top: 0.95rem; display: flex; justify-content: flex-end; gap: 0.6rem; }
-        .workspace-migration-actions button {
-            font: inherit;
-            font-size: 0.82rem;
-            font-weight: 600;
-            color: #fff;
-            background: rgba(59, 130, 246, 0.9);
-            border: 1px solid rgba(96, 165, 250, 0.65);
-            border-radius: 8px;
-            padding: 0.4rem 0.9rem;
-            cursor: pointer;
-        }
-        .workspace-migration-actions button:disabled { opacity: 0.6; cursor: progress; }
-        .workspace-migration-actions button:hover:not(:disabled) { background: rgba(59, 130, 246, 1); }
-        .workspace-migration-actions button.is-secondary {
-            background: transparent;
-            color: rgba(232, 232, 234, 0.7);
-            border-color: rgba(255, 255, 255, 0.18);
-        }
-        .workspace-migration-actions button.is-secondary:hover:not(:disabled) {
-            background: rgba(255, 255, 255, 0.06);
-            color: rgba(232, 232, 234, 0.95);
-        }
-
-        /* Canvas-requirements editor — reuses the workspace-migration overlay
-           shell. The card is a bit wider since it holds a real textarea, and
-           the textarea gets its own styling so it doesn't look like a tiny
-           comment field. */
+        /* Canvas-requirements editor — overlay shell + card layout. The
+           card is wider since it holds a real textarea, and the textarea
+           gets its own styling so it doesn't look like a tiny comment
+           field. */
         .canvas-requirements-overlay {
             position: fixed;
             inset: 0;
@@ -1342,20 +1369,6 @@
             </div>
         </form>
     </div>
-    <!-- Workspace-fix overlay. Shown when the runtime found a workspace-
-         level error and an agent is trying to fix it (or finished and
-         couldn't). Blocks input so a user-triggered job can't race the
-         agent on the same workspace's git state. -->
-    <div class="workspace-migration-overlay" id="workspace-migration-overlay" hidden>
-        <div class="workspace-migration-card" role="status" aria-live="polite">
-            <div class="workspace-migration-title" id="workspace-migration-title">Fixing this workspace</div>
-            <div class="workspace-migration-detail" id="workspace-migration-detail"></div>
-            <div class="workspace-migration-actions" id="workspace-migration-actions" hidden>
-                <button type="button" id="workspace-migration-cancel" hidden>Cancel</button>
-                <button type="button" id="workspace-migration-retry" hidden>Try again</button>
-            </div>
-        </div>
-    </div>
     <div class="global-prompt" id="global-prompt-bar">
         <div class="canvas-nav" aria-label="Canvas selection">
             <select id="canvas-select" aria-label="Canvas"></select>
@@ -1425,101 +1438,6 @@
         const app = document.getElementById('app');
         const canvasShell = document.getElementById('canvas-shell');
         const globalForm = document.getElementById('global-prompt');
-        const workspaceMigrationOverlay = document.getElementById('workspace-migration-overlay');
-        const workspaceMigrationTitle = document.getElementById('workspace-migration-title');
-        const workspaceMigrationDetail = document.getElementById('workspace-migration-detail');
-        const workspaceMigrationActions = document.getElementById('workspace-migration-actions');
-        const workspaceMigrationRetry = document.getElementById('workspace-migration-retry');
-        const workspaceMigrationCancel = document.getElementById('workspace-migration-cancel');
-        workspaceMigrationCancel.classList.add('is-secondary');
-
-        workspaceMigrationRetry.addEventListener('click', async () => {
-            workspaceMigrationRetry.disabled = true;
-            workspaceMigrationRetry.textContent = 'Retrying…';
-            try {
-                await fetch('/workspace/retry-migration', { method: 'POST' });
-            } catch {
-                // The next SSE-triggered /input refresh will surface whatever
-                // state the server lands in (running, failed again, or done),
-                // so swallow transient fetch errors here. updateWorkspaceMigra-
-                // tionOverlay will re-enable the button if we're back in the
-                // error state.
-            }
-        });
-
-        workspaceMigrationCancel.addEventListener('click', async () => {
-            workspaceMigrationCancel.disabled = true;
-            workspaceMigrationCancel.textContent = 'Cancelling…';
-            try {
-                await fetch('/workspace/cancel-migration', { method: 'POST' });
-            } catch {
-                // The runtime's broadcast on cancel completion will refresh
-                // /input and the overlay state, so swallow transient errors
-                // here. If the cancel didn't take effect (no PID, etc.), the
-                // overlay stays in running state and the button re-enables.
-            }
-        });
-
-        // Dev-only URL override for the migration overlay so the visual can
-        // be exercised without invoking the live agent runtime. Recognised
-        // values: "running", "pending" (a.k.a. "couldn't fix"), "off".
-        // Anything else (or absent) falls through to the real workspace
-        // state from /input. Read once per call so reload toggles work.
-        const migrationOverlayUrlOverride = () => {
-            try {
-                const value = new URL(window.location.href).searchParams.get('mig');
-                if (!value) return null;
-                if (value === 'off') return { migrationRunning: false, migrationPending: false };
-                if (value === 'running') return { migrationRunning: true, migrationPending: true };
-                if (value === 'pending' || value === 'error' || value === 'pending-error') {
-                    return { migrationRunning: false, migrationPending: true };
-                }
-                return null;
-            } catch { return null; }
-        };
-
-        // Mirrors data.workspace from /input. Shown when the workspace needs
-        // fixing or is currently being fixed. The technical artifact lives
-        // at <workspace>/.liquidos/workspace-error on disk; the UI keeps the
-        // user out of the way and offers Cancel / Try Again as appropriate.
-        const updateWorkspaceMigrationOverlay = workspace => {
-            const source = migrationOverlayUrlOverride() || workspace || {};
-            const running = Boolean(source.migrationRunning);
-            const pending = Boolean(source.migrationPending);
-            const show = running || pending;
-            workspaceMigrationOverlay.hidden = !show;
-            if (!show) return;
-
-            if (running) {
-                workspaceMigrationTitle.textContent = 'Fixing this workspace';
-                workspaceMigrationDetail.textContent =
-                    'Something went wrong opening this workspace. We’re trying to fix it — usually takes a minute or two. Cancel if you’d rather not wait.';
-            } else {
-                workspaceMigrationTitle.textContent = 'Couldn’t fix this workspace';
-                workspaceMigrationDetail.textContent =
-                    'The workspace still has a problem we weren’t able to fix. You can try again.';
-            }
-
-            // Action visibility: Cancel while running (lets the user abort an
-            // agent run they think is stuck or unwanted), Try Again when the
-            // last attempt failed and they want to re-fire it.
-            const showCancel = running;
-            const showRetry = !running && pending;
-            workspaceMigrationActions.hidden = !(showCancel || showRetry);
-            workspaceMigrationCancel.hidden = !showCancel;
-            workspaceMigrationRetry.hidden = !showRetry;
-            if (showCancel) {
-                workspaceMigrationCancel.disabled = false;
-                workspaceMigrationCancel.textContent = 'Cancel';
-            }
-            if (showRetry) {
-                workspaceMigrationRetry.disabled = false;
-                workspaceMigrationRetry.textContent = 'Try again';
-            }
-        };
-        // Apply the override (if any) immediately so ?mig= works before the
-        // first /input arrives.
-        updateWorkspaceMigrationOverlay(null);
         const globalText = document.getElementById('global-text');
         const globalSubmitCallback = document.getElementById('global-submit-callback');
         const globalPromptBar = document.getElementById('global-prompt-bar');
@@ -1897,7 +1815,23 @@
             if (currentCanvas) {
                 try { currentCanvas.teardown(); } catch (error) { /* tolerate */ }
             }
-            currentCanvas = mod.default(app, context || {});
+            // Pass the new-shape context too — canvas.js variants that own
+            // their own components (foo7's gadgets, etc.) read these fields.
+            // Legacy canvases that only use canvasPath ignore the extras.
+            const baseContext = context || {};
+            const canvasName = String(baseContext.canvasPath || '').split('/').filter(Boolean).pop() || '';
+            const newShapeContext = {
+                ...baseContext,
+                canvasName,
+                fetchJson: window.liquidos?.fetchJson,
+                fetchText: window.liquidos?.fetchText,
+                writeFile: window.liquidos?.writeFile,
+                fileExists: window.liquidos?.fileExists,
+                runService: window.liquidos?.runService,
+                killService: window.liquidos?.killService,
+                onWorkspaceEvent: window.liquidos?.onWorkspaceEvent
+            };
+            currentCanvas = mod.default(app, newShapeContext);
             currentCanvasCacheKey = cacheKey;
             updatePromptChromeSpace();
             return currentCanvas;
@@ -2213,13 +2147,25 @@
             // a relationship's mount can race ahead of its peers being mounted,
             // and if connect() runs against a partial peers map the bridge has
             // no second chance (io.__connected guards re-runs).
+            // For every expected component, the harness paints into
+            // renderedItemsByPath (old shape) OR the new-shape canvas paints
+            // a <liquidos-component> with a matching `path` attribute. In
+            // either case we want surface.__io. If neither has materialized
+            // yet, count it as pending so connect() waits.
             latestComponents.forEach(component => {
                 const scope = component.scope || '';
                 if (!scope) return;
-                const item = renderedItemsByPath.get(scope);
-                const surface = item?.querySelector('.surface');
-                if (!surface || !surface.__io) { pending += 1; return; }
-                peers[ioPeerName(scope)] = surface.__io;
+                const oldItem = renderedItemsByPath.get(scope);
+                const oldSurface = oldItem?.querySelector('.surface');
+                if (oldSurface?.__io) { peers[ioPeerName(scope)] = oldSurface.__io; return; }
+                const newEl = Array.from(document.querySelectorAll('liquidos-component'))
+                    .find(el => {
+                        const p = el.getAttribute('path') || '';
+                        return p === scope || scope.endsWith('/' + p) || p.endsWith('/' + scope);
+                    });
+                const newSurface = newEl?.querySelector('.surface');
+                if (newSurface?.__io) { peers[ioPeerName(scope)] = newSurface.__io; return; }
+                pending += 1;
             });
             // Hidden relationships mounted by the harness:
             relationshipNodesByPath.forEach((entry, path) => {
@@ -2250,6 +2196,11 @@
             wireIOAttempts = 0;
             wireIOTimer = setTimeout(wireIO, 0);
         };
+        // New-shape <liquidos-file script> mounts happen asynchronously
+        // and may set surface.__io after wireIO's last attempt; expose
+        // scheduleWireIO so the lib can prompt a fresh wire-up.
+        window.liquidos = window.liquidos || {};
+        window.liquidos.scheduleWireIO = scheduleWireIO;
 
         // --- Relationship lifecycle ---------------------------------------
         const relationshipSig = relationship =>
@@ -3084,7 +3035,11 @@
             }
 
             currentCanvasPath = typeof data.canvasPath === 'string' && data.canvasPath ? data.canvasPath : currentCanvasPath;
-            updateWorkspaceMigrationOverlay(data.workspace);
+            // New-shape custom elements use window.liquidos.canvasName to
+            // resolve canvas-relative paths (e.g., <liquidos-file path="components/foo/...">).
+            if (window.liquidos) {
+                window.liquidos.canvasName = (currentCanvasPath || '').split('/').filter(Boolean).pop() || '';
+            }
             globalSubmitCallback.setAttribute('scope', currentCanvasPath);
             latestComponents = data.components.map(component => ({
                 ...component,
@@ -3124,11 +3079,25 @@
             // the DOM into the canvas's detached subtree when they
             // resolve. Leave the rendering to the winning load().
             if (loaded === null) return;
+            // New-shape canvases (foo7-style) own their own components via
+            // <liquidos-file> tags inside component.html. They don't expose
+            // a place() method. Skip the harness's component painting
+            // entirely so the agent-managed components don't fight the
+            // canvas's own render — except when the canvas itself is
+            // broken (bad input.json, bad canvas.js), in which case the
+            // canvas can't render itself and the harness has to surface
+            // the repair affordance.
+            if (typeof currentCanvas?.place !== 'function') {
+                if (data.canvasError) {
+                    const items = latestComponents.map(component =>
+                        renderedItemsByPath.get(component.scope) || renderComponent(component));
+                    renderCanvas(items, null);
+                }
+                lastCanvasSnapshot = snapshot;
+                return;
+            }
             // Reuse existing DOM items when possible — only create a new
-            // <section> for components we haven't seen before. Previously this
-            // always called renderComponent for every component and let
-            // commit() throw away duplicates, which allocated DOM that ended
-            // up unused.
+            // <section> for components we haven't seen before.
             const items = latestComponents.map(component =>
                 renderedItemsByPath.get(component.scope) || renderComponent(component));
             renderCanvas(items, null);
@@ -3399,7 +3368,7 @@
             // Other failures → corrupt (Repair).
             try {
                 const response = await fetch(
-                    '/workspace/file/' + encodeURIComponent(canvasName) + '/feature-requirements.txt',
+                    '/workspace/' + encodeURIComponent(canvasName) + '/feature-requirements.txt',
                     { cache: 'no-store' }
                 );
                 if (response.ok) {

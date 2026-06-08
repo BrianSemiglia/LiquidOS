@@ -12,9 +12,6 @@ const { createCanvasGraph } = require('./canvas/graph');
 const { createOutputQueue } = require('./canvas/output-queue');
 const { createPromptBuilder } = require('./canvas/prompt-builder');
 const { bootstrapWorkspace } = require('./workspace/bootstrap');
-const { buildWorkspaceFixPrompt } = require('./workspace/run-migration');
-
-const WORKSPACE_ERROR_FILE_REL = path.join('.liquidos', 'workspace-error');
 
 const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
@@ -247,116 +244,6 @@ if (WORKSPACE_BOOTSTRAP.error) {
 } else if (WORKSPACE_BOOTSTRAP.initialized) {
     console.log('[workspace-bootstrap] initialized workspace git');
 }
-
-// Mirror of how many workspace-level errors the last detector pass saw.
-// /input surfaces this so the client knows whether to show the "couldn't
-// fix this workspace" overlay. The on-disk .liquidos/workspace-error file
-// is the persistent snapshot; this counter is just for fast reads. It's
-// kept in sync via syncWorkspaceErrorFile.
-let workspaceErrorCount = 0;
-
-// Catch-all detector for workspace-scope problems. Wraps each top-level
-// invariant in its own try/catch so a failure in one area doesn't suppress
-// detection of others. Returns an array of { check, error } objects; an
-// empty array means the workspace's top-level state looks healthy. Canvas-
-// and component-level errors are intentionally NOT included here — those
-// surface through the existing repair-card flows and are handled by per-
-// canvas / per-component agents, not by this workspace-wide fix step.
-const collectWorkspaceErrors = () => {
-    const errors = [];
-    const check = (name, fn) => {
-        try { fn(); }
-        catch (error) { errors.push({ check: name, error: error.message }); }
-    };
-
-    check('active-canvas-resolves', () => {
-        const name = activeCanvasNameFromFile();
-        if (!name) throw new Error('no active canvas configured');
-        const folder = path.join(WORKSPACE_PATH, name);
-        if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory()) {
-            throw new Error(`active canvas folder is missing: ${name}`);
-        }
-    });
-
-    check('active-agent-valid', () => {
-        const kind = activeAgentKindFromFile();
-        if (!VALID_AGENT_KINDS.has(kind)) {
-            throw new Error(`unknown agent kind in active-agent.json: ${kind}`);
-        }
-    });
-
-    check('workspace-has-canvases', () => {
-        const list = canvasFiles.availableCanvases();
-        if (!Array.isArray(list) || list.length === 0) {
-            throw new Error('workspace has no canvases');
-        }
-    });
-
-    return errors;
-};
-
-// Writes the workspace-error file. The file is never deleted — empty
-// `errors` arrays are written in place so git history follows a single
-// file across success/failure cycles without needing --follow. The
-// leading "_readme" key explains the file to anyone (or any agent)
-// looking at it in isolation, so an empty errors array isn't mistaken
-// for "something's wrong here."
-const writeWorkspaceErrorFile = (errors, context = {}) => {
-    const errorFilePath = path.join(WORKSPACE_PATH, WORKSPACE_ERROR_FILE_REL);
-    fs.mkdirSync(path.dirname(errorFilePath), { recursive: true });
-    const body = {
-        _readme: 'Snapshot of the runtime\'s most recent workspace-level error check. ' +
-            'An empty `errors` array means the workspace passes its checks; presence of this file alone does not indicate a problem.',
-        errors,
-        ...context
-    };
-    fs.writeFileSync(errorFilePath, JSON.stringify(body, null, 2) + '\n');
-};
-
-const syncWorkspaceErrorFile = errors => {
-    workspaceErrorCount = errors.length;
-    writeWorkspaceErrorFile(errors);
-};
-
-// Re-runs the detector, snapshots the result to .liquidos/workspace-error,
-// and — if anything is broken — enqueues an agent job at the front of the
-// queue to fix it. The job runs through the regular processOutputJob
-// pipeline, which commits its outcome via activityPersistence like any
-// canvas job. processOutputJob calls this again after each job completes,
-// so a still-broken workspace auto-loops; a clean workspace lets normal
-// canvas jobs proceed.
-const enqueueWorkspaceFixJobIfErrors = async () => {
-    const errors = collectWorkspaceErrors();
-    syncWorkspaceErrorFile(errors);
-    if (!errors.length) {
-        broadcast();
-        return false;
-    }
-
-    const alreadyQueued = outputQueue.activeOutputJobs()
-        .some(job => job.componentKey === 'workspace-fix');
-    if (alreadyQueued) {
-        broadcast();
-        return false;
-    }
-
-    const prompt = buildWorkspaceFixPrompt({
-        workspacePath: WORKSPACE_PATH,
-        errors
-    });
-
-    await outputQueue.prependOutputJob({
-        id: 'workspace-fix-' + Date.now(),
-        status: 'pending',
-        scope: WORKSPACE_PATH,
-        componentKey: 'workspace-fix',
-        event: 'Runtime did try to fix workspace',
-        prompt
-    });
-    broadcast();
-    outputQueue.feedHermesOutput();
-    return true;
-};
 
 const runtimeSet = createRuntimes({
     runtimePath: AGENT_RUNTIME_PATH,
@@ -991,15 +878,6 @@ const processOutputJob = async job => {
         if (activeOutputJob && activeOutputJob.id === jobId) {
             activeOutputJob = null;
         }
-
-        // Re-check workspace health after every job. If still broken,
-        // this prepends another workspace-fix job; if clean, it just
-        // updates the snapshot. Runs unconditionally so that a canvas
-        // job that incidentally repaired (or broke) the workspace also
-        // converges the state machine.
-        await enqueueWorkspaceFixJobIfErrors().catch(error => {
-            logHermesError('workspace-fix', error, { message: 'post-job workspace check failed' });
-        });
     }
 };
 
@@ -1445,12 +1323,11 @@ const refreshGraphWatchers = () => {
 
                 if (entry.kind === 'component' || entry.kind === 'relationship') {
                     if (!filename) return;
-                    // view.json is render.js's output, not an agent edit, so
-                    // it shouldn't clear runtime; every other file under
-                    // presented/ is an agent edit and counts as a fix attempt.
-                    if (filename !== 'view.json') {
-                        canvasGraph.updateDiagnostics(entry.componentPath, 'runtime', { ok: true, error: null });
-                    }
+                    // Diagnostics is owned by its writers: error-router.js
+                    // sets runtime ok:false on a thrown error, and clears
+                    // ok:true once a re-mount stays quiet (see
+                    // noteSuccessfulMount). The harness must not infer
+                    // diagnostic state from filesystem events.
                     scheduleWatchRefresh(entry);
                     return;
                 }
@@ -1652,9 +1529,166 @@ const staticPath = pathname => {
     return file.startsWith(ROOT + path.sep) || file === ROOT ? file : undefined;
 };
 
+// --- New-shape endpoints (additive deltas) -----------------------------
+// These give the new lib elements (<liquidos-file>, <liquidos-component>)
+// what they need: direct workspace file access and process spawn/kill.
+// The legacy harness routes below are unchanged.
+
+const newShapeServices = new Map();
+const newShapeNewServiceId = () => 'svc_' + crypto.randomBytes(6).toString('hex');
+const newShapeDispatchLabelFor = label => {
+    const s = String(label || 'service');
+    const parts = s.split('/').filter(Boolean);
+    if (parts.length >= 2 && parts[parts.length - 1].includes('.')) return parts[parts.length - 2];
+    return parts[parts.length - 1] || 'service';
+};
+const newShapeSafeName = s => String(s || 'service').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 40) || 'service';
+const newShapeNewDispatchId = label => newShapeSafeName(newShapeDispatchLabelFor(label)) + '-' + crypto.randomBytes(4).toString('hex');
+
+const newShapeDescendantsOf = pid => {
+    let out;
+    try { out = childProcess.execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' }); }
+    catch { return []; }
+    const direct = out.split('\n').map(s => s.trim()).filter(Boolean).map(Number);
+    const all = [...direct];
+    for (const c of direct) all.push(...newShapeDescendantsOf(c));
+    return all;
+};
+
+const newShapeKillService = (id) => {
+    const svc = newShapeServices.get(id);
+    if (!svc) return false;
+    const root = svc.child.pid;
+    const tree = [root, ...newShapeDescendantsOf(root)];
+    for (const pid of tree) { try { process.kill(pid, 'SIGTERM'); } catch {} }
+    setTimeout(() => {
+        const still = [root, ...newShapeDescendantsOf(root)];
+        for (const pid of still) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    }, 1500);
+    newShapeServices.delete(id);
+    return true;
+};
+
+const newShapeShutdown = code => {
+    const allPids = [];
+    for (const svc of newShapeServices.values()) {
+        const root = svc.child.pid;
+        allPids.push(root, ...newShapeDescendantsOf(root));
+    }
+    for (const pid of allPids) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    process.exit(code);
+};
+process.on('SIGINT', () => newShapeShutdown(0));
+process.on('SIGTERM', () => newShapeShutdown(0));
+
+const newShapeGuardAbs = rel => {
+    const cleaned = String(rel || '').replace(/^\/+/, '');
+    const abs = path.resolve(WORKSPACE_PATH, cleaned);
+    if (abs !== WORKSPACE_PATH && !abs.startsWith(WORKSPACE_PATH + path.sep)) return null;
+    return abs;
+};
+
+const newShapeMimeFor = file => {
+    const ext = path.extname(file).toLowerCase();
+    const m = {
+        '.html': 'text/html; charset=utf-8',
+        '.js': 'text/javascript; charset=utf-8',
+        '.mjs': 'text/javascript; charset=utf-8',
+        '.json': 'application/json; charset=utf-8',
+        '.css': 'text/css; charset=utf-8',
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif', '.svg': 'image/svg+xml',
+        '.txt': 'text/plain; charset=utf-8',
+        '.wasm': 'application/wasm'
+    };
+    return m[ext] || 'application/octet-stream';
+};
+
+const newShapeReadBody = req => new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', c => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+});
+
+const newShapeSendJson = (res, code, body) => {
+    res.writeHead(code, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+};
+
 const server = http.createServer(async (req, res) => {
     try {
         const url = new URL(req.url, 'http://localhost');
+
+        // --- New-shape: direct workspace file access -----------------------
+        // /workspace/<rel> is reserved for file I/O. Migration and
+        // batch-write endpoints live under their own roots so this
+        // namespace stays unambiguous.
+        if (url.pathname.startsWith('/workspace/')) {
+            const rel = decodeURIComponent(url.pathname.slice('/workspace/'.length));
+            const abs = newShapeGuardAbs(rel);
+            if (!abs) { res.writeHead(400); res.end('path escapes workspace'); return; }
+            if (req.method === 'GET') {
+                if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) { res.writeHead(404); res.end(); return; }
+                res.writeHead(200, { 'content-type': newShapeMimeFor(abs) });
+                fs.createReadStream(abs).pipe(res);
+                return;
+            }
+            if (req.method === 'HEAD') {
+                if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) { res.writeHead(404); res.end(); return; }
+                const stat = fs.statSync(abs);
+                res.writeHead(200, {
+                    'content-type': newShapeMimeFor(abs),
+                    'content-length': stat.size,
+                    'last-modified': stat.mtime.toUTCString()
+                });
+                res.end();
+                return;
+            }
+            if (req.method === 'PUT') {
+                const body = await newShapeReadBody(req);
+                fs.mkdirSync(path.dirname(abs), { recursive: true });
+                const tmp = abs + '.tmp-' + process.pid + '-' + Date.now();
+                fs.writeFileSync(tmp, body);
+                fs.renameSync(tmp, abs);
+                newShapeSendJson(res, 200, { ok: true });
+                return;
+            }
+        }
+
+        if (req.method === 'POST' && url.pathname === '/spawn') {
+            const body = JSON.parse(await newShapeReadBody(req) || '{}');
+            const abs = newShapeGuardAbs(body.script);
+            if (!abs || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+                newShapeSendJson(res, 400, { error: 'script does not exist' }); return;
+            }
+            // Idempotent per script path — kill any prior service for the
+            // same script before spawning, so page refreshes don't pile up.
+            for (const [id, svc] of newShapeServices.entries()) {
+                if (svc.abs === abs) newShapeKillService(id);
+            }
+            const dispatchId = body.dispatchId || newShapeNewDispatchId(body.label);
+            const child = childProcess.spawn(abs, [dispatchId, ...(Array.isArray(body.args) ? body.args : [])], {
+                cwd: path.dirname(abs),
+                stdio: ['ignore', 'pipe', 'pipe'],
+                detached: true,
+                env: { ...process.env, LIQUIDOS_DISPATCH_ID: dispatchId, ...(body.env || {}) }
+            });
+            const id = newShapeNewServiceId();
+            newShapeServices.set(id, { child, label: body.label || path.basename(abs), dispatchId, abs });
+            child.stdout.on('data', d => process.stdout.write('[' + id + '] ' + d.toString().replace(/\n$/, '') + '\n'));
+            child.stderr.on('data', d => process.stderr.write('[' + id + '] ' + d.toString().replace(/\n$/, '') + '\n'));
+            child.on('exit', () => newShapeServices.delete(id));
+            newShapeSendJson(res, 200, { id, pid: child.pid, dispatchId });
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/kill') {
+            const body = JSON.parse(await newShapeReadBody(req) || '{}');
+            const ok = newShapeKillService(body.id);
+            newShapeSendJson(res, ok ? 200 : 404, { ok });
+            return;
+        }
 
         if (req.method === 'GET' && url.pathname === '/events') {
             res.writeHead(200, {
@@ -2097,13 +2131,7 @@ const server = http.createServer(async (req, res) => {
 
         if (req.method === 'GET' && url.pathname === '/input') {
             const rendered = canvasGraph.renderedInput();
-            const activeFixJob = outputQueue.activeOutputJobs()
-                .find(job => job.componentKey === 'workspace-fix');
-            const workspace = {
-                migrationPending: workspaceErrorCount > 0,
-                migrationRunning: Boolean(activeFixJob && activeFixJob.status === 'running')
-            };
-            send(res, 200, JSON.stringify({ ...rendered, workspace }), 'application/json; charset=utf-8');
+            send(res, 200, JSON.stringify(rendered), 'application/json; charset=utf-8');
             startGraphWatchAfterFirstInput();
             return;
         }
@@ -2201,10 +2229,6 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'POST' && url.pathname === '/output') {
-            // No need to gate on workspace-fix state: the queue serializes
-            // jobs and workspace-fix preempts (prependOutputJob), so any
-            // canvas job queued while the workspace is broken just waits
-            // until the fix runs.
             await appendOutput(req);
             outputQueue.feedHermesOutput();
             broadcastQueueState();
@@ -2245,42 +2269,6 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        if (req.method === 'POST' && url.pathname === '/workspace/retry-migration') {
-            // Same path the auto-loop takes — detect, snapshot, enqueue at
-            // front if there's anything to fix.
-            const enqueued = await enqueueWorkspaceFixJobIfErrors();
-            send(res, enqueued ? 202 : 204, '');
-            return;
-        }
-
-        if (req.method === 'POST' && url.pathname === '/workspace/cancel-migration') {
-            // Stops the in-flight fix agent. The job's catch handler in
-            // processOutputJob commits a 'failed' record; the post-job
-            // detector still re-runs, so if errors remain the user lands
-            // on the overlay with Try Again.
-            const activeFixJob = outputQueue.activeOutputJobs()
-                .find(job => job.status === 'running' && job.componentKey === 'workspace-fix');
-            if (!activeFixJob) {
-                send(res, 409, 'no migration to cancel');
-                return;
-            }
-            const debug = activeRuntime.currentDebug ? activeRuntime.currentDebug() : null;
-            const pid = debug && typeof debug.pid === 'number' ? debug.pid : null;
-            if (!pid) {
-                send(res, 409, 'agent pid unknown — cannot cancel');
-                return;
-            }
-            try {
-                process.kill(pid, 'SIGTERM');
-                logServer('migration', 'cancel requested', { pid });
-                send(res, 202, '');
-            } catch (error) {
-                logServer('migration', 'cancel failed', { pid, error: error.message });
-                send(res, 500, 'kill failed: ' + error.message);
-            }
-            return;
-        }
-
         const workspaceFile = url.pathname.match(/^\/workspace\/file\/(.+)$/);
 
         if (req.method === 'GET' && workspaceFile) {
@@ -2312,7 +2300,7 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        if (req.method === 'POST' && url.pathname === '/workspace/writes') {
+        if (req.method === 'POST' && url.pathname === '/writes') {
             // One endpoint for any workspace write — inline content
             // (browser persisting state) or files copied from a sandbox
             // (agent landing a verified batch). Each write entry takes one
@@ -2700,12 +2688,4 @@ server.listen(PORT, '127.0.0.1', () => {
     // harness should serve HTTP immediately even if bootstrap to the
     // DHT takes seconds (which it usually does).
     startNetwork();
-
-    // Catch-all detection for workspace-level errors. Snapshots state to
-    // .liquidos/workspace-error and prepends a workspace-fix job if there's
-    // anything broken. Canvas- and component-level issues are intentionally
-    // not included here — those have their own repair flows.
-    enqueueWorkspaceFixJobIfErrors().catch(error => {
-        logHermesError('workspace-fix', error, { message: 'startup workspace check failed' });
-    });
 });
