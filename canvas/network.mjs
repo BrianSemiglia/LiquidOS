@@ -28,10 +28,11 @@ import * as raw from 'multiformats/codecs/raw';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Protocol identifiers. Versioned so we can iterate on the wire format
-// without breaking peers that still speak the old one.
+// Protocol identifier. Versioned so we can iterate on the wire format
+// without breaking peers that still speak the old one. Returns the
+// peer's feed.json — a list of their published bundles with each
+// bundle's requirements text inlined.
 export const FEED_PROTOCOL = '/liquidos/share/feed/1.0.0';
-export const BUNDLE_PROTOCOL = '/liquidos/share/bundle/1.0.0';
 
 // Public IPFS bootstrap peers — used to enter the DHT. These same peers
 // bootstrap IPFS, Filecoin, and other libp2p networks; piggybacking on
@@ -80,21 +81,12 @@ export const createNetworkNode = async ({ identityPath }) => {
     return node;
 };
 
-// Register the share protocols on a running node. sharePath is the
-// directory where the local feed and bundle blobs live (typically
-// <workspace>/.share/). The protocols are intentionally minimal:
+// Register the share protocol on a running node. sharePath is the
+// directory where the local feed lives (typically <workspace>/.share/).
 //
 //   Feed protocol: client opens stream, server writes the bytes of
-//   feed.json and closes. No request body — the feed is a per-peer
-//   singleton.
-//
-//   Bundle protocol: client writes "<hash>\n" on the stream and
-//   closes its write side. Server reads the hash, looks up
-//   <sharePath>/bundles/<hash>.tar, and writes the bundle bytes
-//   followed by close. If the hash is unknown, the server writes
-//   nothing and closes — the client sees EOF immediately, which is
-//   "not found." Integrity is the receiver's responsibility: re-hash
-//   the unpacked bundle and verify against the requested hash.
+//   feed.json and closes. No request body. The feed inlines every
+//   shared bundle's requirements text — there's no separate fetch.
 //
 // Send data through the libp2p v3 MessageStream API, splitting large
 // payloads at the muxer's max-message boundary and waiting for the
@@ -179,7 +171,6 @@ const filteredFeedBytes = (workspacePath, feedBytes) => {
 
 export const registerShareProtocols = (node, sharePath, workspacePath) => {
     const feedPath = path.join(sharePath, 'feed.json');
-    const bundleDir = path.join(sharePath, 'bundles');
 
     const readBytes = (file) => {
         try { return fs.existsSync(file) ? fs.readFileSync(file) : null; }
@@ -190,51 +181,11 @@ export const registerShareProtocols = (node, sharePath, workspacePath) => {
     // without restarting the harness.
     const empty = () => Buffer.from('{"feedVersion":1,"bundles":[]}\n');
 
-    // Look up which canvas owns a bundle hash by scanning the local feed.
-    // A bundle is only servable if its canvas is shared.
-    const canvasForHash = (hash) => {
-        const bytes = readBytes(feedPath);
-        if (!bytes) return null;
-        let parsed;
-        try { parsed = JSON.parse(bytes.toString('utf8')); }
-        catch { return null; }
-        const bundles = Array.isArray(parsed.bundles) ? parsed.bundles : [];
-        const match = bundles.find(b => b && b.hash === hash);
-        return match ? match.name || null : null;
-    };
-
     node.handle(FEED_PROTOCOL, async (stream) => {
         try {
             const raw = readBytes(feedPath);
             const bytes = raw ? filteredFeedBytes(workspacePath, raw) : empty();
             await sendAll(stream, bytes);
-            await stream.close();
-        } catch {
-            try { await stream.close(); } catch {}
-        }
-    });
-
-    node.handle(BUNDLE_PROTOCOL, async (stream) => {
-        try {
-            // Read until client closes its write side. The client
-            // sends "<hash>\n" and nothing else.
-            const req = (await collect(stream)).toString('utf8').trim();
-            // Basic sanitization: only serve our own bundle blobs.
-            // Hash shape is "sha256-<hex>" — no slashes, no dots.
-            if (!/^sha256-[0-9a-f]{64}$/.test(req)) {
-                await stream.close();
-                return;
-            }
-            // Gate per-canvas: a stale hash whose canvas was just toggled
-            // off looks like "not found", same as an unknown hash.
-            const canvasName = canvasForHash(req);
-            if (!canvasName || !isCanvasShared(workspacePath, canvasName)) {
-                await stream.close();
-                return;
-            }
-            const file = path.join(bundleDir, req + '.tar');
-            const data = readBytes(file);
-            if (data) await sendAll(stream, data);
             await stream.close();
         } catch {
             try { await stream.close(); } catch {}
@@ -275,9 +226,6 @@ const dialAndCollect = async (node, target, protocol, requestBytes) => {
 export const fetchFeed = async (node, target) =>
     dialAndCollect(node, target, FEED_PROTOCOL, null);
 
-export const fetchBundle = async (node, target, hash) =>
-    dialAndCollect(node, target, BUNDLE_PROTOCOL, Buffer.from(hash + '\n', 'utf8'));
-
 export const statusOf = (node) => {
     if (!node) return { running: false };
     return {
@@ -295,7 +243,7 @@ export const stopNetworkNode = async (node) => {
     catch { /* best-effort shutdown */ }
 };
 
-// --- Discovery via FEED protocol polling -----------------------------------
+// --- Peer feed cache -------------------------------------------------------
 //
 // Whenever libp2p tells us a new peer is connected (DHT introduction,
 // direct dial, anything), we try to fetchFeed against them. Peers that
@@ -305,16 +253,11 @@ export const stopNetworkNode = async (node) => {
 // never leaves the local process (privacy by construction).
 //
 // We also re-poll known LiquidOS peers on a low-frequency timer so a
-// peer's share-toggle is reflected in our search results without them
-// having to reconnect.
-//
-// This used to be modeled with gossipsub, but @chainsafe/libp2p-gossipsub@14
-// depends on @libp2p/interface@2 and our libp2p stack is on @libp2p/interface@3
-// — major version mismatch on the PubSub interface, mesh formation never
-// completes. Polling sidesteps the version issue entirely; same cache
-// shape so the rest of the system doesn't notice the swap.
-
-const PEER_FEED_REPOLL_INTERVAL_MS = 30_000;
+// peer's share-toggle eventually shows up in our search results without
+// them having to reconnect. Browse is an occasional, user-initiated
+// action — there's no value in chasing fresh peer state on a tight
+// clock. A few hours of staleness is fine.
+const PEER_FEED_REPOLL_INTERVAL_MS = 4 * 60 * 60_000;       // 4 h
 const PEER_FEED_FETCH_TIMEOUT_MS = 5_000;
 
 // DHT rendezvous: every LiquidOS peer announces itself as a provider
@@ -324,7 +267,7 @@ const PEER_FEED_FETCH_TIMEOUT_MS = 5_000;
 // it without coordination.
 const RENDEZVOUS_KEY = '/liquidos/peers/v1';
 const PROVIDE_REANNOUNCE_INTERVAL_MS = 12 * 60 * 60 * 1000;  // 12h (DHT records last ~24h)
-const DHT_DISCOVERY_INTERVAL_MS = 60_000;                   // re-query every minute
+const DHT_DISCOVERY_INTERVAL_MS = 4 * 60 * 60_000;          // 4h — see PEER_FEED_REPOLL_INTERVAL_MS rationale
 const DHT_DISCOVERY_TIMEOUT_MS = 10_000;
 
 let cachedRendezvousCid = null;
@@ -336,14 +279,10 @@ const rendezvousCid = async () => {
     return cachedRendezvousCid;
 };
 
-// Set up the peer discovery loop. Returned object exposes:
+// Set up the peer-feed cache + discovery loop. Returned object exposes:
 //   - cache: Map<peerIdString, { peerId, multiaddrs, feed, refreshedAt }>
-//   - broadcast(): re-poll every known peer (call after our share toggle)
 //   - stop(): tear down timers (server shutdown)
-//
-// The "broadcast" name is kept for symmetry with the server-side
-// rebroadcastFeed call sites; under the hood it's a re-poll, not a push.
-export const subscribeFeedTopic = async (node, sharePath, workspacePath) => {
+export const startPeerFeedCache = async (node, workspacePath) => {
     const cache = new Map();
     const ourPeerId = node.peerId.toString();
     // Peers we've successfully fetched a feed from at least once.
@@ -394,11 +333,11 @@ export const subscribeFeedTopic = async (node, sharePath, workspacePath) => {
     }
 
     // Periodic re-poll. Keeps cached feeds fresh after a peer toggles
-    // share on/off without our side needing any push channel.
+    // share on/off. Per-peer fetches run in parallel — one slow peer
+    // can't block the others (each has its own
+    // PEER_FEED_FETCH_TIMEOUT_MS budget).
     const refresh = async () => {
-        for (const peerId of knownPeers) {
-            await tryFetchFromPeer(peerId);
-        }
+        await Promise.all(Array.from(knownPeers, tryFetchFromPeer));
     };
     const timer = setInterval(refresh, PEER_FEED_REPOLL_INTERVAL_MS);
     timer.unref && timer.unref();
@@ -440,7 +379,6 @@ export const subscribeFeedTopic = async (node, sharePath, workspacePath) => {
 
     return {
         cache,
-        broadcast: refresh,
         stop: () => {
             clearInterval(timer);
             clearTimeout(initialAnnounceTimer);

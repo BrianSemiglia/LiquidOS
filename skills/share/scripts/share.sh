@@ -2,60 +2,21 @@
 set -euo pipefail
 
 #
-# share.sh — publish a canvas as a discoverable bundle for peers.
+# share.sh — publish a canvas's requirements for peers to discover.
 #
 # Usage:
-#   bash skills/share/scripts/share.sh \
-#       <workspace.liquidos> <canvas-name> \
-#       [--subtitle "one-line pitch"] \
-#       [--tags "tag1,tag2,tag3"]
+#   bash skills/share/scripts/share.sh <workspace.liquidos> <canvas-name>
 #
-# One shot: build the bundle, write feed metadata, install into
-# <workspace>/.share/, regenerate the feed, and flip share.json on.
-# The agent doesn't post-edit anything afterward.
-#
-# Subtitle and tags are optional but strongly recommended — without
-# them, peers see the bundle in the feed with no description and few
-# people will install it.
+# Copies the canvas's feature-requirements.txt and each shared
+# component's feature-requirements.txt into <workspace>/.share/published/
+# <canvas>/, regenerates the feed, and flips share.json on.
 #
 
-WORKSPACE_DIR=""
-CANVAS_NAME=""
-SUBTITLE=""
-TAGS=""
-
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --subtitle)
-            shift
-            SUBTITLE="${1:-}"
-            shift
-            ;;
-        --tags)
-            shift
-            TAGS="${1:-}"
-            shift
-            ;;
-        --help|-h)
-            echo "Usage: $0 <workspace.liquidos> <canvas-name> [--subtitle \"...\"] [--tags \"tag1,tag2\"]"
-            exit 0
-            ;;
-        *)
-            if [ -z "$WORKSPACE_DIR" ]; then
-                WORKSPACE_DIR="$1"
-            elif [ -z "$CANVAS_NAME" ]; then
-                CANVAS_NAME="$1"
-            else
-                echo "Error: unexpected argument: $1" >&2
-                exit 1
-            fi
-            shift
-            ;;
-    esac
-done
+WORKSPACE_DIR="${1:-}"
+CANVAS_NAME="${2:-}"
 
 if [ -z "$WORKSPACE_DIR" ] || [ -z "$CANVAS_NAME" ]; then
-    echo "Usage: $0 <workspace.liquidos> <canvas-name> [--subtitle \"...\"] [--tags \"tag1,tag2\"]" >&2
+    echo "Usage: $0 <workspace.liquidos> <canvas-name>" >&2
     exit 1
 fi
 
@@ -90,10 +51,9 @@ fi
 
 SHARE_DIR="$WORKSPACE_DIR/.share"
 PUBLISHED_DIR="$SHARE_DIR/published"
-BUNDLES_DIR="$SHARE_DIR/bundles"
 BUNDLE_DIR="$PUBLISHED_DIR/$CANVAS_NAME"
 
-mkdir -p "$PUBLISHED_DIR" "$BUNDLES_DIR"
+mkdir -p "$PUBLISHED_DIR"
 
 # Republish = full overwrite. Take the old bundle down first.
 rm -rf "$BUNDLE_DIR"
@@ -107,11 +67,6 @@ if [ -f "$CANVAS_REQ_SRC" ]; then
 else
     : > "$CANVAS_REQ_DEST"
 fi
-
-# Feed metadata from the args. Empty files when not provided.
-printf '%s' "$SUBTITLE" > "$BUNDLE_DIR/canvas-subtitle.txt"
-# Tags: comma-separated input -> one tag per line, trimmed, blanks dropped.
-printf '%s' "$TAGS" | tr ',' '\n' | awk 'NF{$1=$1;print}' > "$BUNDLE_DIR/canvas-tags.txt"
 
 # Component requirements: walk input.json.components, copy each
 # component's feature-requirements.txt under its leaf name.
@@ -183,9 +138,6 @@ const walk = (dir, rel) => {
 walk(root, "");
 process.stdout.write("sha256-" + hash.digest("hex"));
 ' "$BUNDLE_DIR")"
-
-# TAR the bundle. Canvas name lands at the archive root for easy unpack.
-(cd "$PUBLISHED_DIR" && tar -cf "$BUNDLES_DIR/$HASH.tar" "$CANVAS_NAME")
 
 # Regenerate the feed from every currently published bundle.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

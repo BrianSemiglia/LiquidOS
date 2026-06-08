@@ -1385,8 +1385,8 @@ const server = http.createServer(async (req, res) => {
                 const shared = Boolean(body.shared);
                 // share.sh / unshare.sh own everything: bundle build,
                 // tarball, feed regeneration, and the share.json flag.
-                // The endpoint just invokes the right one and re-
-                // broadcasts over gossipsub so peers' caches converge.
+                // The endpoint just invokes the right one. Peers learn
+                // about the change on their next feed-cache refresh.
                 const result = shared
                     ? runShareScript('share.sh', [canvasName])
                     : runShareScript('unshare.sh', [canvasName]);
@@ -1394,7 +1394,6 @@ const server = http.createServer(async (req, res) => {
                     send(res, 500, (shared ? 'share failed: ' : 'unshare failed: ') + result.error);
                     return;
                 }
-                rebroadcastFeed();
                 send(res, 200, JSON.stringify({ shared }), 'application/json; charset=utf-8');
                 return;
             }
@@ -1430,8 +1429,7 @@ const server = http.createServer(async (req, res) => {
                 // without requiring a manual canvas re-share.
                 const canvasName = canvasOfComponent(folder);
                 if (readShareFlag(canvasShareFile(canvasName)) === true) {
-                    const result = runShareScript('share.sh', [canvasName]);
-                    if (result.ok) rebroadcastFeed();
+                    runShareScript('share.sh', [canvasName]);
                 }
                 send(res, 200, JSON.stringify({ shared: Boolean(body.shared) }), 'application/json; charset=utf-8');
                 return;
@@ -1470,9 +1468,9 @@ const server = http.createServer(async (req, res) => {
 
         if (req.method === 'GET' && url.pathname === '/network/search') {
             // Search is a pure local-cache lookup over (a) our own feed and
-            // (b) every peer feed we've heard via the gossipsub topic. The
-            // network never sees the query string — that's the privacy
-            // story. Install (below) is the only thing that dials a peer.
+            // (b) every peer feed in the peer-feed cache. The network
+            // never sees the query string — that's the privacy story.
+            // Install (below) is the only thing that dials a peer.
             //
             // Optional `n` and `timeout_ms` let the caller wait for the
             // local cache to grow. The handler polls the cache every
@@ -1508,9 +1506,9 @@ const server = http.createServer(async (req, res) => {
                         }
                     } catch { /* fall through */ }
                 }
-                // Remote bundles from the gossipsub cache.
-                if (networkFeedSub) {
-                    for (const [, entry] of networkFeedSub.cache) {
+                // Remote bundles from the peer-feed cache.
+                if (peerFeedCache) {
+                    for (const [, entry] of peerFeedCache.cache) {
                         const bundles = entry.feed && Array.isArray(entry.feed.bundles) ? entry.feed.bundles : [];
                         for (const bundle of bundles) {
                             if (matchesQuery(bundle)) acc.push({ ...bundle, peerId: entry.peerId });
@@ -1532,9 +1530,6 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'POST' && url.pathname === '/network/install') {
-            // First-cut stub: install only works for local bundles
-            // (peerId null). When peerId is set, we'll eventually
-            // libp2p-fetch the bundle. For now, return 501.
             let body;
             try { body = JSON.parse(await readBody(req) || '{}'); }
             catch (e) { send(res, 400, 'invalid json'); return; }
@@ -1544,76 +1539,53 @@ const server = http.createServer(async (req, res) => {
                 send(res, 400, 'invalid hash');
                 return;
             }
-            const { spawnSync } = require('node:child_process');
-            const installScript = path.join(ROOT, 'skills', 'share', 'scripts', 'install.sh');
 
-            // Two install sources: local (peerId null, bundle already
-            // on disk under .share/published/) and remote (peerId set,
-            // bundle fetched from the peer via libp2p). Both end up
-            // running install.sh against a bundle directory.
+            // Local (peerId null) reads from our own feed.json; remote
+            // (peerId set) reads from the peer-feed cache. Either way
+            // the entry has the canvas + per-component requirements
+            // text inlined, so install is just "write the files."
             let entry = null;
-            let bundleSrc = null;
-            let tempDir = null;
-
             if (!peerId) {
-                // Local: look up the bundle in our own feed + published dir.
-                const publishedDir = path.join(WORKSPACE_PATH, '.share', 'published');
                 const feedFile = path.join(WORKSPACE_PATH, '.share', 'feed.json');
                 let feed = { bundles: [] };
                 try { feed = JSON.parse(fs.readFileSync(feedFile, 'utf8')); } catch {}
                 entry = (feed.bundles || []).find(b => b.hash === hash);
                 if (!entry) { send(res, 404, 'bundle not found in local feed'); return; }
-                bundleSrc = path.join(publishedDir, entry.name);
-                if (!fs.existsSync(bundleSrc)) { send(res, 404, 'bundle directory missing on disk'); return; }
             } else {
-                // Remote: find the bundle in the gossipsub cache (so we
-                // know its name + can address the peer), then dial the
-                // peer's bundle protocol and untar the result.
-                if (!networkNode || !networkModule || !networkFeedSub) {
+                if (!networkNode || !networkModule || !peerFeedCache) {
                     send(res, 503, 'network not running'); return;
                 }
-                let cachedEntry = null;
-                for (const [pid, peerEntry] of networkFeedSub.cache) {
+                for (const [pid, peerEntry] of peerFeedCache.cache) {
                     if (pid !== peerId) continue;
                     const bundles = peerEntry.feed && Array.isArray(peerEntry.feed.bundles) ? peerEntry.feed.bundles : [];
-                    cachedEntry = bundles.find(b => b.hash === hash);
-                    if (cachedEntry) break;
+                    entry = bundles.find(b => b.hash === hash) || null;
+                    if (entry) break;
                 }
-                if (!cachedEntry) { send(res, 404, 'bundle not in cached feed for that peer'); return; }
-                entry = cachedEntry;
-                let bundleBytes;
-                try {
-                    bundleBytes = await networkModule.fetchBundle(networkNode, peerId, hash);
-                } catch (error) {
-                    send(res, 502, 'bundle fetch failed: ' + (error?.message || error)); return;
-                }
-                if (!bundleBytes || bundleBytes.length === 0) {
-                    send(res, 404, 'peer did not return bundle bytes'); return;
-                }
-                tempDir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'liquidos-install-'));
-                const tarPath = path.join(tempDir, hash + '.tar');
-                fs.writeFileSync(tarPath, bundleBytes);
-                const untar = spawnSync('tar', ['-xf', tarPath, '-C', tempDir], { encoding: 'utf8' });
-                if (untar.status !== 0) {
-                    send(res, 500, 'untar failed: ' + (untar.stderr || untar.stdout || 'unknown'));
-                    return;
-                }
-                bundleSrc = path.join(tempDir, entry.name);
-                if (!fs.existsSync(bundleSrc)) {
-                    send(res, 500, 'expected ' + entry.name + '/ inside the fetched TAR, but it was not there');
-                    return;
-                }
+                if (!entry) { send(res, 404, 'bundle not in cached feed for that peer'); return; }
+            }
+
+            // Materialize the entry as a bundle directory under a temp
+            // path so install.sh sees the file layout it expects.
+            const tempDir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'liquidos-install-'));
+            const bundleSrc = path.join(tempDir, entry.name);
+            fs.mkdirSync(bundleSrc, { recursive: true });
+            fs.writeFileSync(path.join(bundleSrc, 'feature-requirements.txt'), entry.canvasRequirements || '');
+            for (const comp of (entry.components || [])) {
+                if (!comp || typeof comp.name !== 'string') continue;
+                const compDir = path.join(bundleSrc, 'components', comp.name);
+                fs.mkdirSync(compDir, { recursive: true });
+                fs.writeFileSync(path.join(compDir, 'feature-requirements.txt'), comp.requirements || '');
             }
 
             // Suffix the canvas name with a short hash slice so a
             // re-install doesn't collide with the existing canvas.
+            const { spawnSync } = require('node:child_process');
+            const installScript = path.join(ROOT, 'skills', 'share', 'scripts', 'install.sh');
             const targetName = entry.name + '-' + hash.slice('sha256-'.length, 'sha256-'.length + 6);
             const result = spawnSync('bash', [installScript, bundleSrc, WORKSPACE_PATH, targetName], {
                 encoding: 'utf8'
             });
-            if (tempDir) {
-                try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
-            }
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
             if (result.status !== 0) {
                 send(res, 500, 'install failed: ' + (result.stderr || result.stdout || 'unknown'));
                 return;
@@ -1667,33 +1639,6 @@ const server = http.createServer(async (req, res) => {
                 send(res, 200, bytes.toString('utf8'), 'application/json; charset=utf-8');
             } catch (error) {
                 send(res, 502, 'feed fetch failed: ' + (error?.message || error));
-            }
-            return;
-        }
-
-        const networkBundle = url.pathname.match(/^\/network\/bundle\/(.+?)\/(sha256-[0-9a-f]{64})$/);
-
-        if (req.method === 'GET' && networkBundle) {
-            if (!networkNode || !networkModule) {
-                send(res, 503, 'network not running');
-                return;
-            }
-            const target = decodeURIComponent(networkBundle[1]);
-            const hash = networkBundle[2];
-            try {
-                const bytes = await networkModule.fetchBundle(networkNode, target, hash);
-                if (!bytes || bytes.length === 0) {
-                    send(res, 404, 'bundle not found');
-                    return;
-                }
-                res.writeHead(200, {
-                    'Content-Type': 'application/x-tar',
-                    'Content-Length': bytes.length,
-                    'Cache-Control': 'no-cache'
-                });
-                res.end(bytes);
-            } catch (error) {
-                send(res, 502, 'bundle fetch failed: ' + (error?.message || error));
             }
             return;
         }
@@ -2200,10 +2145,9 @@ process.on('unhandledRejection', reason => {
 // fails so the harness keeps running even when the network is broken.
 let networkNode = null;
 let networkModule = null;
-// Subscription handle returned from subscribeFeedTopic — exposes .cache
-// (Map<peerId, { peerId, multiaddrs, feed, receivedAt }>), .broadcast()
-// to push our latest feed, and .stop() for shutdown.
-let networkFeedSub = null;
+// Per-peer feed cache: Map<peerId, { peerId, multiaddrs, feed, refreshedAt }>
+// plus a stop() for shutdown.
+let peerFeedCache = null;
 const startNetwork = async () => {
     try {
         networkModule = await import('./canvas/network.mjs');
@@ -2215,9 +2159,8 @@ const startNetwork = async () => {
             path.join(WORKSPACE_PATH, '.share'),
             WORKSPACE_PATH
         );
-        networkFeedSub = await networkModule.subscribeFeedTopic(
+        peerFeedCache = await networkModule.startPeerFeedCache(
             networkNode,
-            path.join(WORKSPACE_PATH, '.share'),
             WORKSPACE_PATH
         );
         console.log('Network: peer ID', networkNode.peerId.toString());
@@ -2226,11 +2169,6 @@ const startNetwork = async () => {
         }
     } catch (error) {
         console.error('Network: failed to start', error?.message || error);
-    }
-};
-const rebroadcastFeed = () => {
-    if (networkFeedSub) {
-        Promise.resolve(networkFeedSub.broadcast()).catch(() => {});
     }
 };
 

@@ -2,21 +2,15 @@
 set -euo pipefail
 
 #
-# feed.sh — produce a feed.json from a directory of bundles.
+# feed.sh — produce a feed.json from a directory of published bundles.
 #
 # Usage:
 #   bash skills/share/scripts/feed.sh <bundles-dir> [output-path]
 #
 # Walks every immediate subdirectory of <bundles-dir> that looks like a
 # bundle (has feature-requirements.txt) and emits a JSON manifest listing
-# each one with the metadata needed to BROWSE the feed without
-# downloading the bundles themselves: name, subtitle, tags, the canvas-
-# requirements text, the list of component names, a content hash, and
-# size.
-#
-# This is what a peer would serve at /share/feed (when the network
-# layer lands) and what other peers would pull to decide which bundles
-# to fetch in full.
+# each one: name, canvas-level requirements text (inline), component
+# requirements (inline), and the content hash.
 #
 
 BUNDLES_DIR="${1:-}"
@@ -52,7 +46,6 @@ if [ "${#BUNDLE_DIRS[@]}" -eq 0 ]; then
     node -e '
 process.stdout.write(JSON.stringify({
     feedVersion: 1,
-    generatedAt: new Date().toISOString(),
     bundles: []
 }, null, 2) + "\n");
 ' > "$OUTPUT_PATH"
@@ -78,11 +71,9 @@ const readText = (p) => {
 
 // Deterministic content hash: walk the bundle tree in sorted order,
 // concatenating relative-path + null + bytes for each file. sha256 the
-// whole thing. Same shape any well-behaved implementation can produce
-// — no platform-dependent quirks.
+// whole thing.
 const hashBundle = (root) => {
     const hash = crypto.createHash("sha256");
-    let totalSize = 0;
     const walk = (dir, rel) => {
         const entries = fs.readdirSync(dir, { withFileTypes: true })
             .sort((a, b) => a.name.localeCompare(b.name));
@@ -96,12 +87,11 @@ const hashBundle = (root) => {
                 hash.update(sub);
                 hash.update(Buffer.from([0]));
                 hash.update(buf);
-                totalSize += buf.length;
             }
         }
     };
     walk(root, "");
-    return { hash: "sha256-" + hash.digest("hex"), size: totalSize };
+    return "sha256-" + hash.digest("hex");
 };
 
 const listComponents = (root) => {
@@ -110,37 +100,21 @@ const listComponents = (root) => {
     return fs.readdirSync(compDir, { withFileTypes: true })
         .filter(e => e.isDirectory())
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map(e => {
-            // Each component ships its verbatim feature-requirements.txt
-            // inline so a browser can read what the bundle offers
-            // before downloading. Files are small (a few hundred bytes
-            // each, typically) so the feed stays cheap to fetch.
-            const reqFile = path.join(compDir, e.name, "feature-requirements.txt");
-            const requirements = readText(reqFile);
-            return { name: e.name, requirements };
-        });
+        .map(e => ({
+            name: e.name,
+            requirements: readText(path.join(compDir, e.name, "feature-requirements.txt"))
+        }));
 };
 
-const parseTags = (s) =>
-    s.split(/\r?\n/).map(t => t.trim()).filter(Boolean);
-
-const entries = bundles.map(b => {
-    const { hash, size } = hashBundle(b);
-    return {
-        name: path.basename(b),
-        subtitle: readText(path.join(b, "canvas-subtitle.txt")).trim(),
-        tags: parseTags(readText(path.join(b, "canvas-tags.txt"))),
-        canvasRequirements: readText(path.join(b, "feature-requirements.txt")),
-        components: listComponents(b),
-        hash,
-        size,
-        createdAt: fs.statSync(b).birthtime.toISOString()
-    };
-});
+const entries = bundles.map(b => ({
+    name: path.basename(b),
+    canvasRequirements: readText(path.join(b, "feature-requirements.txt")),
+    components: listComponents(b),
+    hash: hashBundle(b)
+}));
 
 const feed = {
     feedVersion: 1,
-    generatedAt: new Date().toISOString(),
     bundles: entries
 };
 
