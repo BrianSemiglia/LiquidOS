@@ -10,9 +10,6 @@ const createCanvasGraph = ({
     const componentScopePath = componentPath =>
         path.relative(getCanvasPath(), componentPath).split(path.sep).join('/');
 
-    const componentFileUrl = componentPath =>
-        '/component/' + encodeURIComponent(componentScopePath(componentPath)) + '/file';
-
     const componentResourceUrl = (componentPath, name) =>
         '/component/' + encodeURIComponent(componentScopePath(componentPath)) + '/resources/' + encodeURIComponent(name);
 
@@ -40,12 +37,6 @@ const createCanvasGraph = ({
             .replace(/'/g, '&#39;');
 
 
-    const displayNameFromPath = value =>
-        String(path.basename(path.dirname(value)) || path.basename(value) || 'Component')
-            .replace(/\.[^.]+$/, '')
-            .replace(/[-_]+/g, ' ')
-            .replace(/\b\w/g, character => character.toUpperCase());
-
     const repairCard = ({ level, title, scope, error, promptSuffix }) => ({
         title,
         scope,
@@ -60,13 +51,6 @@ const createCanvasGraph = ({
             '</div>' +
             '</div>',
         css: ''
-    });
-
-    const invalidComponentCard = (componentPath, error) => repairCard({
-        level: 'component',
-        title: displayNameFromPath(componentPath) + ' component is damaged',
-        scope: componentScopePath(componentPath),
-        error
     });
 
     // Skill discovery is LLM-decided, so it's not reliable to assume the
@@ -418,12 +402,6 @@ const createCanvasGraph = ({
         });
     };
 
-    const validateComponentFiles = componentPaths => {
-        componentPaths.forEach(componentPath => {
-            validateComponentFile(resolveCanvasReference(componentPath));
-        });
-    };
-
     // Service supervision now lives in the <liquidos-file run> element —
     // canvas.js asks the harness to spawn scripts directly via /spawn.
     const componentServiceFolders = () => [];
@@ -431,7 +409,6 @@ const createCanvasGraph = ({
     return {
         componentScopePath,
         componentScope,
-        componentFileUrl,
         componentFolderPath,
         componentDataPath,
         componentDiagnosticsPath,
@@ -455,10 +432,8 @@ const createCanvasGraph = ({
         findRelationshipByPath,
         findAnyByPath,
         validateCanvasConfig,
-        validateComponentFiles,
         validateComponentFile,
         loadLeafComponent,
-        invalidComponentCard,
         invalidCanvasCard
     };
 };

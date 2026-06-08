@@ -2448,37 +2448,6 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        const inputFile = url.pathname.match(/^\/input\/(\d+)\/file$/);
-
-        if (req.method === 'GET' && inputFile) {
-            const component = canvasGraph.leafComponents()[Number(inputFile[1])]?.component;
-
-            if (!component?.file) {
-                send(res, 404, 'Input file not found');
-                return;
-            }
-
-            streamCanvasFile(req, res, component.file, component.type);
-            return;
-        }
-
-        const inputResource = url.pathname.match(/^\/input\/(\d+)\/resources\/(.+)$/);
-
-        if (req.method === 'GET' && inputResource) {
-            const entry = canvasGraph.leafComponents()[Number(inputResource[1])];
-            const component = entry?.component;
-            const name = decodeURIComponent(inputResource[2]);
-            const resource = component && canvasGraph.componentResources(entry.componentPath, component)[name];
-
-            if (!resource?.path) {
-                send(res, 404, 'Input resource not found');
-                return;
-            }
-
-            streamCanvasFile(req, res, resource.path, resource.mime || resource.type);
-            return;
-        }
-
 
         const componentFeatures = url.pathname.match(/^\/component\/(.+)\/features$/);
 
@@ -2523,21 +2492,6 @@ const server = http.createServer(async (req, res) => {
                 send(res, 200, JSON.stringify({ changed }), 'application/json; charset=utf-8');
                 return;
             }
-        }
-
-        const componentFile = url.pathname.match(/^\/component\/(.+)\/file$/);
-
-        if (req.method === 'GET' && componentFile) {
-            const componentPath = decodeURIComponent(componentFile[1]);
-            const component = canvasGraph.findAnyByPath(componentPath)?.component;
-
-            if (!component?.file) {
-                send(res, 404, 'Component file not found');
-                return;
-            }
-
-            streamCanvasFile(req, res, component.file, component.type);
-            return;
         }
 
         const componentResource = url.pathname.match(/^\/component\/(.+)\/resources\/(.+)$/);
