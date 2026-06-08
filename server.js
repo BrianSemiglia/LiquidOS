@@ -24,7 +24,7 @@ process.env.PATH = path.join(ROOT, 'diagnostics') + ':' + (process.env.PATH || '
 process.env.LIQUIDOS_HARNESS_PID = String(process.pid);
 
 const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none',
-    'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'canvas-repair-test',
+    'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'component-build-test', 'canvas-repair-test',
     'prompt-bar-test']);
 
 const failStartup = message => {
@@ -1399,7 +1399,7 @@ const appendOutput = async req => {
 
 
 const componentFeatureFile = componentPath =>
-    path.join(canvasGraph.componentFolderPath(componentPath), 'presented', 'feature-requirements.txt');
+    path.join(canvasGraph.componentFolderPath(componentPath), 'feature-requirements.txt');
 
 const readComponentFeatureText = componentPath => {
     const file = componentFeatureFile(componentPath);
@@ -1422,7 +1422,7 @@ const readComponentFeatures = componentPath => {
 const readComponentFeatureTitle = componentPath => {
     const folder = canvasGraph.componentFolderPath(componentPath);
     try {
-        const view = JSON.parse(fs.readFileSync(path.join(folder, 'presented', 'view.json'), 'utf8'));
+        const view = JSON.parse(fs.readFileSync(path.join(folder, 'view.json'), 'utf8'));
         if (typeof view.title === 'string' && view.title.trim()) return view.title.trim();
     } catch { /* fall through */ }
     // Fallback: prettify the folder basename ("bitcoin-price-chart" → "Bitcoin Price Chart").

@@ -11,6 +11,7 @@ const { ClaudeCodeAgent } = require('./(skillsPath+runtimePath)->claude-runtime'
 const { CallbackDispatchTestAgent } = require('./test/callback-dispatch-agent');
 const { CanvasBuildTestAgent } = require('./test/canvas-build-test-agent');
 const { ComponentRepairTestAgent } = require('./test/component-repair-test-agent');
+const { ComponentBuildTestAgent } = require('./test/component-build-test-agent');
 const { CanvasRepairTestAgent } = require('./test/canvas-repair-test-agent');
 const { PromptBarTestAgent } = require('./test/prompt-bar-test-agent');
 
@@ -56,6 +57,7 @@ const createRuntimes = ({
         CallbackDispatchTestAgent(),
         CanvasBuildTestAgent(),
         ComponentRepairTestAgent(),
+        ComponentBuildTestAgent(),
         CanvasRepairTestAgent(),
         PromptBarTestAgent()
     ];
