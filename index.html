@@ -3370,6 +3370,17 @@
                 canvasReqRecover.hidden = true;
                 return;
             }
+            // No components → the agent has nothing to write about for
+            // a Generate / present-but-cleared case. Hide unless the
+            // file itself is the problem (missing / corrupt) — Repair
+            // for a broken file is its own thing and surfaces
+            // regardless of component count.
+            const fileBroken = canvasReqLoadOutcome === 'missing'
+                || canvasReqLoadOutcome === 'corrupt';
+            if (!fileBroken && latestComponents.length === 0) {
+                canvasReqRecover.hidden = true;
+                return;
+            }
             // Scope is the canvas folder path — same form the canvas-level
             // reconcile prompt uses.
             const scope = currentCanvasPath
