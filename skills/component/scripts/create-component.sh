@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #
-# create-component.sh — scaffolds a new component inside a canvas.
+# create-component.sh — scaffolds a new-shape component inside a canvas.
 #
 # Usage:
 #   bash skills/component/scripts/create-component.sh \
@@ -10,14 +10,16 @@ set -euo pipefail
 #
 # What it does:
 #   - Errors if the component folder already exists.
-#   - Writes feature-requirements.txt, view.html (template), view.json
-#     (loading placeholder), and functions.js (no-op mount stub).
-#   - Writes services/start.sh, services/render.js, services/IO.swift
-#     and an empty data/ directory.
-#   - Appends components/<name> to the canvas input.json's components array.
+#   - Writes component.html (entry — wraps the file declarations in
+#     <liquidos-component>), feature-requirements.txt, view.html (template),
+#     view.json (loading placeholder), functions.js (no-op mount stub),
+#     start.sh (service launcher), render.js (view.html → view.json watcher),
+#     and IO.swift (no-op native side) — all at the component folder root.
+#   - Creates empty data/ and diagnostics/ directories.
+#   - Appends components/<name>/component.html to the canvas input.json's
+#     components array.
 #
-# Every scaffolded file is starting clay. Each carries a header explaining
-# its role and "change anything you need" — the agent should restructure
+# Every scaffolded file is starting clay. The agent should restructure
 # freely when the default shape doesn't fit the component.
 #
 # Output: one-line JSON describing the new component.
@@ -69,23 +71,35 @@ fi
 display_title="$(printf '%s' "$safe_name" | awk -F'[-_]' '{ out=""; for (i=1; i<=NF; i++) { if (i>1) out=out " "; out=out toupper(substr($i,1,1)) substr($i,2) } print out }')"
 
 component_dir="$canvas_dir/components/$safe_name"
-presented_dir="$component_dir/presented"
 
 if [ -e "$component_dir" ]; then
     echo "Error: component already exists: $component_dir" >&2
     exit 1
 fi
 
-mkdir -p "$presented_dir/services" "$component_dir/data" "$component_dir/diagnostics"
+mkdir -p "$component_dir/data" "$component_dir/diagnostics"
 
 # diagnostics/status.json — populated by the harness when something goes wrong.
 # The agent reads this file as its first move when fixing a broken component.
 printf '{}\n' > "$component_dir/diagnostics/status.json"
 
+# component.html ------------------------------------------------------------
+# The entry. cssLayout (and old-shape canvases) load this file and inject
+# its contents into the surface. <liquidos-component> provides the standard
+# chrome (Requirements/Repair). <liquidos-file> elements observe view.json
+# and run start.sh / functions.js.
+cat > "$component_dir/component.html" <<HTML
+<liquidos-component path="components/${safe_name}">
+    <liquidos-file path="components/${safe_name}/start.sh" run></liquidos-file>
+    <liquidos-file path="components/${safe_name}/view.json"></liquidos-file>
+    <liquidos-file path="components/${safe_name}/functions.js" script></liquidos-file>
+</liquidos-component>
+HTML
+
 # feature-requirements.txt ---------------------------------------------------
 # Plain text. No title — the title lives in view.json. Body is the requirements
 # the user cares about, one per line, in their words.
-cat > "$presented_dir/feature-requirements.txt" <<TXT
+cat > "$component_dir/feature-requirements.txt" <<TXT
 - Describe the first thing this component should do.
 TXT
 
@@ -93,19 +107,20 @@ TXT
 # The agent's editing surface during work. render.js watches this file and
 # regenerates view.json on every change. Mustache-style placeholders are
 # substituted at render time. No service restart on edit.
-cat > "$presented_dir/view.html" <<HTML
+cat > "$component_dir/view.html" <<HTML
 <!--
 view.html — agent's editing surface.
 
 Plain HTML. render.js watches this file, substitutes runtime placeholders,
-and writes view.json. The harness paints view.json. Editing this file does
-NOT restart the service; render.js notices and re-emits.
+and writes view.json. <liquidos-file path="components/${safe_name}/view.json">
+paints view.json. Editing this file does NOT restart the service;
+render.js notices and re-emits.
 
 Available placeholders (mustache-style, double curly braces): port, origin,
 dispatchId. Add more by extending render.js.
 
 Do NOT put script tags here. Scripts injected via innerHTML do not execute
-(browser spec). Put browser-side JavaScript in ../functions.js inside an
+(browser spec). Put browser-side JavaScript in functions.js inside an
 exported mount(surface) function. The harness imports functions.js as a
 real ES module.
 -->
@@ -121,10 +136,10 @@ node -e '
 const fs = require("fs");
 const [path, html] = process.argv.slice(1);
 fs.writeFileSync(path, JSON.stringify({ html }, null, 2) + "\n");
-' "$presented_dir/view.json" "<div style=\"padding:1.5rem;display:grid;gap:0.5rem;color:rgba(255,255,255,.8);font-family:-apple-system,BlinkMacSystemFont,sans-serif;\"><h2 style=\"margin:0;font-size:1.1rem;font-weight:600;\">${display_title}</h2><p style=\"margin:0;color:rgba(255,255,255,.6);\">Loading…</p></div>"
+' "$component_dir/view.json" "<div style=\"padding:1.5rem;display:grid;gap:0.5rem;color:rgba(255,255,255,.8);font-family:-apple-system,BlinkMacSystemFont,sans-serif;\"><h2 style=\"margin:0;font-size:1.1rem;font-weight:600;\">${display_title}</h2><p style=\"margin:0;color:rgba(255,255,255,.6);\">Loading…</p></div>"
 
 # functions.js (no-op mount stub) ------------------------------------------
-cat > "$presented_dir/functions.js" <<'FUNCTIONSJS'
+cat > "$component_dir/functions.js" <<'FUNCTIONSJS'
 //
 // functions.js — interactive behavior for this component.
 //
@@ -144,8 +159,8 @@ cat > "$presented_dir/functions.js" <<'FUNCTIONSJS'
 // scope, and gets the component root as a parameter.
 //
 // AGENT FREEDOM
-// For a purely static component, leave mount as a no-op or delete this file
-// (and render.js will skip the resources.functions declaration in view.json).
+// For a purely static component, leave mount as a no-op or delete this
+// file (and remove the <liquidos-file ... script> line from component.html).
 //
 
 export const mount = (surface) => {
@@ -153,15 +168,15 @@ export const mount = (surface) => {
 }
 FUNCTIONSJS
 
-# services/start.sh --------------------------------------------------------
-cat > "$presented_dir/services/start.sh" <<'STARTSH'
+# start.sh ------------------------------------------------------------------
+cat > "$component_dir/start.sh" <<'STARTSH'
 #!/usr/bin/env bash
 #
 # start.sh — launches this component's services.
 #
 # CONTRACT
 # The harness invokes this with a unique dispatch id:
-#   services/start.sh <dispatch-id>
+#   start.sh <dispatch-id>
 # Stay alive while the services are alive. The harness terminates the
 # process group when it wants services to stop.
 #
@@ -172,8 +187,8 @@ cat > "$presented_dir/services/start.sh" <<'STARTSH'
 # - Exits when any started service dies.
 #
 # AGENT FREEDOM
-# Replace, extend, or simplify as the component requires. Delete IO.swift to
-# skip the native side; delete render.js to skip the JS side.
+# Replace, extend, or simplify as the component requires. Delete IO.swift
+# to skip the native side; delete render.js to skip the JS side.
 #
 
 set -euo pipefail
@@ -181,9 +196,7 @@ cd "$(dirname "$0")"
 
 dispatch_id="${1:?missing dispatch id}"
 export LIQUIDOS_DISPATCH_ID="$dispatch_id"
-# data/ lives at the component root, outside presented/, so it survives
-# presented/ swaps. From presented/services/ that's two levels up.
-runtime_dir="../../data/.runtime/${dispatch_id}"
+runtime_dir="data/.runtime/${dispatch_id}"
 mkdir -p "${runtime_dir}"
 
 render_pid=""
@@ -231,16 +244,16 @@ while true; do
     sleep 2
 done
 STARTSH
-chmod +x "$presented_dir/services/start.sh"
+chmod +x "$component_dir/start.sh"
 
-# services/render.js -------------------------------------------------------
-cat > "$presented_dir/services/render.js" <<'RENDERJS'
+# render.js -----------------------------------------------------------------
+cat > "$component_dir/render.js" <<'RENDERJS'
 //
-// render.js — watches ../view.html and produces ../view.json.
+// render.js — watches view.html and produces view.json.
 //
 // PURPOSE
 // Reads view.html, substitutes runtime placeholders ({{port}}, {{origin}},
-// {{dispatchId}}), and writes view.json atomically. The harness paints
+// {{dispatchId}}), and writes view.json atomically. <liquidos-file> paints
 // view.json; the agent edits view.html. Editing view.html does NOT restart
 // the service — render.js notices via fs.watch and re-emits.
 //
@@ -251,25 +264,20 @@ cat > "$presented_dir/services/render.js" <<'RENDERJS'
 //   Use this port to expose component-local endpoints (SSE, fetch) if needed.
 //
 // AGENT FREEDOM
-// Add more substitutions, watch additional files (e.g., ../data/*.json),
-// stream SSE to the browser, fetch external state — whatever the component
-// needs. Editing this file restarts the service.
+// Add more substitutions, watch additional files (e.g. data/*.json), stream
+// SSE to the browser, fetch external state — whatever the component needs.
+// Editing this file restarts the service.
 //
 
 import http from "node:http"
-import path from "node:path"
-import { readFile, writeFile, rename, stat, watch } from "node:fs/promises"
+import { readFile, writeFile, rename, watch } from "node:fs/promises"
 
 const here = new URL(".", import.meta.url)
-const templatePath = new URL("../view.html", here)
-const viewPath = new URL("../view.json", here)
-const temporaryViewPath = new URL("../view.json.tmp", here)
-const functionsPath = new URL("../functions.js", here)
+const templatePath = new URL("view.html", here)
+const viewPath = new URL("view.json", here)
+const temporaryViewPath = new URL("view.json.tmp", here)
 
 const dispatchId = process.env.LIQUIDOS_DISPATCH_ID || "unknown"
-// cwd is <component>/presented/services. Two dirnames up is the component dir.
-const componentName = path.basename(path.dirname(path.dirname(process.cwd())))
-const componentResourceBase = `components/${componentName}/presented`
 
 const substitute = (template, values) =>
     template.replace(/\{\{(\w+)\}\}/g, (match, key) =>
@@ -279,9 +287,6 @@ const substitute = (template, values) =>
 const log = (...values) =>
     console.log(new Date().toISOString(), "render.js:", ...values)
 
-const fileExists = file =>
-    stat(file).then(() => true).catch(() => false)
-
 const buildView = async (origin) => {
     const template = await readFile(templatePath, "utf8")
     const url = new URL(origin)
@@ -290,16 +295,7 @@ const buildView = async (origin) => {
         origin,
         dispatchId,
     })
-    const view = { html }
-    if (await fileExists(functionsPath)) {
-        view.resources = {
-            functions: {
-                path: `${componentResourceBase}/functions.js`,
-                mime: "text/javascript",
-            },
-        }
-    }
-    return view
+    return { html }
 }
 
 let renderInFlight = false
@@ -343,16 +339,16 @@ server.listen(0, "127.0.0.1", async () => {
 })
 RENDERJS
 
-# services/IO.swift -------------------------------------------------------
-cat > "$presented_dir/services/IO.swift" <<'SWIFT'
+# IO.swift ------------------------------------------------------------------
+cat > "$component_dir/IO.swift" <<'SWIFT'
 //
 // IO.swift — native side of this component.
 //
 // PURPOSE
 // Runs alongside render.js as a separate process. Use this when the component
-// needs native macOS capabilities (AVFoundation, IOKit, ScreenCaptureKit, etc.)
-// that aren't available to JavaScript. The convention is to write observations
-// to data/<file>.json that render.js reads to update the view.
+// needs native macOS capabilities (AVFoundation, IOKit, ScreenCaptureKit,
+// etc.) that aren't available to JavaScript. The convention is to write
+// observations to data/<file>.json that render.js reads to update the view.
 //
 // CONTRACT
 // - Compiled on demand by start.sh via swiftc.
@@ -369,8 +365,8 @@ import Foundation
 RunLoop.main.run()
 SWIFT
 
-# Append components/<name> to canvas input.json (preserve every other key
-# and entry; skip if already present).
+# Append components/<name>/component.html to canvas input.json (preserve every
+# other key and entry; skip if already present).
 node -e '
 const fs = require("fs");
 const [inputPath, componentPath] = process.argv.slice(1);
@@ -378,6 +374,6 @@ const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
 if (!Array.isArray(input.components)) input.components = [];
 if (!input.components.includes(componentPath)) input.components.push(componentPath);
 fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + "\n");
-' "$canvas_dir/input.json" "components/$safe_name"
+' "$canvas_dir/input.json" "components/$safe_name/component.html"
 
 printf '{"component":"%s","path":"%s"}\n' "$safe_name" "$component_dir"
