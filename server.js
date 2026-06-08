@@ -16,6 +16,13 @@ const { bootstrapWorkspace } = require('./workspace/bootstrap');
 const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
 
+// Inspection tools the agent (and the user) can run from inside the
+// workspace. Prepend the directory to PATH so `processes`, etc. resolve
+// without absolute paths; export the harness PID so those tools can root
+// their process-tree walks without scanning.
+process.env.PATH = path.join(ROOT, 'diagnostics') + ':' + (process.env.PATH || '');
+process.env.LIQUIDOS_HARNESS_PID = String(process.pid);
+
 const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none',
     'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'canvas-repair-test',
     'prompt-bar-test']);

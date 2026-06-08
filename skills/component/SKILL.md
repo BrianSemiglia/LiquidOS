@@ -143,7 +143,7 @@ Do not touch any component other than the one being created.
 
 ## Updating an existing component
 
-1. Read `<canvas>/components/<name>/feature-requirements.txt` to confirm the component's purpose. If the user is reporting a problem, also check `<name>/diagnostics/`.
+1. Read `<canvas>/components/<name>/feature-requirements.txt` to confirm the component's purpose. If the user is reporting a problem, also check `<name>/diagnostics/`. For "feels slow / hot / stuck" reports, run `processes` — it lists every component's CPU and memory so you can see whether the one in question is actually the culprit (or whether something else is eating the machine).
 2. Read `<canvas>/feature-requirements.txt` if it exists. The canvas's intent is the context your changes need to fit; don't drift away from it without reason.
 3. Write `component.html` (or `view.html`) with a placeholder showing the next intended action. Disable inputs that would mutate the same data the agent is about to change.
 4. Do the work. Between each meaningful step, write the partial output and the current next-intended-action. Keep the inputs disabled the whole time.

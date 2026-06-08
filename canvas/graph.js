@@ -151,15 +151,11 @@ const createCanvasGraph = ({
     // Components own their own paint via <liquidos-file> tags inside
     // component.html. /input doesn't ship view content — the canvas's
     // canvas.js handles rendering and the chrome's load() short-circuits
-    // when the canvas exposes no place() method.
-    const loadComponentView = componentPath => {
-        updateDiagnostics(componentPath, 'view', { ok: true, error: null });
-        return { html: '', title: '' };
-    };
-
+    // when the canvas exposes no place() method. Snapshot only needs the
+    // entry's identity; component fields stay empty.
     const loadLeafComponent = entry => ({
         ...entry,
-        component: loadComponentView(entry.componentPath)
+        component: { html: '', title: '' }
     });
 
     const inputEntries = () => {
