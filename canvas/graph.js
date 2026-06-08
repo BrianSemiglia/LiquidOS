@@ -46,7 +46,7 @@ const createCanvasGraph = ({
             .replace(/[-_]+/g, ' ')
             .replace(/\b\w/g, character => character.toUpperCase());
 
-    const repairCard = ({ level, title, scope, error }) => ({
+    const repairCard = ({ level, title, scope, error, promptSuffix }) => ({
         title,
         scope,
         repairLevel: level,
@@ -54,7 +54,7 @@ const createCanvasGraph = ({
             '<div role="group" aria-label="' + escapeHTML(title) + '" style="min-height:9rem;padding:1rem;border:1px solid rgba(248,113,113,0.45);border-radius:16px;background:rgba(127,29,29,0.22);color:#fecaca;display:grid;place-items:center;text-align:center;" data-repair-level="' + escapeHTML(level) + '">' +
             '<div style="display:grid;gap:0.75rem;justify-items:center;max-width:28rem;">' +
             '<div style="font-weight:750;font-size:1.05rem;letter-spacing:-0.01em;">' + escapeHTML(title) + '</div>' +
-            '<liquidos-callback on="click" scope="' + escapeHTML(scope) + '" prompt="' + escapeHTML('Repair required due to error: ' + error.message) + '">' +
+            '<liquidos-callback on="click" scope="' + escapeHTML(scope) + '" prompt="' + escapeHTML('Repair required due to error: ' + error.message + (promptSuffix || '')) + '">' +
             '<button style="border:1px solid rgba(252,165,165,0.35);border-radius:999px;background:rgba(127,29,29,0.55);color:#fecaca;padding:0.55rem 0.9rem;font:inherit;font-weight:700;cursor:pointer;">Repair</button>' +
             '</liquidos-callback>' +
             '</div>' +
@@ -69,9 +69,14 @@ const createCanvasGraph = ({
         error
     });
 
+    // Skill discovery is LLM-decided, so it's not reliable to assume the
+    // agent will read canvas/SKILL.md on its own. Point it there from
+    // the prompt — the skill is the canvas contract's single source.
+    const CANVAS_REPAIR_CONTRACT = '\n\nThis is a canvas-shape problem — read skills/canvas/SKILL.md before acting.';
     const invalidCanvasCard = error => repairCard({
         level: 'canvas',
         title: 'Canvas is damaged',
+        promptSuffix: CANVAS_REPAIR_CONTRACT,
         scope: getCanvasPath(),
         error
     });

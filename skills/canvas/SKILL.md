@@ -6,6 +6,7 @@ triggers:
   - User wants to change how components are arranged or presented (stack, grid, 3D, etc.)
   - User wants components to behave as a group (scroll-linked animation, snap, swipe-to-dismiss)
   - User wants canvas-level input (custom scroll, keyboard shortcuts, gestures)
+  - Canvas-level Repair: input.json, canvas.js, or anything else flagged as a damaged canvas
 ---
 
 # Canvas
