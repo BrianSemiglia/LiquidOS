@@ -14,6 +14,7 @@ const { ComponentRepairTestAgent } = require('./test/component-repair-test-agent
 const { ComponentBuildTestAgent } = require('./test/component-build-test-agent');
 const { CanvasDamagedRepairTestAgent } = require('./test/canvas-damaged-repair-test-agent');
 const { ComponentRuntimeRepairTestAgent } = require('./test/component-runtime-repair-test-agent');
+const { PromptBarSingleDispatchTestAgent } = require('./test/prompt-bar-single-dispatch-test-agent');
 const { CanvasRepairTestAgent } = require('./test/canvas-repair-test-agent');
 const { PromptBarTestAgent } = require('./test/prompt-bar-test-agent');
 
@@ -62,6 +63,7 @@ const createRuntimes = ({
         ComponentBuildTestAgent(),
         CanvasDamagedRepairTestAgent(),
         ComponentRuntimeRepairTestAgent(),
+        PromptBarSingleDispatchTestAgent(),
         CanvasRepairTestAgent(),
         PromptBarTestAgent()
     ];

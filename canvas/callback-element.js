@@ -112,9 +112,14 @@ liquidos-callback[data-busy="true"] :is(button, a, input, textarea, select, [rol
             return;
         }
 
+        // Cancelable so component-level handlers that call
+        // preventDefault() actually flip defaultPrevented and suppress
+        // the document-level catch-all. Without this, every callback
+        // double-dispatches.
         this.dispatchEvent(new CustomEvent('liquidos:callback', {
             bubbles: true,
             composed: true,
+            cancelable: true,
             detail: { scope, prompt }
         }));
     }
