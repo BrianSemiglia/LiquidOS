@@ -144,6 +144,32 @@
 
         const ALLOWED_FILE_PATHS = /^[a-z0-9_\-/]+\.(?:json|txt|js|html|css)$/i;
 
+        // After a DOM op lands on an element inside a <liquidos-component>,
+        // serialize that component back to its component.html on disk so the
+        // change survives a page reload. Without this, op="replace" /
+        // op="append" / op="setAttr" / op="remove" only live in the live
+        // DOM; reload re-fetches the unchanged file and the edit is gone.
+        //
+        // Clears the inner children of any descendant <liquidos-file> in
+        // default render mode before serializing — those children are
+        // hydrated content (fetched at runtime from the referenced file),
+        // not source authored markup, and would be re-fetched on next load
+        // anyway. Keeping them would just bloat the file with stale state.
+        const persistHostComponent = (host) => {
+            if (!host || !host.workspacePath) return;
+            const clone = host.cloneNode(true);
+            clone.querySelectorAll('liquidos-file:not([script]):not([run])')
+                .forEach(f => { f.innerHTML = ''; });
+            fetch('/workspace/' + host.workspacePath + '/component.html', {
+                method: 'PUT',
+                headers: { 'content-type': 'text/plain' },
+                body: clone.outerHTML
+            }).catch(err => {
+                state.rejects.push({ reason: 'persist-failed: ' + err.message,
+                    attrs: { workspacePath: host.workspacePath } });
+            });
+        };
+
         const sniff = createSniffer({
             allowedOps: new Set(['replace', 'append', 'prepend', 'setAttr', 'remove', 'stream', 'writeFile', 'streamFile']),
             streamingOps: new Set(['stream', 'streamFile', 'replace', 'append', 'prepend']),
@@ -178,9 +204,11 @@
                     return;
                 }
                 const el = document.querySelector(attrs.target);
+                const host = el.closest('liquidos-component');
                 if (attrs.op === 'setAttr') el.setAttribute(attrs.attr, attrs.value);
                 else if (attrs.op === 'remove') el.remove();
                 state.dispatches.push({ op: attrs.op, target: attrs.target, inner: inner.slice(0, 80) });
+                persistHostComponent(host);
             },
             onStreamOpen: (attrs) => {
                 if (attrs.op === 'streamFile') {
@@ -238,6 +266,7 @@
                     // first chunk lands.
                     const el = document.querySelector(attrs.target);
                     if (!el) return null;
+                    const host = el.closest('liquidos-component');
                     el.innerHTML = '';
                     let buffer = '';
                     let chunks = 0;
@@ -251,6 +280,7 @@
                             state.dispatches.push({
                                 op: 'replace', target: attrs.target, bytes: buffer.length, chunks
                             });
+                            persistHostComponent(host);
                         }
                     };
                 }
@@ -263,6 +293,7 @@
                     // is identical to the atomic version.
                     const el = document.querySelector(attrs.target);
                     if (!el) return null;
+                    const host = el.closest('liquidos-component');
                     const wrapper = document.createElement('div');
                     wrapper.style.display = 'contents';
                     if (attrs.op === 'append') el.appendChild(wrapper);
@@ -282,6 +313,7 @@
                             state.dispatches.push({
                                 op: attrs.op, target: attrs.target, bytes: buffer.length, chunks
                             });
+                            persistHostComponent(host);
                         }
                     };
                 }

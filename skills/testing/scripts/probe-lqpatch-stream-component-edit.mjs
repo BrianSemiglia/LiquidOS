@@ -241,6 +241,30 @@ try {
         state.inventedTag === inventedTag,
         'got tag: ' + state.inventedTag + ' (expected ' + inventedTag + ')');
 
+    // --- persistence: DOM ops against elements inside a <liquidos-component>
+    // get written back to that component's component.html on disk. The
+    // stub emits op="replace" target="#target-status" with PERSIST_MARK.
+    // Live DOM gets the new text immediately (existing streaming machinery);
+    // the assertion below proves the change ALSO survives a page reload by
+    // checking that target/component.html on disk contains the mark.
+    const persistMark = 'PERSISTED_' + token;
+    const targetHtmlPath = path.join(sandbox.workspace, 'home/components/target/component.html');
+    const persistDeadline = Date.now() + 8000;
+    let targetHtml = '';
+    while (Date.now() < persistDeadline) {
+        targetHtml = fs.readFileSync(targetHtmlPath, 'utf8');
+        if (targetHtml.includes(persistMark)) break;
+        await sleep(120);
+    }
+    const liveStatus = await page.evaluate(() =>
+        document.getElementById('target-status')?.textContent || '');
+    expect('persistence: live DOM #target-status carries the mark',
+        liveStatus.includes(persistMark),
+        'live #target-status text: ' + liveStatus.slice(0, 200));
+    expect('persistence: target/component.html on disk carries the mark',
+        targetHtml.includes(persistMark),
+        'file on disk did not get the DOM op — content: ' + targetHtml.slice(0, 300));
+
     console.log('PASS');
     await browser.close();
 } catch (e) {

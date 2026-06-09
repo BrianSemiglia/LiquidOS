@@ -106,6 +106,14 @@ const LqpatchStreamStubAgent = () => {
             const STREAM_FILE_PATH = 'home/components/target/streamed.txt';
             const STREAM_FILE_BODY = 'streamed-' + token
                 + ' — the agent never repeated this content in its output.';
+            // PERSIST_MARK proves that DOM ops against elements inside a
+            // <liquidos-component> are written back to the component's
+            // component.html on disk. The probe replaces #target-status's
+            // text, then reads target/component.html and asserts the
+            // mark is there. Lives inside a real component (unlike the
+            // page-chrome #lqpatch-sink), so the persistence layer has a
+            // host to serialize.
+            const PERSIST_MARK = 'PERSISTED_' + token;
             const script =
                 "Here's a small build.\n\n" +
                 "First, replace the sink contents:\n\n" +
@@ -125,6 +133,10 @@ const LqpatchStreamStubAgent = () => {
                 "\n\nNow stream a file into existence (with stray whitespace in the open tag — regression check):\n\n" +
                 '<lqpatch target\n="' + STREAM_FILE_PATH + '" op =  "streamFile">' +
                 STREAM_FILE_BODY +
+                '</lqpatch>' +
+                "\n\nReplace the status inside the target component (persistence regression — should land in component.html on disk):\n\n" +
+                '<lqpatch target="#target-status" op="replace">' +
+                PERSIST_MARK +
                 '</lqpatch>' +
                 "\n\nFinally, write the component file:\n\n" +
                 '<lqpatch target="' + filePath + '" op="writeFile">' +
