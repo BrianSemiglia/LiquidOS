@@ -2112,12 +2112,28 @@
         const ioPeerName = scope =>
             String(scope || '').split('/').filter(Boolean).pop() || '';
 
+        // Relationships write to <relationship>/diagnostics/status.json the
+        // same way components do, so the agent can inspect why a wire isn't
+        // working. Categories: import (functions.js loaded), mount (mount()
+        // returned), connect (connect(peers) returned).
+        const writeRelationshipDiagnostic = (scope, category, data) => {
+            if (!scope) return;
+            fetch('/diagnostics', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ componentPath: scope, category, data })
+            }).catch(() => {});
+        };
+
         let wireIOAttempts = 0;
         const MAX_WIRE_IO_ATTEMPTS = 40;
         let wireIOTimer = null;
         const wireIO = () => {
             wireIOTimer = null;
             const peers = {};
+            // io → scope so we can attribute connect outcomes back to the
+            // relationship that owns the io, for diagnostics.
+            const scopeOfIo = new Map();
             let pending = 0;
             // Expected components from the most recent /input. Wait for each
             // to have both a rendered item AND a surface.__io before proceeding:
@@ -2134,20 +2150,29 @@
                 if (!scope) return;
                 const oldItem = renderedItemsByPath.get(scope);
                 const oldSurface = oldItem?.querySelector('.surface');
-                if (oldSurface?.__io) { peers[ioPeerName(scope)] = oldSurface.__io; return; }
+                if (oldSurface?.__io) {
+                    peers[ioPeerName(scope)] = oldSurface.__io;
+                    scopeOfIo.set(oldSurface.__io, scope);
+                    return;
+                }
                 const newEl = Array.from(document.querySelectorAll('liquidos-component'))
                     .find(el => {
                         const p = el.getAttribute('path') || '';
                         return p === scope || scope.endsWith('/' + p) || p.endsWith('/' + scope);
                     });
                 const newSurface = newEl?.querySelector('.surface');
-                if (newSurface?.__io) { peers[ioPeerName(scope)] = newSurface.__io; return; }
+                if (newSurface?.__io) {
+                    peers[ioPeerName(scope)] = newSurface.__io;
+                    scopeOfIo.set(newSurface.__io, scope);
+                    return;
+                }
                 pending += 1;
             });
             // Hidden relationships mounted by the harness:
-            relationshipNodesByPath.forEach((entry, path) => {
+            relationshipNodesByPath.forEach((entry, scope) => {
                 if (!entry.surface.__io) { pending += 1; return; }
-                peers[ioPeerName(path)] = entry.surface.__io;
+                peers[ioPeerName(scope)] = entry.surface.__io;
+                scopeOfIo.set(entry.surface.__io, scope);
             });
             if (pending > 0 && wireIOAttempts < MAX_WIRE_IO_ATTEMPTS) {
                 wireIOAttempts += 1;
@@ -2162,10 +2187,28 @@
                 console.warn('wireIO: timed out with', pending, 'component(s) missing surface.__io after', wireIOAttempts, 'retries; connecting with partial peer map');
             }
             Object.values(peers).forEach(io => {
-                if (typeof io.connect === 'function' && !io.__connected) {
-                    try { io.connect(peers); } catch (error) { console.error('relationship connect threw:', error); }
-                    io.__connected = true;
+                if (typeof io.connect !== 'function' || io.__connected) return;
+                const scope = scopeOfIo.get(io) || '';
+                const isRelationship = relationshipNodesByPath.has(scope);
+                try {
+                    io.connect(peers);
+                    if (isRelationship) {
+                        writeRelationshipDiagnostic(scope, 'connect', {
+                            ok: true,
+                            peers: Object.keys(peers)
+                        });
+                    }
+                } catch (error) {
+                    console.error('relationship connect threw:', scope, error.message);
+                    if (isRelationship) {
+                        writeRelationshipDiagnostic(scope, 'connect', {
+                            ok: false,
+                            error: error.message,
+                            peers: Object.keys(peers)
+                        });
+                    }
                 }
+                io.__connected = true;
             });
         };
         const scheduleWireIO = () => {
@@ -2217,6 +2260,10 @@
 
             const functionsUrl = relationship?.resources?.functions?.url;
             if (!functionsUrl) {
+                writeRelationshipDiagnostic(scope, 'import', {
+                    ok: false,
+                    error: 'no functions.js'
+                });
                 scheduleWireIO();
                 return;
             }
@@ -2224,14 +2271,30 @@
             const cacheKey = relationship?.resources?.functions?.version || '';
             import(functionsUrl + (cacheKey ? '?v=' + encodeURIComponent(cacheKey) : '')).then(module => {
                 if (relationshipNodesByPath.get(scope) !== entry) return;
-                if (typeof module.mount !== 'function') return;
+                writeRelationshipDiagnostic(scope, 'import', { ok: true });
+                if (typeof module.mount !== 'function') {
+                    writeRelationshipDiagnostic(scope, 'mount', {
+                        ok: false,
+                        error: 'functions.js does not export mount()'
+                    });
+                    return;
+                }
                 try {
                     entry.cleanup = module.mount(surface) || null;
+                    writeRelationshipDiagnostic(scope, 'mount', { ok: true });
                 } catch (error) {
                     console.error('relationship mount threw:', scope, error.message);
+                    writeRelationshipDiagnostic(scope, 'mount', {
+                        ok: false,
+                        error: error.message
+                    });
                 }
             }).catch(error => {
                 console.error('relationship import failed:', scope, error.message);
+                writeRelationshipDiagnostic(scope, 'import', {
+                    ok: false,
+                    error: error.message
+                });
             }).finally(() => {
                 scheduleWireIO();
             });

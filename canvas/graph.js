@@ -100,22 +100,52 @@ const createCanvasGraph = ({
         }
     };
 
-    // componentNeedsRepair derives one boolean per component from
-    // diagnostics/status.json — true iff any category recorded ok:false.
-    // Rendering reads this so the Repair button is a pure function of
-    // state. The file is the single source of truth (agent reads it per
-    // skills/component/SKILL.md convention); this is just a one-line
-    // summary at the harness/render boundary so the client doesn't have
-    // to know the file schema.
-    const componentNeedsRepair = componentPath => {
+    // hasFailedDiagnostic checks any diagnostics/status.json (component or
+    // relationship) for any category that recorded ok:false.
+    const hasFailedDiagnostic = folder => {
         try {
-            const statusPath = path.join(componentDiagnosticsPath(componentPath), 'status.json');
+            const statusPath = path.join(folder, 'diagnostics', 'status.json');
             if (!fs.existsSync(statusPath)) return false;
             const data = JSON.parse(fs.readFileSync(statusPath, 'utf8')) || {};
             return Object.values(data).some(entry => entry && entry.ok === false);
         } catch (error) {
             return false;
         }
+    };
+
+    // Relationship folders follow the "<sender>-to-<receiver>" naming
+    // convention. The sender's name is the prefix before the first
+    // "-to-". The receiver's name is the rest. (If "-to-" isn't present
+    // we treat the relationship as unowned and skip it.)
+    const relationshipSender = relName => {
+        const idx = relName.indexOf('-to-');
+        return idx > 0 ? relName.slice(0, idx) : null;
+    };
+
+    // componentNeedsRepair derives one boolean per component from its
+    // own diagnostics PLUS any relationship where this component is the
+    // sender. Relationships have no UI of their own, so their failures
+    // surface on the sender — the component that, from the user's
+    // perspective, owns "this thing should send to that thing." Rendering
+    // reads this so the Repair button is a pure function of state.
+    const componentNeedsRepair = componentPath => {
+        const folder = componentFolderPath(componentPath);
+        if (hasFailedDiagnostic(folder)) return true;
+        // Sender check: walk the canvas's relationships, find any where
+        // this component is the sender, return true if it has a failed
+        // diagnostic.
+        const componentName = path.basename(folder);
+        const relsDir = relationshipsDir();
+        if (!fs.existsSync(relsDir) || !fs.statSync(relsDir).isDirectory()) return false;
+        try {
+            const entries = fs.readdirSync(relsDir, { withFileTypes: true })
+                .filter(entry => entry.isDirectory());
+            for (const entry of entries) {
+                if (relationshipSender(entry.name) !== componentName) continue;
+                if (hasFailedDiagnostic(path.join(relsDir, entry.name))) return true;
+            }
+        } catch { /* fall through */ }
+        return false;
     };
 
     // Components own their own paint via <liquidos-file> tags inside
