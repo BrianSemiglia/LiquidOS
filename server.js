@@ -26,7 +26,7 @@ process.env.LIQUIDOS_HARNESS_PID = String(process.pid);
 const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none',
     'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'component-build-test', 'canvas-repair-test',
     'canvas-damaged-repair-test', 'component-runtime-repair-test', 'prompt-bar-single-dispatch-test',
-    'prompt-bar-test', 'install-build-test', 'cross-canvas-persistence-test']);
+    'prompt-bar-test', 'install-build-test', 'cross-canvas-persistence-test', 'lqpatch-stream-stub']);
 
 const failStartup = message => {
     console.error(message);
@@ -315,11 +315,25 @@ if (!Number.isInteger(PORT) || PORT < 0 || PORT > 65535) {
 }
 const AGENT_SOURCE = 'agent';
 const clients = new Set();
-const debugClients = new Set();
+const agentStreamClients = new Set();
+
+// Mirror every chunk the agent emits via host.output as a `raw` event
+// alongside the existing debug-* events. The debug rail keeps reading
+// `debug-line` (line-buffered, ANSI-stripped); the lqpatch sniffer in
+// index.html reads `raw` (verbatim chunks, marker boundaries intact).
+// One stream, two readers.
+const broadcastAgentRaw = chunk => {
+    if (!chunk) return;
+    const message = JSON.stringify({ type: 'raw', text: String(chunk) });
+    agentStreamClients.forEach(res => {
+        res.write('event: raw\n');
+        res.write('data: ' + message + '\n\n');
+    });
+};
 
 const emitDebugEvent = payload => {
     const message = JSON.stringify(payload);
-    debugClients.forEach(res => {
+    agentStreamClients.forEach(res => {
         res.write('event: ' + payload.type + '\n');
         res.write('data: ' + message + '\n\n');
     });
@@ -443,7 +457,10 @@ const shortText = value => {
 
 
 runtimeSet.configureHosts({
-    output: writeProcessOutput,
+    output: (label, chunk, stream) => {
+        broadcastAgentRaw(chunk);
+        writeProcessOutput(label, chunk, stream);
+    },
     status: setCurrentAgentDebug
 });
 
@@ -1238,6 +1255,17 @@ const server = http.createServer(async (req, res) => {
                 newShapeSendJson(res, 200, { ok: true });
                 return;
             }
+            if (req.method === 'PATCH') {
+                // Append-only — the streaming-file companion to PUT. The
+                // body of each PATCH is one chunk emitted by the agent's
+                // op="streamFile" patch; the file grows on disk without
+                // the agent having to repeat any prior content.
+                const body = await newShapeReadBody(req);
+                fs.mkdirSync(path.dirname(abs), { recursive: true });
+                fs.appendFileSync(abs, body);
+                newShapeSendJson(res, 200, { ok: true });
+                return;
+            }
         }
 
         if (req.method === 'POST' && url.pathname === '/spawn') {
@@ -1287,18 +1315,26 @@ const server = http.createServer(async (req, res) => {
         }
 
 
-        if (req.method === 'GET' && url.pathname === '/debug/agent/stream') {
+        // Unified agent SSE stream. Carries:
+        //   debug-ready / debug-snapshot / debug-line / debug-status
+        //     — the line-buffered, ANSI-stripped per-line events the
+        //       debug rail consumes.
+        //   raw
+        //     — every chunk the agent emits via host.output, verbatim.
+        //       The lqpatch sniffer in index.html reads from here.
+        if (req.method === 'GET' && url.pathname === '/agent/stream') {
             res.writeHead(200, {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
-                Connection: 'keep-alive'
+                Connection: 'keep-alive',
+                'X-Accel-Buffering': 'no'
             });
-            debugClients.add(res);
+            agentStreamClients.add(res);
             res.write('event: debug-ready\n');
             res.write('data: {"type":"debug-ready"}\n\n');
             res.write('event: debug-snapshot\n');
             res.write('data: ' + JSON.stringify({ type: 'debug-snapshot', snapshot: currentAgentDebugSnapshot() }) + '\n\n');
-            req.on('close', () => debugClients.delete(res));
+            req.on('close', () => agentStreamClients.delete(res));
             return;
         }
 

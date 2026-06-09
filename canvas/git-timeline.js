@@ -156,16 +156,19 @@ const createGitTimeline = ({ workspacePath, currentCanvasPath, logServer }) => {
             return false;
         }
 
-        if (git(workspacePath, ['diff', '--cached', '--quiet']).status === 0) {
-            logServer('git', 'no canvases changes to commit', { jobId: job.id || null });
-            return false;
-        }
-
-        if (git(workspacePath, ['commit', '-m', commitMessage({
+        // Commit every turn, even when nothing on disk changed — DOM-only
+        // turns (`op="replace"`, `op="setAttr"`, etc.) are still real
+        // agent responses, and the transcript belongs in git for undo
+        // and after-the-fact debugging.
+        const hasChanges = git(workspacePath, ['diff', '--cached', '--quiet']).status !== 0;
+        const commitArgs = ['commit', '-m', commitMessage({
             event: promptEvent(job),
             scope: scopeText(job.scope, currentCanvasPath),
             agentResponse: context || 'none'
-        })], { stdio: 'inherit' }).status !== 0) {
+        })];
+        if (!hasChanges) commitArgs.push('--allow-empty');
+
+        if (git(workspacePath, commitArgs, { stdio: 'inherit' }).status !== 0) {
             logServer('git', 'failed to commit canvases changes', {
                 jobId: job.id || null,
                 prompt: callbackPromptText(job) || null
@@ -173,7 +176,9 @@ const createGitTimeline = ({ workspacePath, currentCanvasPath, logServer }) => {
             return false;
         }
 
-        logServer('git', 'committed canvases changes', { jobId: job.id || null });
+        logServer('git', hasChanges ? 'committed canvases changes' : 'committed empty canvases turn', {
+            jobId: job.id || null
+        });
         return true;
     };
 

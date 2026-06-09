@@ -72,15 +72,38 @@ try {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // The scaffold's initial view.json renders a "Loading…" placeholder
-    // titled with the display-cased component name. Asserting both means
-    // the component's view.json reached the surface (entry path is right
-    // in input.json, component.html composed correctly, view.json
-    // rendered) — i.e. the scaffold did everything it needed to.
+    // The minimal scaffold is just: <liquidos-component path="components/gizmo">
+    // with no inline content. Asserting that the element mounted proves
+    // the script did its three real jobs — wrote a parseable
+    // component.html, wrote feature-requirements.txt, and registered the
+    // path in input.json. Diagnostics check below covers the "no Repair"
+    // half (the chrome's Repair callback is always in the DOM but hidden
+    // unless status.json records an error, so we can't tell from DOM
+    // alone — we check the file).
     await page.waitForFunction(
-        () => /Gizmo/.test(document.body.innerText) && /Loading/.test(document.body.innerText),
+        () => !!document.querySelector('liquidos-component[path="components/gizmo"]'),
         { timeout: 15000 }
     );
+
+    // The fixture files we expect to exist on disk after the scaffold.
+    for (const rel of ['home/components/gizmo/component.html',
+                       'home/components/gizmo/feature-requirements.txt',
+                       'home/components/gizmo/diagnostics/status.json']) {
+        if (!fs.existsSync(path.join(ws, rel))) {
+            throw new Error('scaffold missing expected file: ' + rel);
+        }
+    }
+    // None of the legacy service-pattern files should exist by default.
+    for (const rel of ['home/components/gizmo/view.json',
+                       'home/components/gizmo/view.html',
+                       'home/components/gizmo/start.sh',
+                       'home/components/gizmo/render.js',
+                       'home/components/gizmo/IO.swift',
+                       'home/components/gizmo/functions.js']) {
+        if (fs.existsSync(path.join(ws, rel))) {
+            throw new Error('scaffold wrote unexpected legacy file: ' + rel);
+        }
+    }
 
     console.log('PASS');
     await browser.close();

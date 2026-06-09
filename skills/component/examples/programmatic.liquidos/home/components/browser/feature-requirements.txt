@@ -1,5 +1,3 @@
-# Feature Requirements
-
 - Show a reminder list in a card layout.
 - Let the user add a new reminder.
 - Update the reminder count and status after changes.

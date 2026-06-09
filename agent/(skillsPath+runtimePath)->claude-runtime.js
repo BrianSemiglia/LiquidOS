@@ -88,6 +88,18 @@ const truncate = (value, max = 200) => {
     return text.length > max ? text.slice(0, max - 3) + '...' : text;
 };
 
+// Tool annotations (`> Bash <command>`, `< Bash <output>`) flow into the same
+// SSE stream the lqpatch sniffer reads. If a tool result contains the literal
+// string `<lqpatch …>…</lqpatch>` — which happens whenever the agent runs
+// `git show` on a prior commit whose message embeds the previous turn's
+// markers — the sniffer parses those historical markers as live dispatches
+// and re-applies stale state to the page. Insert a zero-width space inside
+// the open and close tags so the sniffer's regex no longer matches, while
+// the text remains readable in the debug rail and persisted transcript.
+const neutralizeMarkers = value => String(value == null ? '' : value)
+    .replace(/<lqpatch/g, '<​lqpatch')
+    .replace(/<\/lqpatch>/g, '<​/lqpatch>');
+
 const toolInputSummary = input => {
     if (!input || typeof input !== 'object') {
         return '';
@@ -145,17 +157,32 @@ const createClaudeStreamParser = userEmit => {
             return;
         }
 
+        // With --include-partial-messages enabled, text arrives as a
+        // stream of content_block_delta events — one per token-ish
+        // chunk. Forward each delta straight through so downstream
+        // (the lqpatch sniffer) sees actual streaming instead of one
+        // blob per assistant turn.
+        if (event.type === 'stream_event' && event.event) {
+            const inner = event.event;
+            if (inner.type === 'content_block_delta'
+                && inner.delta && inner.delta.type === 'text_delta'
+                && typeof inner.delta.text === 'string') {
+                assistantText += inner.delta.text;
+                emit(inner.delta.text);
+            }
+            return;
+        }
+
         if (event.type === 'assistant' && event.message && Array.isArray(event.message.content)) {
             event.message.content.forEach(block => {
                 if (!block || typeof block !== 'object') {
                     return;
                 }
 
-                if (block.type === 'text' && block.text) {
-                    assistantText += (assistantText ? '\n' : '') + block.text;
-                    emit(block.text);
-                    return;
-                }
+                // Text blocks are already streamed via stream_event /
+                // content_block_delta above. Skip here so we don't
+                // double-emit the same content.
+                if (block.type === 'text') return;
 
                 if (block.type === 'tool_use') {
                     if (block.id && block.name) {
@@ -163,7 +190,7 @@ const createClaudeStreamParser = userEmit => {
                     }
 
                     const summary = toolInputSummary(block.input);
-                    emit('> ' + (block.name || 'tool') + (summary ? ' ' + summary : ''));
+                    emit('> ' + (block.name || 'tool') + (summary ? ' ' + neutralizeMarkers(summary) : ''));
                 }
             });
             return;
@@ -177,7 +204,7 @@ const createClaudeStreamParser = userEmit => {
 
                 const name = toolNames.get(block.tool_use_id) || 'tool';
                 const preview = truncate(textFromToolResult(block.content));
-                emit('< ' + name + (block.is_error ? ' [error]' : '') + (preview ? ' ' + preview : ''));
+                emit('< ' + name + (block.is_error ? ' [error]' : '') + (preview ? ' ' + neutralizeMarkers(preview) : ''));
             });
             return;
         }
@@ -290,10 +317,16 @@ const ClaudeCodeAgent = () => {
             let timedOut = false;
             const parser = createClaudeStreamParser(text => {
                 const value = String(text == null ? '' : text);
-
-                if (value.trim()) {
-                    host.output('claude-code-process', value.endsWith('\n') ? value : value + '\n');
-                }
+                if (!value) return;
+                // Pass the chunk through verbatim. The parser feeds us
+                // token-level text_deltas now (--include-partial-messages),
+                // and inserting a \n between every emit punches newlines
+                // into the middle of the agent's strings — corrupting
+                // file bodies streamed via lqpatch markers (especially
+                // JSON, where a stray \n inside a string makes the file
+                // unparseable). The debug rail's line-splitting happens
+                // downstream in writeProcessOutput.
+                host.output('claude-code-process', value);
             });
             const processHandle = spawn(command, [
                 '-p',
@@ -301,6 +334,12 @@ const ClaudeCodeAgent = () => {
                 '--verbose',
                 '--output-format',
                 'stream-json',
+                // Without this, each assistant event carries the WHOLE
+                // message as one block — the lqpatch sniffer downstream
+                // sees one big chunk per turn instead of token-level
+                // deltas, so streamFile sessions always look like
+                // chunks=1 even when Claude is actually streaming.
+                '--include-partial-messages',
                 ...(systemPromptPath ? ['--append-system-prompt-file', systemPromptPath] : []),
                 ...runtimeAccessArguments({ systemPromptPath, canvasPath }),
                 '--allowedTools',

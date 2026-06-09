@@ -102,6 +102,234 @@
             }
         });
     </script>
+    <!-- lqpatch sniffer wiring. Subscribes to /agent/stream — the
+         unified SSE channel that pipes every chunk the active agent
+         runtime emits via host.output — and feeds the raw text into
+         the sniffer state machine.
+         Atomic + op="stream" patches dispatch into #lqpatch-sink (the
+         hidden test sink); op="writeFile" PUTs to /workspace/<target>.
+         All dispatches, rejects, and narration are mirrored to
+         window.__lqpatch so probes can assert on what landed. -->
+    <script type="module">
+        import { createSniffer } from '/lib/lqpatch-sniffer.js';
+
+        const sink = document.getElementById('lqpatch-sink');
+        const state = window.__lqpatch = {
+            narration: '',
+            dispatches: [],
+            rejects: [],
+            writeFiles: [],
+            streamMutations: 0
+        };
+
+        // Mirror text-node mutations inside #lqpatch-sink so probes can
+        // verify op="stream" arrived in chunks rather than as one atomic
+        // write.
+        new MutationObserver(() => { state.streamMutations += 1; })
+            .observe(sink, { childList: true, characterData: true, subtree: true });
+
+        // Toggle data-empty on #agent-activity based on whether the
+        // agent has put anything in it. The CSS hides the badge when
+        // empty so the prompt bar collapses cleanly between turns.
+        const agentActivity = document.getElementById('agent-activity');
+        if (agentActivity) {
+            const syncEmpty = () => {
+                const empty = agentActivity.textContent.trim().length === 0;
+                agentActivity.dataset.empty = empty ? 'true' : 'false';
+            };
+            new MutationObserver(syncEmpty).observe(agentActivity, {
+                childList: true, characterData: true, subtree: true
+            });
+        }
+
+        const ALLOWED_FILE_PATHS = /^[a-z0-9_\-/]+\.(?:json|txt|js|html|css)$/i;
+
+        const sniff = createSniffer({
+            allowedOps: new Set(['replace', 'append', 'prepend', 'setAttr', 'remove', 'stream', 'writeFile', 'streamFile']),
+            streamingOps: new Set(['stream', 'streamFile', 'replace', 'append', 'prepend']),
+            validate: (attrs) => {
+                if (attrs.op === 'writeFile' || attrs.op === 'streamFile') {
+                    return typeof attrs.target === 'string'
+                        && ALLOWED_FILE_PATHS.test(attrs.target)
+                        && !attrs.target.includes('..');
+                }
+                // DOM ops: any CSS selector that resolves to an element on
+                // the page. The agent picks its own selectors — typically
+                // structures it just emitted via op="replace" or via a
+                // preceding writeFile that the canvas rendered.
+                if (!attrs.target) return false;
+                try { return !!document.querySelector(attrs.target); }
+                catch { return false; }
+            },
+            onText: (text) => { state.narration += text; },
+            onAtomic: (attrs, inner) => {
+                if (attrs.op === 'writeFile') {
+                    // Fire and forget — probe reads the file from disk to
+                    // verify the write landed. PUT returns 200 on success.
+                    fetch('/workspace/' + attrs.target, {
+                        method: 'PUT',
+                        headers: { 'content-type': 'application/json' },
+                        body: inner
+                    }).catch(err => {
+                        state.rejects.push({ reason: 'put-failed: ' + err.message, attrs });
+                    });
+                    state.writeFiles.push({ target: attrs.target, bytes: inner.length });
+                    state.dispatches.push({ op: 'writeFile', target: attrs.target, bytes: inner.length });
+                    return;
+                }
+                const el = document.querySelector(attrs.target);
+                if (attrs.op === 'setAttr') el.setAttribute(attrs.attr, attrs.value);
+                else if (attrs.op === 'remove') el.remove();
+                state.dispatches.push({ op: attrs.op, target: attrs.target, inner: inner.slice(0, 80) });
+            },
+            onStreamOpen: (attrs) => {
+                if (attrs.op === 'streamFile') {
+                    // Truncate (or create) the target so the file is
+                    // empty before chunks start landing. We chain every
+                    // subsequent PATCH off this promise so the file is
+                    // assembled in arrival order, not in whatever order
+                    // the requests happen to settle.
+                    let chain = fetch('/workspace/' + attrs.target, {
+                        method: 'PUT',
+                        headers: { 'content-type': 'text/plain' },
+                        body: ''
+                    }).catch(err => {
+                        state.rejects.push({ reason: 'streamFile-init-failed: ' + err.message, attrs });
+                    });
+                    let bytes = 0;
+                    let chunks = 0;
+                    state.dispatches.push({ op: 'streamFile-open', target: attrs.target });
+                    return {
+                        appendChunk: (text) => {
+                            bytes += text.length;
+                            chunks += 1;
+                            // Each chunk PATCHes onto the file — server
+                            // appends and returns. One PATCH per call
+                            // = one chunk arrived from the agent stream;
+                            // probes count these to prove the agent's
+                            // output actually streamed instead of
+                            // landing as one atomic blob.
+                            chain = chain.then(() => fetch('/workspace/' + attrs.target, {
+                                method: 'PATCH',
+                                headers: { 'content-type': 'text/plain' },
+                                body: text
+                            })).catch(err => {
+                                state.rejects.push({ reason: 'streamFile-patch-failed: ' + err.message, attrs });
+                            });
+                        },
+                        close: () => {
+                            chain.finally(() => {
+                                state.writeFiles.push({ target: attrs.target, bytes, chunks });
+                                state.dispatches.push({
+                                    op: 'streamFile-close',
+                                    target: attrs.target, bytes, chunks
+                                });
+                            });
+                        }
+                    };
+                }
+                if (attrs.op === 'replace') {
+                    // Streaming op="replace": accumulate the body and rewrite
+                    // the target's innerHTML on every chunk so the user sees
+                    // the new content materialize (especially CSS in a <style>
+                    // block, where partial rules render incrementally and the
+                    // look "tunes in" as the markup arrives). Reset to empty
+                    // up front so the old content is gone the moment the
+                    // first chunk lands.
+                    const el = document.querySelector(attrs.target);
+                    if (!el) return null;
+                    el.innerHTML = '';
+                    let buffer = '';
+                    let chunks = 0;
+                    return {
+                        appendChunk: (text) => {
+                            buffer += text;
+                            chunks += 1;
+                            el.innerHTML = buffer;
+                        },
+                        close: () => {
+                            state.dispatches.push({
+                                op: 'replace', target: attrs.target, bytes: buffer.length, chunks
+                            });
+                        }
+                    };
+                }
+                if (attrs.op === 'append' || attrs.op === 'prepend') {
+                    // Streaming append/prepend: park the in-flight content in
+                    // a `display: contents` wrapper so the browser re-parses
+                    // the accumulated buffer on every chunk (lets partial
+                    // CSS / partial markup tune in visibly) without
+                    // disturbing siblings. At close, unwrap so the final DOM
+                    // is identical to the atomic version.
+                    const el = document.querySelector(attrs.target);
+                    if (!el) return null;
+                    const wrapper = document.createElement('div');
+                    wrapper.style.display = 'contents';
+                    if (attrs.op === 'append') el.appendChild(wrapper);
+                    else el.insertBefore(wrapper, el.firstChild);
+                    let buffer = '';
+                    let chunks = 0;
+                    return {
+                        appendChunk: (text) => {
+                            buffer += text;
+                            chunks += 1;
+                            wrapper.innerHTML = buffer;
+                        },
+                        close: () => {
+                            const parent = wrapper.parentNode;
+                            while (wrapper.firstChild) parent.insertBefore(wrapper.firstChild, wrapper);
+                            parent.removeChild(wrapper);
+                            state.dispatches.push({
+                                op: attrs.op, target: attrs.target, bytes: buffer.length, chunks
+                            });
+                        }
+                    };
+                }
+                const el = document.querySelector(attrs.target);
+                if (!el) return null;
+                const node = document.createTextNode('');
+                el.appendChild(node);
+                state.dispatches.push({ op: 'stream-open', target: attrs.target });
+                return {
+                    appendChunk: (text) => node.appendData(text),
+                    close: () => {
+                        state.dispatches.push({
+                            op: 'stream-close', target: attrs.target, chars: node.data.length
+                        });
+                    }
+                };
+            },
+            onReject: (reason, attrs) => {
+                state.rejects.push({ reason, attrs });
+            }
+        });
+
+        const src = new EventSource('/agent/stream');
+        // The `raw` event delivers verbatim host.output chunks — marker
+        // boundaries intact. The debug rail elsewhere on this page reads
+        // `debug-line` from the same stream.
+        src.addEventListener('raw', (e) => {
+            try {
+                const payload = JSON.parse(e.data);
+                if (payload && typeof payload.text === 'string') sniff(payload.text);
+            } catch {}
+        });
+        // When the agent transitions out of "running" (back to waiting /
+        // failed / done), flush whatever's left in the sniffer's buffer
+        // as trailing narration. Same role as the experiment page's
+        // src.addEventListener('done', ...) handler.
+        let lastStatus = '';
+        src.addEventListener('debug-status', (e) => {
+            try {
+                const payload = JSON.parse(e.data);
+                const next = payload && payload.current && payload.current.status;
+                if (lastStatus === 'running' && next && next !== 'running') {
+                    sniff.end();
+                }
+                if (next) lastStatus = next;
+            } catch {}
+        });
+    </script>
     <style>
         * {
             box-sizing: border-box;
@@ -658,7 +886,11 @@
             z-index: 20;
             display: grid;
             grid-template-columns: max-content minmax(0, 1fr);
-            gap: 1rem;
+            grid-template-areas:
+                "activity activity"
+                "nav      send";
+            row-gap: 0.55rem;
+            column-gap: 1rem;
             align-items: center;
             width: min(calc(100vw - var(--debug-rail-space) - 2rem), 58rem);
             padding: 0.55rem;
@@ -675,6 +907,7 @@
         }
 
         .prompt-send {
+            grid-area: send;
             display: grid;
             grid-template-columns: max-content minmax(14rem, 1fr) max-content;
             gap: 0.45rem;
@@ -687,10 +920,59 @@
         }
 
         .canvas-nav {
+            grid-area: nav;
             display: flex;
             gap: 0.35rem;
             width: max-content;
             min-width: 0;
+        }
+
+        /* Agent activity heartbeat, lives inside the prompt bar. The
+           agent owns its content via <lqpatch target="#agent-activity">.
+           Hidden when empty so the prompt bar collapses back to its
+           normal layout. */
+        .agent-activity {
+            grid-area: activity;
+            font-size: 0.8rem;
+            color: rgba(232, 232, 234, 0.78);
+            padding: 0.35rem 0.7rem;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.04);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            line-height: 1.2;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            transition: opacity 160ms ease;
+        }
+        .agent-activity[data-empty="true"] {
+            display: none;
+        }
+        /* When the activity row is empty, collapse the grid back to a
+           single-row layout so the prompt bar doesn't reserve vertical
+           space for a hidden element. */
+        .global-prompt:not(:has(.agent-activity:not([data-empty="true"]))) {
+            grid-template-areas: "nav send";
+            row-gap: 0;
+        }
+        /* Subtle pulse so the user knows it's live. */
+        .agent-activity::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 999px;
+            background: #7c5cff;
+            box-shadow: 0 0 8px rgba(124, 92, 255, 0.6);
+            animation: agent-pulse 1.3s ease-in-out infinite;
+            flex-shrink: 0;
+        }
+        @keyframes agent-pulse {
+            0%, 100% { opacity: 0.45; }
+            50% { opacity: 1; }
         }
 
         .global-prompt select,
@@ -1342,6 +1624,11 @@
     </style>
 </head>
 <body>
+    <!-- Test sink for the lqpatch sniffer (lib/lqpatch-sniffer.js).
+         The sniffer routes atomic and op="stream" patches here when the
+         agent emits them; writeFile patches go straight to /workspace.
+         Hidden from the user — only the probe + window.__lqpatch see it. -->
+    <div id="lqpatch-sink" hidden></div>
     <div class="canvas-shell" id="canvas-shell">
         <main id="app"></main>
     </div>
@@ -1368,6 +1655,11 @@
             <button type="button" id="new-canvas" aria-label="Browse apps or start a new canvas from scratch">New</button>
             <button type="button" id="canvas-info" aria-label="Edit canvas requirements">Info</button>
         </div>
+        <!-- Always-available activity target. The agent updates this at
+             the start of every turn (and at every meaningful step) so
+             the user has a heartbeat even before the agent knows what
+             it's doing (reading files, deciding shape, etc.). -->
+        <div id="agent-activity" class="agent-activity" data-empty="true"></div>
         <liquidos-callback class="prompt-send" id="global-submit-callback" on="submit" scope="" prompt-from="prompt">
             <form id="global-prompt">
                 <select id="agent-select" class="agent-select" aria-label="Agent"></select>
@@ -1610,7 +1902,7 @@
         };
 
         const startDebugStream = () => {
-            const stream = new EventSource('/debug/agent/stream');
+            const stream = new EventSource('/agent/stream');
 
             stream.addEventListener('debug-line', event => {
                 try {
