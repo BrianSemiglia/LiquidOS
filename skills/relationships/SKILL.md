@@ -20,7 +20,7 @@ A *relationship* is a small unit of wiring that subscribes to one component's ou
   test.js                      — optional behavior test, runnable by hand
 ```
 
-Only `functions.js` is required by the harness. Relationships don't render — there's no `view.json` because the harness synthesizes the relationship's component shape from convention (empty html, `functions.js` at the folder root).
+Only `functions.js` is required by the harness. Relationships don't render — the harness synthesizes the relationship's component shape from convention (empty html, `functions.js` at the folder root).
 
 ## Naming convention
 
@@ -195,6 +195,8 @@ Every relationship implements some user-observable behavior — "pressing a key 
 
 **The test does not know about relationships.** It reads as a script a user could narrate: click here, observe that change there. No mention of `surface.__io`, no probing of internal handles, no assertions about which file forwards which event. If the implementation changed tomorrow but produced the same behavior, the test should still pass without edits.
 
+The scaffold writes a complete Playwright runner that launches Chromium and navigates to the page; you fill in the `TODO` block. The snippet that goes there is a few lines:
+
 ```js
 // pressing the rainbow-keyboard changes the color picker's color
 const before = await page.locator('[data-role="hex"]').textContent();
@@ -203,7 +205,7 @@ const after = await page.locator('[data-role="hex"]').textContent();
 assert.notStrictEqual(after, before);
 ```
 
-Run by hand against a live server: `node test.js <port>`. There's no separate testing domain — the test is one file the relationship ships with.
+Run by hand against a live server: `LIQUIDOS_APP_DIR=/path/to/liquidos-source node test.js <port>`. `LIQUIDOS_APP_DIR` points at the LiquidOS source checkout (where `node_modules/playwright` lives); the Mac app exports it automatically. There's no separate testing domain — the test is one file the relationship ships with.
 
 ## Removing
 

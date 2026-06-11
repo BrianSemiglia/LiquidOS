@@ -65,4 +65,4 @@ Destructive — confirm with the user first. Then:
 
 ### Share a canvas
 
-Share, unshare, or install a shared bundle — see [`../share/SKILL.md`](../share/SKILL.md).
+Share, unshare, or install a shared bundle — see [`../sharing/SKILL.md`](../sharing/SKILL.md).

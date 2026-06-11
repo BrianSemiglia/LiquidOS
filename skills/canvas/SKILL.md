@@ -60,7 +60,7 @@ Every canvas has exactly one `canvas.js` at its root.
 
 ```js
 export default (root, context) => {
-    // Build chrome, attach input listeners, hold any state in this closure.
+    // Build scene structure, attach input listeners, hold any state in this closure.
     // `root` is the canvas DOM region you own; `context` includes canvasPath.
 
     return {
@@ -88,7 +88,7 @@ The harness clears each item's inline styles before every `place()` call, so eac
 
 ### Stay inside root
 
-Everything `canvas.js` paints — scene chrome, scroll containers, full-viewport effects like rain, snow, scrims, or ambient particles — lives inside `root`. Attach overlay elements to `root`, position them relative to it, and use modest z-indices. The harness chrome (prompt bar, debug rail, requirements editor) sits on top via its own stacking context; if `canvas.js` reaches outside `root` (e.g. `document.body.appendChild`) or uses an out-of-context z-index (e.g. `9999`), its painting will cover that chrome and break interactivity.
+Everything `canvas.js` paints — scene structure, scroll containers, full-viewport effects like rain, snow, scrims, or ambient particles — lives inside `root`. Attach overlay elements to `root`, position them relative to it, and use modest z-indices. The prompt bar, debug rail, and requirements editor sit on top via their own stacking context; if `canvas.js` reaches outside `root` (e.g. `document.body.appendChild`) or uses an out-of-context z-index (e.g. `9999`), its painting will cover them and break interactivity.
 
 ### Hot reload
 

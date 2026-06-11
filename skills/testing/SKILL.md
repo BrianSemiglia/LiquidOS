@@ -16,9 +16,9 @@ Use this skill when changing a workspace or component and you need to verify the
 The launcher receives a source workspace and the app path. It creates a sandboxed copy, boots that copy with testing disabled, then prints one JSON object.
 
 ```sh
-node ./testing/scripts/boot-workspace-sandbox.mjs \
+node skills/testing/scripts/boot-workspace-sandbox.mjs \
   --workspace /path/to/Workspace.liquidos \
-  --app /path/to/app
+  --app /path/to/liquidos-source
 ```
 
 Output:
@@ -27,15 +27,7 @@ Output:
 {"url":"http://127.0.0.1:49123","workspace":"/tmp/liquidos-sandbox-abc123/Workspace.liquidos"}
 ```
 
-## Runtime context
-
-The app path is available in:
-
-```txt
-./runtime.json
-```
-
-Use the `app` value from that file as the `--app` argument.
+`--app` is the LiquidOS source checkout (the folder containing `server.js`, `skills/`, `lib/`). A probe script can derive it from its own location: `path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')` from `skills/testing/scripts/*.mjs`.
 
 ## Workspace argument
 
@@ -94,7 +86,7 @@ What the endpoint does, in one shot:
 
 The user sees a single coherent update instead of a per-file flicker. If any write fails partway, the response is 500 with a count of how many landed; the workspace is left in a partial state and a refresh is emitted so the client sees what actually happened.
 
-Workspace-relative paths look like `"home/components/foo/view.html"`. Absolute paths and `..` traversal are rejected for `path`.
+Workspace-relative paths look like `"home/components/foo/component.html"`. Absolute paths and `..` traversal are rejected for `path`.
 
 ## Useful checks
 
@@ -110,10 +102,13 @@ Browser console is free of relevant runtime errors.
 ## Playwright shape
 
 ```js
+const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
+const appRoot = path.resolve(scriptsDir, '../../..');   // skills/testing/scripts/ → repo root
+
 const sandbox = spawn('node', [
-  './testing/scripts/boot-workspace-sandbox.mjs',
+  path.join(appRoot, 'skills/testing/scripts/boot-workspace-sandbox.mjs'),
   '--workspace', sourceWorkspace,
-  '--app', JSON.parse(fs.readFileSync('./runtime.json', 'utf8')).app
+  '--app', appRoot
 ]);
 
 const { url, workspace } = JSON.parse(await firstStdoutLine(sandbox));
@@ -127,6 +122,6 @@ Terminate the launcher process when verification is complete.
 
 ## Services during testing
 
-The sandbox boots the copied workspace the same way the app does. Components that include `services/start.sh` are started and stopped by the harness. Components without `services/start.sh` render from `view.json` only.
+The sandbox boots the copied workspace the same way the app does. Components whose `component.html` declares a `<liquidos-file run>` element have that file spawned (and torn down) by the harness. Components without a `run` element render from `component.html` only.
 
 Use the returned `url` for browser testing and the returned `workspace` for sandbox edits.

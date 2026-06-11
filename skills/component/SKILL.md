@@ -18,12 +18,12 @@ Everything else (data files, services, scripts, native binaries) is the agent's 
 
 ## What lives in `component.html`
 
-`component.html` is the component's initial body. The harness loads it on first paint and morphs it on every subsequent file change — one rule, no modes. Two things in the morph are worth knowing:
+`component.html` is the component's initial body. The harness loads it on first paint and re-renders it on every subsequent file change — one rule, no modes. Two things about the re-render are worth knowing:
 
-- **`<liquidos-file>` mounts carry their own identity**, keyed by `(mode, path)`. A mount that stays put across an edit keeps its running service, hydrated children, and SSE subscription. A mount whose key changed (path or mode) is replaced wholesale: the old element's `disconnectedCallback` tears its service down, the new element's `connectedCallback` starts the new one. New mounts are added; missing mounts are removed.
+- **`<liquidos-file>` mounts have identity.** A mount that stays put across an edit (same `path`, same attributes) keeps its running service and hydrated children. A mount whose `path` or attributes changed is replaced wholesale — the old service tears down, the new one starts. New mounts are added; missing mounts are removed.
 - **Everything else is diffed position-by-position** against the live DOM — attributes synced, children recursed, mismatches replaced. Standard structural reconcile.
 
-Runtime DOM state (typed inputs, focus, scroll, in-flight pulses) is **not auto-preserved** across morphs. If the user produces state, the agent is responsible for persisting it to a workspace file and reading it back on render — the disk is the source of truth, not the live DOM.
+Runtime DOM state (typed inputs, focus, scroll, in-flight pulses) is **not auto-preserved** across re-renders. If the user produces state, the agent is responsible for persisting it to a workspace file and reading it back on render — the disk is the source of truth, not the live DOM.
 
 The body of `<liquidos-component>` IS your component's DOM. Inline `<style>`, real elements, real controls — that's the whole component for anything self-contained:
 
@@ -49,9 +49,15 @@ The default `<liquidos-file path="…"></liquidos-file>` (no attributes) fetches
 
 The user watches the canvas while you work, and what they see should always be honest: a control that isn't ready yet should not look ready. Build the body in visible steps:
 
-1. **Scaffold.** `bash skills/component/scripts/create-component.sh <canvas-path> <name>`. This writes an empty `<liquidos-component>` wrapper in `component.html`, a placeholder `feature-requirements.txt`, and registers the path in `input.json` — in that order, so the canvas never sees a reference to a missing file.
-2. **Shell.** One `<lqpatch op="streamFile" target="<canvas>/components/<name>/component.html">…</lqpatch>` writes the `<style>` block and the outer containers — empty `<div>`s with stable IDs. Give every part you might later want to restyle, refill, or extend its own ID: the style block, the header, each content container, the footer. These are your update anchors; later edits target them by selector. Without them, the only way to change anything is to rewrite the whole file. The shell renders.
-3. **Items.** One `<lqpatch op="append" target="#<container-id>">…</lqpatch>` per item. Twenty items → twenty markers. The user sees each one land.
+1. **Scaffold.** `bash skills/component/scripts/create-component.sh <canvas-path> <name>`. Writes:
+   - `diagnostics/status.json` seeded with `{}`
+   - `component.html` containing an empty `<liquidos-component>` wrapper
+   - `feature-requirements.txt` with one seed line
+   - the component path appended to the canvas's `input.json`, last, so the canvas never sees a reference to a missing file
+
+   Prints one-line JSON naming the sanitized component and its absolute path.
+2. **Shell.** One `<lqpatch op="streamFile" target="<canvas>/components/<name>/component.html">…</lqpatch>` writes the `<style>` block and the outer containers — empty regions with stable IDs on every part you might later want to target by selector. Without them, the only way to change anything is to rewrite the whole file.
+3. **Fill.** Land the rest of the body in visible chunks — one `<lqpatch>` per piece. `op="append"` for a list of items, `op="replace"` for shaped regions. Avoid a single giant write; the user should see it grow, not pop in already finished.
 4. **Wiring.** If the component needs `functions.js`, that's a separate `streamFile` after the visible elements are in place.
 
 Selectors in `op="append"` / `op="replace"` markers are matched with `document.querySelector` against the live page. Use IDs you wrote into the shell — class and attribute selectors also work.
@@ -71,7 +77,7 @@ export const mount = (surface) => {
 
 - **`mount()` may run more than once.** Anything content depends on can change (re-stream, edits to `functions.js`) and re-mount. Setup must be idempotent — if you allocate an audio context here, release it in the cleanup return.
 - **The return value cleans up the previous instance.** A plain function, or an object with `.destroy()`. Without a return, listeners and timers accumulate across re-mounts.
-- **HTML emitted into the DOM must be deterministic.** Same inputs, same output. No `Math.random()` in IDs, classes, or gradients. The morph diff treats different content as a real change, replaying entry animations and disrupting in-place state.
+- **HTML emitted into the DOM must be deterministic.** Same inputs, same output. No `Math.random()` in IDs, classes, or gradients. Otherwise the harness sees every re-render as new content and re-runs setup unnecessarily.
 
 All browser-side JS goes through script-mode `<liquidos-file>`. Inline `<script>` tags don't execute when injected via `innerHTML`; inline event handlers (`onclick=`, etc.) bypass the `mount(surface)` lifecycle and leak listeners on every re-mount.
 
@@ -101,12 +107,16 @@ When the component needs a long-running process (a feed reader, a native bridge,
 
 ```html
 <liquidos-component path="components/feed">
-    <liquidos-file path="components/feed/services/start.sh" run></liquidos-file>
+    <liquidos-file path="components/feed/services/foo.sh" run></liquidos-file>
     <liquidos-file path="components/feed/foo.html"></liquidos-file>
 </liquidos-component>
 ```
 
-The `run` element spawns `start.sh`; the default `<liquidos-file>` displays whatever the process writes to that path. Conventional layout: service scripts in `components/<name>/services/`, internal state in `components/<name>/data/`, stdout/stderr in `components/<name>/diagnostics/service.log`.
+The `run` element spawns the file at its `path` as a process; the default `<liquidos-file>` renders `foo.html` and re-renders whenever the process rewrites it. Conventional layout:
+
+- service scripts in `components/<name>/services/`
+- internal state in `components/<name>/data/`
+- stdout/stderr in `components/<name>/diagnostics/service.log`
 
 Reach for this shape only when something genuinely external is producing the content — a process that watches files, holds a socket, talks to native APIs. Self-contained interactive components don't need it; their DOM goes inline.
 
@@ -119,34 +129,23 @@ Reach for this shape only when something genuinely external is producing the con
 - Requirements must be faithful to the component — no claims about behavior, resources, or limits the component does not actually provide.
 - When requirements and implementation disagree, resolve the mismatch instead of preserving inaccurate text.
 
-### Repair (missing, empty, or unreadable)
-
-`<liquidos-component>` surfaces a Generate button in the Requirements modal when this file is missing. The button dispatches a find-or-create prompt; *find* comes first:
-
-1. **Find it.** Check the component folder — it may have been renamed.
-2. **Restore it.** Check git history (`git log -- '<path>/feature-requirements.txt'`) for the last good version.
-3. **Create it.** Last resort: read `component.html`, `functions.js`, any service files, and write a faithful requirements file in plain language.
-
 ## Updating an existing component
 
-The component is already on the page. The user is watching its current state, and they expect the changes to *land on* it — not for it to disappear and a new one to take its place. Your edits target the live DOM through specific selectors; the skeleton stays.
+The component is already on the page. The user is watching its current state, and they expect the changes to *land on* it — not for it to disappear and a new one to take its place. Your edits target the live DOM through specific selectors.
 
-1. Read `<canvas>/components/<name>/feature-requirements.txt` to confirm the purpose. If the user is reporting a problem, also check `diagnostics/`. For "feels slow / hot / stuck", run `processes` — it lists every component's CPU and memory.
-2. Read `<canvas>/feature-requirements.txt` if it exists. The canvas's intent is the context your changes need to fit.
-3. Find the smallest set of elements that need to change, and emit one `<lqpatch>` marker per change, targeting an ID already in the rendered DOM:
+1. Read `<canvas>/components/<name>/feature-requirements.txt` to confirm the component's purpose, and `<canvas>/feature-requirements.txt` for the canvas's intent. If the user is reporting a problem, also check `diagnostics/`. For "feels slow / hot / stuck", run `processes` — it lists every component's CPU and memory.
+2. Find the smallest set of elements that need to change, and emit one `<lqpatch>` marker per change, targeting a selector already in the rendered DOM:
    - `op="replace" target="#some-id"` — swap an inner region's contents.
    - `op="setAttr" target="#some-id" attr="style" value="…"` — retune a single attribute.
    - `op="append" target="#some-id"` — add an item.
    - `op="prepend" target="#some-id"` — add an item at the start.
    - `op="remove" target="#some-id"` — drop one.
    The user sees each one land as a discrete beat, the same way they saw the original elements arrive.
-4. For a style overhaul (a vibe shift, a theme change), `op="replace"` on the existing `<style>` element's contents is one marker that swaps the look in place. The DOM keeps its shape; only the painted appearance changes.
-5. For behavior changes (a new event handler, a new audio voice), update `functions.js` with `op="streamFile"`. The harness re-mounts; your old cleanup runs.
-6. Update `feature-requirements.txt` if anything was learned.
+3. For a style overhaul (a vibe shift, a theme change), `op="replace"` on the existing `<style>` element's contents is one marker that swaps the look in place. The DOM keeps its shape; only the painted appearance changes.
+4. For behavior changes, update `functions.js` with `op="streamFile"`. The harness re-mounts; your old cleanup runs.
+5. Update `feature-requirements.txt` if anything was learned.
 
-`streamFile` on `component.html` is the right move when the skeleton itself is changing — different containers, different IDs, different mounts, different wiring. The morph keeps running services and hydrated views in place by mount key, but it does rebuild static markup around them, and it does NOT carry runtime DOM state (typed inputs, scroll, in-flight pulses) across. For "make it nicer / fancier / fun / louder," the skeleton stays; you're restyling, adding flourishes, swapping inner text in the live DOM via `<lqpatch>` selectors. The existing keys, cards, rows — whatever's already painted — stay painted; you edit *them*.
-
-Work on one component per turn.
+`streamFile` on `component.html` is the right move when the skeleton itself is changing — different containers, different IDs, different mounts, different wiring. Otherwise edit the live DOM via `<lqpatch>` selectors. Running services and hydrated views survive across the re-render as long as their `<liquidos-file>` is unchanged; static markup rebuilds.
 
 ## Progressive view updates
 
@@ -160,43 +159,26 @@ Before each rewrite, narrate the intent: which inputs are being disabled or rest
 
 Prompt: "fix the spelling". Component: `components/note/`.
 
-**Before the prompt — the existing markup, fully interactive.**
+Starting markup (interactive):
 
 ```html
-<liquidos-component path="components/note">
-    <div style="padding:1rem;">
-        <h2>Note</h2>
-        <textarea name="text">i wnat to byu groceries tommorow</textarea>
-    </div>
-</liquidos-component>
+<textarea name="text">i wnat to byu groceries tommorow</textarea>
 ```
 
-**Placeholder write — textarea disabled.**
+**Placeholder write.**
 
 > *Narration:* "I'm about to mutate `components/note/component.html`. I need to disable the textarea so the user can't type a competing edit before I finish."
 
 ```html
-<liquidos-component path="components/note">
-    <div style="padding:1rem;">
-        <h2>Note</h2>
-        <p>Checking spelling…</p>
-        <textarea name="text" disabled>i wnat to byu groceries tommorow</textarea>
-    </div>
-</liquidos-component>
+<p>Checking spelling…</p>
+<textarea name="text" disabled>i wnat to byu groceries tommorow</textarea>
 ```
 
-**Final write — `disabled` removed.**
+**Final write** — `<p>` removed, corrected text in place, `disabled` dropped:
 
 ```html
-<liquidos-component path="components/note">
-    <div style="padding:1rem;">
-        <h2>Note</h2>
-        <textarea name="text">I want to buy groceries tomorrow.</textarea>
-    </div>
-</liquidos-component>
+<textarea name="text">I want to buy groceries tomorrow.</textarea>
 ```
-
-> *Note on the contract:* the example above uses `streamFile` on `component.html` to demonstrate the disable-during-mutation pattern. In practice, rewriting `component.html` only re-runs first-paint behavior for authored markup; it does *not* live-update existing content on screen. Prefer `<lqpatch op="replace" target="#…">` against a stable ID, set the `disabled` attribute the same way, and reach for `streamFile` on `component.html` only when the mount config itself is changing.
 
 ## Removing
 
@@ -237,11 +219,11 @@ Exception: when you've isolated the failure to a harness or infrastructure probl
 Two responsibilities:
 
 - **Declare what the component needs**, no more. The outermost element carries a `min-width` (and where useful a `width` / preferred size) that reflects the *actual* content minimum — the width below which the component genuinely stops working. The presentation reads this signal to decide layout. Over-declaring wastes space; under-declaring lets the presentation crush you.
-- **Still work when given less.** Degrade gracefully: `max-width: 100%`, `min-width: 0` on flex children that can compress, `overflow-x: auto` for intrinsically-wide content (keyboards, tables, code).
+- **Still work when given less.** Degrade gracefully: `max-width: 100%`, `min-width: 0` on flex children that can compress, `overflow-x: auto` for intrinsically-wide content (tables, code, image strips).
 
 ## Catch only when you can recover
 
-`<liquidos-component>` watches its own `diagnostics/status.json`. The harness's error router attributes thrown errors to the component whose `functions.js` is on the stack, writes them under `runtime` in `status.json`, and the chrome surfaces a Repair button.
+`<liquidos-component>` watches its own `diagnostics/status.json`. The harness's error router attributes thrown errors to the component whose script-mode `<liquidos-file>` is on the stack, writes them under `runtime` in `status.json`, and the chrome surfaces a Repair button.
 
 This means: don't catch errors you cannot recover from. A `try/catch` that ends in `setStatus("Bad state: " + error.message, false)` — or any "rebrand the failure as a red message" — hides the problem from both the agent and the harness. The component looks broken to the user, but to the listener it looks fine, so no Repair is offered.
 
@@ -292,11 +274,9 @@ Then stop. The user reads the canvas, fixes the harness, and may ask you to retr
 - `values` — required when `prompt` uses placeholders. Comma-separated allowlist of field names.
 - `scope` — canvas-relative path of the thing calling back (`components/chat`).
 
-While in flight, the harness automatically disables and pulses the wrapped control.
+## Files outside the workspace
 
-## Canvas-local files
-
-Files referenced by your component's paths are served by the harness:
+The harness serves workspace paths your `<liquidos-file>` elements reference:
 
 ```html
 <liquidos-file path="components/random-image/photo.jpg"></liquidos-file>
