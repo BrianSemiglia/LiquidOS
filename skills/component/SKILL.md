@@ -43,7 +43,7 @@ Three custom elements are available inside the body:
 - **`<liquidos-file path="…" script>`** dynamic-imports the file as an ES module and calls `mount(surface)`. Use this for browser-side state, listeners, audio contexts, anything the DOM alone doesn't cover.
 - **`<liquidos-file path="…" run>`** asks the harness to spawn the file as a long-running process. Use this when the component genuinely needs a backend — watching files, holding a socket, calling native APIs.
 
-The default `<liquidos-file path="…"></liquidos-file>` (no attributes) fetches the file and renders its content. If the content is JSON with an `html` field, that field is rendered. Pair it with a `run` process when something is producing painted output from outside the agent's stream.
+The default `<liquidos-file path="…"></liquidos-file>` (no attributes) fetches the file and renders its content. Pair it with a `run` process when something is producing painted output from outside the agent's stream.
 
 ## Building the body progressively
 
@@ -102,11 +102,11 @@ When the component needs a long-running process (a feed reader, a native bridge,
 ```html
 <liquidos-component path="components/feed">
     <liquidos-file path="components/feed/services/start.sh" run></liquidos-file>
-    <liquidos-file path="components/feed/view.json"></liquidos-file>
+    <liquidos-file path="components/feed/foo.html"></liquidos-file>
 </liquidos-component>
 ```
 
-The `run` element spawns `start.sh`; the default `<liquidos-file>` displays whatever the process writes to `view.json`. Conventional layout: service scripts in `components/<name>/services/`, painted output as `components/<name>/view.json` (JSON with an `html` field, which is rendered), internal state in `components/<name>/data/`, stdout/stderr in `components/<name>/diagnostics/service.log`.
+The `run` element spawns `start.sh`; the default `<liquidos-file>` displays whatever the process writes to that path. Conventional layout: service scripts in `components/<name>/services/`, internal state in `components/<name>/data/`, stdout/stderr in `components/<name>/diagnostics/service.log`.
 
 Reach for this shape only when something genuinely external is producing the content — a process that watches files, holds a socket, talks to native APIs. Self-contained interactive components don't need it; their DOM goes inline.
 
