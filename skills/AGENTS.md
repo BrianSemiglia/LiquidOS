@@ -49,7 +49,7 @@ Each marker is one operation: an open tag with attributes, an inner body, a `</l
 - `<lqpatch target="#some-id" op="remove"></lqpatch>` — remove the element.
 - `<lqpatch target="#some-id" op="stream">text typing in character-by-character</lqpatch>` — plain text streams into the target as you write it (no HTML inside).
 - `<lqpatch target="home/components/foo/component.html" op="streamFile">…</lqpatch>` — opens the file empty and grows it chunk-by-chunk as you type. Use this for any file you're building. Path is workspace-relative and must include the canvas folder (`home/components/foo/...`, not `components/foo/...`).
-- `<lqpatch target="home/input.json" op="writeFile">{…}</lqpatch>` — atomic full-file write. Use only for small atomic rewrites (config flips, registry updates).
+- `<lqpatch target="home/components/foo/data/state.json" op="writeFile">{…}</lqpatch>` — atomic full-file write. Use only for small atomic rewrites of files the component owns.
 
 DOM ops (`replace`, `append`, `prepend`, `setAttr`, `remove`) are matched against the live page with `document.querySelector(target)`. The target must already exist in the rendered DOM because something previously wrote it — a prior `streamFile`/`writeFile`/`replace`/`append`.
 
@@ -59,7 +59,7 @@ Markers with unknown ops, missing targets, or targets outside the page's allow-l
 
 ## Where things live
 
-- Each canvas has an `input.json` listing its components by string path (`"components/<name>/component.html"`). Updates to the canvas's set of components go through this file.
+- Each canvas has an `input.json` listing its components by string path (`"components/<name>/component.html"`). The scaffold script manages it — see the component skill.
 - The **component** skill owns component shape: what `component.html` contains, how it grows under the user's eye, what `functions.js` looks like, when to add a backend process.
 - Server-level issues (hangs, runaway CPU, agent dispatch loops, file-watcher anomalies): read `.liquidos/server.log` at the workspace root. The harness appends every `console.log`/`error`/`warn` and uncaught exception there with ISO timestamps.
 - Component-level issues stay in `<component>/diagnostics/`.
