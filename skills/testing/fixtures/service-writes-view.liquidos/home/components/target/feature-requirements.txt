@@ -1,0 +1,3 @@
+Run-mode service writes successive view.json values; the inner
+liquidos-file mount renders them. The probe asserts each step reaches
+the DOM.

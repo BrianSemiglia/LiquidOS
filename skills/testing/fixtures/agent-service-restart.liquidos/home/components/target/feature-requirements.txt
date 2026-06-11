@@ -1,0 +1,4 @@
+A target component with a long-running service (service.sh) and a
+view.json view. Probes drive the stub agent to rewrite service.sh,
+which triggers the harness's run-mode liquidos-file to schedule a
+service restart.

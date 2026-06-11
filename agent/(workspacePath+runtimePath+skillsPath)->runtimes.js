@@ -20,6 +20,7 @@ const { PromptBarTestAgent } = require('./test/prompt-bar-test-agent');
 const { InstallBuildTestAgent } = require('./test/install-build-test-agent');
 const { CrossCanvasPersistenceTestAgent } = require('./test/cross-canvas-persistence-test-agent');
 const { LqpatchStreamStubAgent } = require('./test/lqpatch-stream-stub-agent');
+const { ServiceRewriteStubAgent } = require('./test/service-rewrite-stub-agent');
 
 // NoneAgent is for runs that should not have a working agent — sandbox boots
 // for smoke tests, recursion guards, anything where callbacks should fail
@@ -71,7 +72,8 @@ const createRuntimes = ({
         PromptBarTestAgent(),
         InstallBuildTestAgent(),
         CrossCanvasPersistenceTestAgent(),
-        LqpatchStreamStubAgent()
+        LqpatchStreamStubAgent(),
+        ServiceRewriteStubAgent()
     ];
 
     const ownedRuntimePaths = () =>

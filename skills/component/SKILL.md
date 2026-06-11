@@ -18,6 +18,13 @@ Everything else (data files, services, scripts, native binaries) is the agent's 
 
 ## What lives in `component.html`
 
+`component.html` is the component's initial body. The harness loads it on first paint and morphs it on every subsequent file change — one rule, no modes. Two things in the morph are worth knowing:
+
+- **`<liquidos-file>` mounts carry their own identity**, keyed by `(mode, path)`. A mount that stays put across an edit keeps its running service, hydrated children, and SSE subscription. A mount whose key changed (path or mode) is replaced wholesale: the old element's `disconnectedCallback` tears its service down, the new element's `connectedCallback` starts the new one. New mounts are added; missing mounts are removed.
+- **Everything else is diffed position-by-position** against the live DOM — attributes synced, children recursed, mismatches replaced. Standard structural reconcile.
+
+Runtime DOM state (typed inputs, focus, scroll, in-flight pulses) is **not auto-preserved** across morphs. If the user produces state, the agent is responsible for persisting it to a workspace file and reading it back on render — the disk is the source of truth, not the live DOM.
+
 The body of `<liquidos-component>` IS your component's DOM. Inline `<style>`, real elements, real controls — that's the whole component for anything self-contained:
 
 ```html
@@ -137,7 +144,7 @@ The component is already on the page. The user is watching its current state, an
 5. For behavior changes (a new event handler, a new audio voice), update `functions.js` with `op="streamFile"`. The harness re-mounts; your old cleanup runs.
 6. Update `feature-requirements.txt` if anything was learned.
 
-`streamFile` on `component.html` is the right move only when the skeleton itself is changing — different containers, different IDs, different wiring. For "make it nicer / fancier / fun / louder," the skeleton stays; you're restyling, adding flourishes, swapping inner text. The existing keys, cards, rows — whatever's already painted — stay painted; you edit *them*.
+`streamFile` on `component.html` is the right move when the skeleton itself is changing — different containers, different IDs, different mounts, different wiring. The morph keeps running services and hydrated views in place by mount key, but it does rebuild static markup around them, and it does NOT carry runtime DOM state (typed inputs, scroll, in-flight pulses) across. For "make it nicer / fancier / fun / louder," the skeleton stays; you're restyling, adding flourishes, swapping inner text in the live DOM via `<lqpatch>` selectors. The existing keys, cards, rows — whatever's already painted — stay painted; you edit *them*.
 
 Work on one component per turn.
 
@@ -188,6 +195,8 @@ Prompt: "fix the spelling". Component: `components/note/`.
     </div>
 </liquidos-component>
 ```
+
+> *Note on the contract:* the example above uses `streamFile` on `component.html` to demonstrate the disable-during-mutation pattern. In practice, rewriting `component.html` only re-runs first-paint behavior for authored markup; it does *not* live-update existing content on screen. Prefer `<lqpatch op="replace" target="#…">` against a stable ID, set the `disabled` attribute the same way, and reach for `streamFile` on `component.html` only when the mount config itself is changing.
 
 ## Removing
 

@@ -1,0 +1,3 @@
+Fixture for the service-restart probe.
+One component whose component.html includes a run-mode liquidos-file
+pointing at a service script and a view.json rendered alongside.
