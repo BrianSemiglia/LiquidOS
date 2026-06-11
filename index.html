@@ -160,6 +160,17 @@
             const clone = host.cloneNode(true);
             clone.querySelectorAll('liquidos-file:not([script]):not([run])')
                 .forEach(f => { f.innerHTML = ''; });
+            // The server owns busy state via the activeLanes SSE broadcast.
+            // Don't persist data-busy / aria-busy / inert on callbacks —
+            // those are runtime state, not source. If they leak into the
+            // file, a re-render loaded from disk will paint the callback
+            // as busy even though no lane is active, and the pulsing
+            // sticks until the user reloads.
+            clone.querySelectorAll('liquidos-callback').forEach(cb => {
+                cb.removeAttribute('data-busy');
+                cb.removeAttribute('aria-busy');
+                cb.removeAttribute('inert');
+            });
             fetch('/workspace/' + host.workspacePath + '/component.html', {
                 method: 'PUT',
                 headers: { 'content-type': 'text/plain' },
