@@ -800,30 +800,6 @@ const componentChangePayload = (entries, rendered) => {
 // event per copied file.
 let watcherPaused = false;
 
-// streamFile on input.json goes through one PUT (truncate to empty) plus
-// N PATCHes that grow the file chunk by chunk. The FS watcher fires on
-// every step. Empty / partial JSON parse fails, renderedInput() returns
-// a canvasError, and a naive broadcast would flash the Repair card on
-// every client mid-stream — even though the eventual file is valid.
-//
-// Hold every damaged snapshot for a short window. If a follow-up event
-// reports healthy state before the timer fires, the healthy broadcast
-// wins and the user never sees damage. If the timer fires (the file
-// stayed broken), the held damaged broadcast lands as before.
-const DAMAGE_BROADCAST_DEBOUNCE_MS = 250;
-let damageBroadcastTimer = null;
-let damageBroadcastRendered = null;
-let damageBroadcastEntries = [];
-
-const clearPendingDamageBroadcast = () => {
-    if (damageBroadcastTimer) {
-        clearTimeout(damageBroadcastTimer);
-        damageBroadcastTimer = null;
-    }
-    damageBroadcastRendered = null;
-    damageBroadcastEntries = [];
-};
-
 const scheduleWatchRefresh = entry => {
     if (watcherPaused) return;
     if (entry) {
@@ -844,20 +820,6 @@ const scheduleWatchRefresh = entry => {
         return;
     }
 
-    if (rendered.canvasError) {
-        damageBroadcastRendered = rendered;
-        damageBroadcastEntries = damageBroadcastEntries.concat(entries);
-        if (damageBroadcastTimer) clearTimeout(damageBroadcastTimer);
-        damageBroadcastTimer = setTimeout(() => {
-            damageBroadcastTimer = null;
-            broadcast(componentChangePayload(damageBroadcastEntries, damageBroadcastRendered));
-            damageBroadcastRendered = null;
-            damageBroadcastEntries = [];
-        }, DAMAGE_BROADCAST_DEBOUNCE_MS);
-        return;
-    }
-
-    clearPendingDamageBroadcast();
     broadcast(componentChangePayload(entries, rendered));
 };
 
