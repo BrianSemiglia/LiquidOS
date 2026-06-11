@@ -150,27 +150,29 @@
         // op="append" / op="setAttr" / op="remove" only live in the live
         // DOM; reload re-fetches the unchanged file and the edit is gone.
         //
-        // Clears the inner children of any descendant <liquidos-file> in
-        // default render mode before serializing — those children are
-        // hydrated content (fetched at runtime from the referenced file),
-        // not source authored markup, and would be re-fetched on next load
-        // anyway. Keeping them would just bloat the file with stale state.
+        // What counts as "runtime state" (chrome added by buildShell, the
+        // server-driven busy attrs on liquidos-callback, the hydrated
+        // children of a render-mode liquidos-file, ...) is each custom
+        // element's call: the walk below invokes prepareForPersist() on
+        // every element in the clone that exposes one. Adding a new
+        // custom element with its own runtime state means adding that
+        // method to it; this function doesn't need to change.
         const persistHostComponent = (host) => {
             if (!host || !host.workspacePath) return;
             const clone = host.cloneNode(true);
-            clone.querySelectorAll('liquidos-file:not([script]):not([run])')
-                .forEach(f => { f.innerHTML = ''; });
-            // The server owns busy state via the activeLanes SSE broadcast.
-            // Don't persist data-busy / aria-busy / inert on callbacks —
-            // those are runtime state, not source. If they leak into the
-            // file, a re-render loaded from disk will paint the callback
-            // as busy even though no lane is active, and the pulsing
-            // sticks until the user reloads.
-            clone.querySelectorAll('liquidos-callback').forEach(cb => {
-                cb.removeAttribute('data-busy');
-                cb.removeAttribute('aria-busy');
-                cb.removeAttribute('inert');
-            });
+            // Each custom element owns its own definition of "runtime
+            // state" via a `prepareForPersist()` method on its prototype
+            // (lib/liquidos-elements/*). Walk top-down so container
+            // elements that restructure (liquidos-component unwrapping
+            // its chrome, for one) drop the descendants they don't want
+            // persisted before we descend into them.
+            const visit = (el) => {
+                if (typeof el.prepareForPersist === 'function') {
+                    try { el.prepareForPersist(); } catch {}
+                }
+                for (const child of Array.from(el.children)) visit(child);
+            };
+            visit(clone);
             fetch('/workspace/' + host.workspacePath + '/component.html', {
                 method: 'PUT',
                 headers: { 'content-type': 'text/plain' },
