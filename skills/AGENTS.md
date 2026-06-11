@@ -53,6 +53,8 @@ Each marker is one operation: an open tag with attributes, an inner body, a `</l
 
 DOM ops (`replace`, `append`, `prepend`, `setAttr`, `remove`) are matched against the live page with `document.querySelector(target)`. The target must already exist in the rendered DOM because something previously wrote it — a prior `streamFile`/`writeFile`/`replace`/`append`.
 
+DOM ops landing on elements inside a `<liquidos-component>` are persisted back to that component's `component.html` automatically — a reload preserves what you wrote. So streaming a shell with empty containers and then appending pieces into those containers IS the same as building the file; you don't have to put everything into one giant `streamFile`.
+
 Emit markers directly — not in markdown code fences, not as quoted examples in prose — the sniffer treats every well-formed marker as a real dispatch. To describe the syntax in prose, omit the angle brackets.
 
 Markers with unknown ops, missing targets, or targets outside the page's allow-list are rejected and logged.
