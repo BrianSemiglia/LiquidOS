@@ -1,0 +1,20 @@
+- The user prompts in plain language and LiquidOS builds a custom UI shaped to what they asked for and the domain they're working in.
+- Every change to the canvas streams in visibly — the user watches each piece land, never sees a long silence followed by a sudden jump.
+- Components are interactive: users can click, type, drag, drop, scroll, and the UI responds in place.
+- Each component has a user-editable feature-requirements.txt describing what it should do; editing the file tells LiquidOS to update the component to match.
+- Each canvas has its own feature-requirements.txt describing the shape and intent of the group of components on it.
+- The workspace is a folder of plain files on disk that the user can read, copy, version, and edit directly.
+- Canvases are separate working contexts; switching between them is instant and remembers where the user was.
+- The user can undo changes selectively — pulling back a single past action without losing later work.
+- Components can be wired to each other so one component's output drives another's input.
+- The user can share a component, a canvas, or the whole workspace with another user, who receives a working copy.
+- When something fails — a component throws, a service crashes, a file is missing — the failure is shown visibly with a Repair affordance, not swallowed quietly.
+- Anything the user produces (typed input, scroll position, toggle state, focus, selections) is written to a workspace file so it survives reloads, re-renders, and structural edits.
+- LiquidOS reaches for the right tool for each job: real 3D libraries for 3D scenes, real charting libraries for charts, real audio APIs for audio. It doesn't substitute pseudo-versions when a proper tool exists.
+- A long-running service can update a view by writing files, and the rendered view tracks the file as it changes.
+- Changes to a component's wiring — which files it mounts, which service it runs — don't tear down the rendered view.
+- LiquidOS is honest about what it knows: when it can't verify a specific fact, it says so rather than inventing one.
+- LiquidOS remembers what the user has done and why, and refers back to prior context when responding to new prompts.
+- LiquidOS offers actions for the user to take (buttons, controls) instead of describing what they could do.
+- LiquidOS anticipates likely next steps and surfaces them as affordances on the canvas.
+- Components stay readable and usable at whatever size the canvas presents them in.
