@@ -60,7 +60,7 @@ The user watches the canvas while you work, and what they see should always be h
 3. **Fill.** Land the rest of the body in visible chunks — one `<lqpatch>` per piece. `op="append"` for a list of items, `op="replace"` for shaped regions. Avoid a single giant write; the user should see it grow, not pop in already finished.
 4. **Wiring.** If the component needs `functions.js`, that's a separate `streamFile` after the visible elements are in place.
 
-Selectors in `op="append"` / `op="replace"` markers are matched with `document.querySelector` against the live page. Use IDs you wrote into the shell — class and attribute selectors also work.
+Selectors in `op="append"` / `op="replace"` markers are matched with `document.querySelector` against the live page. Use IDs you wrote into the shell — class and attribute selectors also work. Each op targeting an element inside a `<liquidos-component>` is persisted back to that component's `component.html` — reload preserves what you wrote.
 
 Read `<canvas>/feature-requirements.txt` first if it exists — your component should fit the canvas's intent. Work on one component per turn.
 
