@@ -18,7 +18,7 @@ Land here when the work is about *how components are presented and navigated*, n
 ## Files
 
 ```text
-<canvas-name>/
+<canvas>/
   input.json                  — manifest: { "components": ["components/<name>/component.html", ...] }
   canvas.js                   — presentation, input, group behavior
   feature-requirements.txt    — plain-text intent: what this canvas is for
@@ -102,7 +102,7 @@ Multi-file refactors, or anything that touches `canvas.js` and a component toget
 ## Create a new canvas
 
 ```bash
-bash skills/canvas/scripts/create-instance.sh <canvas-name> /path/to/Workspace.liquidos
+bash skills/canvas/scripts/create-instance.sh <canvas> /path/to/Workspace.liquidos
 ```
 
 Lays down the file layout above and registers the canvas in the workspace. The shipped `canvas.js` delegates to `/lib/css-layout.js` (CSS stack); edit it or rewrite — the only fixed shape is the default-export factory and the `{ place, teardown }` return.

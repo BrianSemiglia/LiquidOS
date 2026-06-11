@@ -2,9 +2,8 @@
 name: testing
 description: Test a LiquidOS workspace or component through the actual app UI
 triggers:
-  - User asks to test a workspace
-  - User asks to verify a component/canvas in the app
-  - User asks to inspect the actual UI
+  - User reports something doesn't look, feel, or work right
+  - You want to verify your work before declaring it done
 ---
 
 # Testing Workspaces
@@ -87,6 +86,10 @@ What the endpoint does, in one shot:
 The user sees a single coherent update instead of a per-file flicker. If any write fails partway, the response is 500 with a count of how many landed; the workspace is left in a partial state and a refresh is emitted so the client sees what actually happened.
 
 Workspace-relative paths look like `"home/components/foo/component.html"`. Absolute paths and `..` traversal are rejected for `path`.
+
+## Save the probe
+
+Save the probe in a `tests/` folder next to what it verifies — `<canvas>/components/<name>/tests/` for a component, `<canvas>/tests/` for the canvas. Run the probes there before declaring the change done. Update a probe in the same turn its assertions become intentionally wrong.
 
 ## Useful checks
 

@@ -107,12 +107,12 @@ When the component needs a long-running process (a feed reader, a native bridge,
 
 ```html
 <liquidos-component path="components/feed">
-    <liquidos-file path="components/feed/services/foo.sh" run></liquidos-file>
-    <liquidos-file path="components/feed/foo.html"></liquidos-file>
+    <liquidos-file path="components/feed/services/<service>.sh" run></liquidos-file>
+    <liquidos-file path="components/feed/<entry>.html"></liquidos-file>
 </liquidos-component>
 ```
 
-The `run` element spawns the file at its `path` as a process; the default `<liquidos-file>` renders `foo.html` and re-renders whenever the process rewrites it. Conventional layout:
+The `run` element spawns the file at its `path` as a process; the default `<liquidos-file>` renders `<entry>.html` and re-renders whenever the process rewrites it. Conventional layout:
 
 - service scripts in `components/<name>/services/`
 - internal state in `components/<name>/data/`
@@ -182,8 +182,9 @@ Starting markup (interactive):
 
 ## Removing
 
-1. Remove the component path from `<canvas>/input.json`.
-2. Delete the folder at `<canvas>/components/<name>/` (skip this if the user asked to hide).
+`bash skills/component/scripts/delete-component.sh <canvas-path> <name>` — drops the component from `input.json` and removes the folder, in that order so the harness's watcher doesn't race back and rewrite `diagnostics/` under a folder about to disappear. Idempotent.
+
+If the user asked to hide rather than delete, drop the entry from `input.json` and leave the folder.
 
 ## Offer actions, don't just display state
 

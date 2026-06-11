@@ -3664,6 +3664,17 @@
             }
         });
 
+        // Blur the prompt textarea when the user points at anything outside
+        // the prompt bar. Without this, focus sticks to the textarea after a
+        // click into the canvas — and any keypress (WASD, arrow keys, custom
+        // shortcuts a component listens for) types into the textarea instead
+        // of reaching the canvas or component handlers.
+        document.addEventListener('pointerdown', event => {
+            if (document.activeElement !== globalText) return;
+            if (event.target.closest('#global-prompt-bar')) return;
+            globalText.blur();
+        });
+
         // --- Canvas requirements editor ------------------------------------
 
         const canvasInfoButton = document.getElementById('canvas-info');
