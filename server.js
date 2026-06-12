@@ -424,12 +424,6 @@ const logHermesError = (area, error, details = null) => {
     }
 };
 
-const stripAnsiForLog = value =>
-    String(value || '')
-        .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
-        .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, '')
-        .replace(/\r/g, '');
-
 const writeProcessOutput = (label, chunk, stream = process.stdout) => {
     String(chunk || '')
         .replace(/\r\n/g, '\n')
@@ -440,7 +434,7 @@ const writeProcessOutput = (label, chunk, stream = process.stdout) => {
                 return;
             }
 
-            const cleanLine = stripAnsiForLog(line);
+            const cleanLine = stripAnsi(line);
 
             if (!cleanLine.trim()) {
                 return;
