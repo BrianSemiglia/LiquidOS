@@ -16,6 +16,8 @@ A component is a folder under a canvas. The contract:
 
 Everything else (data files, services, scripts, native binaries) is the agent's choice.
 
+A component is **self-contained and portable** — copy its folder to another canvas or workspace and it still works. Everything it needs lives inside the folder, including any state it persists.
+
 ## What lives in `component.html`
 
 `component.html` is the component's initial body. The harness loads it on first paint and re-renders it on every subsequent file change — one rule, no modes. Two things about the re-render are worth knowing:
@@ -23,7 +25,7 @@ Everything else (data files, services, scripts, native binaries) is the agent's 
 - **`<liquidos-file>` mounts have identity.** A mount that stays put across an edit (same `path`, same attributes) keeps its running service and hydrated children. A mount whose `path` or attributes changed is replaced wholesale — the old service tears down, the new one starts. New mounts are added; missing mounts are removed.
 - **Everything else is diffed position-by-position** against the live DOM — attributes synced, children recursed, mismatches replaced. Standard structural reconcile.
 
-Runtime DOM state (typed inputs, focus, scroll, in-flight pulses) is **not auto-preserved** across re-renders. If the user produces state, the agent is responsible for persisting it to a workspace file and reading it back on render — the disk is the source of truth, not the live DOM.
+Runtime DOM state (typed inputs, focus, scroll, in-flight pulses) is **not auto-preserved** across re-renders. Persist anything the user produces to a file inside the component and read it back on render — the disk is the source of truth, not the live DOM. Never `localStorage` or anything keyed to the browser; it doesn't travel with the component.
 
 The body of `<liquidos-component>` IS your component's DOM. Inline `<style>`, real elements, real controls — that's the whole component for anything self-contained:
 
@@ -33,14 +35,14 @@ The body of `<liquidos-component>` IS your component's DOM. Inline `<style>`, re
         .clock { font-size: 4rem; font-variant-numeric: tabular-nums; }
     </style>
     <div class="clock" id="clock-time">--:--</div>
-    <liquidos-file path="components/clock/functions.js" script></liquidos-file>
+    <liquidos-file path="components/clock/clock.js" script></liquidos-file>
 </liquidos-component>
 ```
 
 Three custom elements are available inside the body:
 
 - **`<liquidos-callback>`** wraps any control. The control's declared event (`on="click"`, `on="submit"`, …) dispatches a prompt to the agent. The harness disables and pulses the control while the request is in flight.
-- **`<liquidos-file path="…" script>`** dynamic-imports the file as an ES module and calls `mount(surface)`. Use this for browser-side state, listeners, audio contexts, anything the DOM alone doesn't cover.
+- **`<liquidos-file path="…" script>`** runs a script you provide as an ES module that exports `mount(surface)` — for browser-side state, listeners, anything the DOM alone doesn't cover. It re-runs whenever the component re-renders, so make setup idempotent and return a cleanup function. Keep emitted HTML deterministic (no `Math.random()` in IDs or classes) or every re-render looks like new content. Don't use inline `<script>` or `on*=` handlers — injected `<script>` never runs, and inline handlers leak on every re-render.
 - **`<liquidos-file path="…" run>`** asks the harness to spawn the file as a long-running process. Use this when the component genuinely needs a backend — watching files, holding a socket, calling native APIs.
 
 The default `<liquidos-file path="…"></liquidos-file>` (no attributes) fetches the file and renders its content. Pair it with a `run` process when something is producing painted output from outside the agent's stream.
@@ -52,48 +54,11 @@ The user watches the canvas while you work, and what they see should always be h
 1. **Scaffold.** `bash skills/component/scripts/create-component.sh <canvas-path> <name>` — creates the component and registers it on the canvas.
 2. **Shell.** One `<lqpatch op="streamFile" target="<canvas>/components/<name>/component.html">…</lqpatch>` writes the `<style>` block and the outer containers — empty regions with stable IDs on every part you might later want to target by selector. Without them, the only way to change anything is to rewrite the whole file.
 3. **Fill.** Land the rest of the body in visible chunks — one `<lqpatch>` per piece. `op="append"` for a list of items, `op="replace"` for shaped regions. Avoid a single giant write; the user should see it grow, not pop in already finished.
-4. **Wiring.** If the component needs `functions.js`, that's a separate `streamFile` after the visible elements are in place.
+4. **Wiring.** If the component needs a behavior script, that's a separate `streamFile` after the visible elements are in place.
 
 Selectors in `op="append"` / `op="replace"` markers are matched with `document.querySelector` against the live page. Use IDs you wrote into the shell — class and attribute selectors also work. Each op targeting an element inside a `<liquidos-component>` is persisted back to that component's `component.html` — reload preserves what you wrote.
 
 Read `<canvas>/feature-requirements.txt` first if it exists — your component should fit the canvas's intent. Work on one component per turn.
-
-## `functions.js`
-
-A script-mode `<liquidos-file>` imports the file as an ES module and calls:
-
-```js
-export const mount = (surface) => {
-    // Wire listeners and create resources. Scope queries with surface.querySelector.
-    return () => { /* tear down */ };
-};
-```
-
-- **`mount()` may run more than once.** Anything content depends on can change (re-stream, edits to `functions.js`) and re-mount. Setup must be idempotent — if you allocate an audio context here, release it in the cleanup return.
-- **The return value cleans up the previous instance.** A plain function, or an object with `.destroy()`. Without a return, listeners and timers accumulate across re-mounts.
-- **HTML emitted into the DOM must be deterministic.** Same inputs, same output. No `Math.random()` in IDs, classes, or gradients. Otherwise the harness sees every re-render as new content and re-runs setup unnecessarily.
-
-All browser-side JS goes through script-mode `<liquidos-file>`. Inline `<script>` tags don't execute when injected via `innerHTML`; inline event handlers (`onclick=`, etc.) bypass the `mount(surface)` lifecycle and leak listeners on every re-mount.
-
-Use `<liquidos-callback>` for user-initiated callbacks routed through the agent. Use `mount(surface)` for everything else.
-
-### Subscribing to workspace events
-
-`functions.js` can subscribe to workspace file changes:
-
-```js
-export const mount = (surface) => {
-    const off = window.liquidos.onWorkspaceEvent(payload => {
-        if (payload?.type !== 'workspace-file') return;
-        if (payload.path === 'components/<name>/data/some-state.json') {
-            // re-fetch, update DOM
-        }
-    });
-    return () => off();
-};
-```
-
-The harness pushes every change in the workspace. Filter by path.
 
 ## Components with a backend process
 
@@ -152,7 +117,7 @@ The component is already on the page. The user is watching its current state, an
    - `op="remove" target="#some-id"` — drop one.
    The user sees each one land as a discrete beat, the same way they saw the original elements arrive.
 3. For a style overhaul (a vibe shift, a theme change), `op="replace"` on the existing `<style>` element's contents is one marker that swaps the look in place. The DOM keeps its shape; only the painted appearance changes.
-4. For behavior changes, update `functions.js` with `op="streamFile"`. The harness re-mounts; your old cleanup runs.
+4. For behavior changes, rewrite the behavior script with `op="streamFile"`. The harness re-mounts; your old cleanup runs.
 5. Update `feature-requirements.txt` if anything was learned.
 
 `streamFile` on `component.html` is the right move when the skeleton itself is changing — different containers, different IDs, different mounts, different wiring. Otherwise edit the live DOM via `<lqpatch>` selectors. Running services and hydrated views survive across the re-render as long as their `<liquidos-file>` is unchanged; static markup rebuilds.
