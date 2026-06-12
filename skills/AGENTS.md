@@ -61,6 +61,16 @@ Emit markers directly — not in markdown code fences, not as quoted examples in
 
 Markers with unknown ops, missing targets, or targets outside the page's allow-list are rejected and logged.
 
+## Producers
+
+- A producer is anything that updates the workspace: you, or a component's service. They work the same way.
+- A producer's output is a stream of patches on its stdout; stderr is logs only.
+- A patch names a target and an operation — a region of the view (replace, append, stream, …) or a file (write, append).
+- The harness applies each producer's patches in order; producers are isolated and never block each other.
+- A patch can stream in pieces, so the view fills in as it arrives instead of popping in finished.
+- You can patch anywhere; a service can only patch its own component.
+- When producers contend for the same region, one holds it at a time — you win while your turn runs, services reclaim it after.
+
 ## Where things live
 
 - Each canvas has an `input.json` listing its components by string path (`"components/<name>/component.html"`). The scaffold script manages it — see the component skill.
