@@ -43,12 +43,15 @@ const commitMessage = ({ event, scope, agentResponse }) => [
 const workspaceName = workspacePath =>
     path.basename(String(workspacePath || '').replace(/\/+$/, ''), '.liquidos');
 
-// The set of entries the workspace's .gitignore must always contain.
-// Re-applied on every launch so existing workspaces created before a
-// rule was added pick it up without a manual edit.
+// The workspace .gitignore is the runtime's to own: regenerated to exactly
+// match this list on every launch. The list is the single source of truth —
+// add an entry and existing workspaces pick it up, drop one and they stop
+// ignoring it. Diagnostics are not here: they're part of a component's
+// committed history, not session noise.
+const GITIGNORE_HEADER = '# Runtime-managed; regenerated each session and noisy to track.';
 const REQUIRED_GITIGNORE_ENTRIES = [
-    '**/diagnostics/',
     '**/data/.runtime/',
+    '**/data/*.app/',
     '.DS_Store',
     '/.claude/',
     '/.codex/',
@@ -62,18 +65,14 @@ const REQUIRED_GITIGNORE_ENTRIES = [
 
 const ensureWorkspaceGitignore = workspacePath => {
     const gitignorePath = path.join(workspacePath, '.gitignore');
+    const desired = GITIGNORE_HEADER + '\n' + REQUIRED_GITIGNORE_ENTRIES.join('\n') + '\n';
     const current = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
-    const present = new Set(current.split('\n').map(line => line.trim()));
-    const missing = REQUIRED_GITIGNORE_ENTRIES.filter(entry => !present.has(entry));
 
-    if (!missing.length && current) {
+    if (current === desired) {
         return;
     }
 
-    const header = current
-        ? current.endsWith('\n') ? current : current + '\n'
-        : '# Runtime-managed; regenerated each session and noisy to track.\n';
-    fs.writeFileSync(gitignorePath, header + missing.join('\n') + (missing.length ? '\n' : ''));
+    fs.writeFileSync(gitignorePath, desired);
 };
 
 const ensureGitRepo = workspacePath => {
