@@ -1,0 +1,2 @@
+A static component with no service. Its #b-guarded region must only ever
+show its own content — the other component's service cannot write here.

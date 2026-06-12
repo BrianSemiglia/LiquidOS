@@ -1,0 +1,2 @@
+Emits complete patches into the window while the other producer holds a
+stream open. Its patches must land in #b-status, not in the other region.

@@ -1,0 +1,6 @@
+{
+  "components": [
+    "components/a/component.html",
+    "components/b/component.html"
+  ]
+}

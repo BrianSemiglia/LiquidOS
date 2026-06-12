@@ -1,0 +1,3 @@
+Component A runs a service that patches its own region and also tries to
+patch component B's region. B has no service of its own. B's region must
+stay under B's ownership — A's service cannot write into it.

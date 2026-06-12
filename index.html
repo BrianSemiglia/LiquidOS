@@ -111,7 +111,9 @@
          All dispatches, rejects, and narration are mirrored to
          window.__lqpatch so probes can assert on what landed. -->
     <script type="module">
-        import { createSniffer } from '/lib/lqpatch-sniffer.js';
+        // The server now parses each producer's stream (the serializer) and
+        // emits framed `slice` events; this module validates, scopes, and
+        // applies them. The lqpatch sniffer itself runs server-side.
 
         const sink = document.getElementById('lqpatch-sink');
         const state = window.__lqpatch = {
@@ -183,9 +185,25 @@
             });
         };
 
-        const sniff = createSniffer({
+        // Each producer source resolves its DOM targets against a "root":
+        // the element its patches are allowed to touch. A service is
+        // confined to its own component (registered by the run-mode
+        // <liquidos-file> before the service can emit), so it can't patch
+        // another component's region. The agent has no entry and resolves
+        // against the whole document — it owns structure across components.
+        const sourceRoots = new Map();
+        const makeSniffConfig = (source) => {
+          const root = () => sourceRoots.get(source) || document;
+          return {
             allowedOps: new Set(['replace', 'append', 'prepend', 'setAttr', 'remove', 'stream', 'writeFile', 'streamFile']),
             streamingOps: new Set(['stream', 'streamFile', 'replace', 'append', 'prepend']),
+            // Resolve a slice's target to a concrete element within this
+            // source's scope. Used by the contention layer, which can only
+            // key a region lease by element identity.
+            resolveTarget: (attrs) => {
+                try { return root().querySelector(attrs.target); }
+                catch { return null; }
+            },
             validate: (attrs) => {
                 if (attrs.op === 'writeFile' || attrs.op === 'streamFile') {
                     return typeof attrs.target === 'string'
@@ -197,7 +215,7 @@
                 // structures it just emitted via op="replace" or via a
                 // preceding writeFile that the canvas rendered.
                 if (!attrs.target) return false;
-                try { return !!document.querySelector(attrs.target); }
+                try { return !!root().querySelector(attrs.target); }
                 catch { return false; }
             },
             onText: (text) => { state.narration += text; },
@@ -216,7 +234,7 @@
                     state.dispatches.push({ op: 'writeFile', target: attrs.target, bytes: inner.length });
                     return;
                 }
-                const el = document.querySelector(attrs.target);
+                const el = root().querySelector(attrs.target);
                 const host = el.closest('liquidos-component');
                 if (attrs.op === 'setAttr') el.setAttribute(attrs.attr, attrs.value);
                 else if (attrs.op === 'remove') el.remove();
@@ -277,7 +295,7 @@
                     // look "tunes in" as the markup arrives). Reset to empty
                     // up front so the old content is gone the moment the
                     // first chunk lands.
-                    const el = document.querySelector(attrs.target);
+                    const el = root().querySelector(attrs.target);
                     if (!el) return null;
                     const host = el.closest('liquidos-component');
                     el.innerHTML = '';
@@ -304,7 +322,7 @@
                     // CSS / partial markup tune in visibly) without
                     // disturbing siblings. At close, unwrap so the final DOM
                     // is identical to the atomic version.
-                    const el = document.querySelector(attrs.target);
+                    const el = root().querySelector(attrs.target);
                     if (!el) return null;
                     const host = el.closest('liquidos-component');
                     const wrapper = document.createElement('div');
@@ -330,7 +348,7 @@
                         }
                     };
                 }
-                const el = document.querySelector(attrs.target);
+                const el = root().querySelector(attrs.target);
                 if (!el) return null;
                 const node = document.createTextNode('');
                 el.appendChild(node);
@@ -347,31 +365,140 @@
             onReject: (reason, attrs) => {
                 state.rejects.push({ reason, attrs });
             }
-        });
+          };
+        };
+
+        // The server frames and sequences each producer's output into
+        // `slice` events; makeSniffConfig(source) is now the per-source
+        // APPLIER for them — validate, scope, and apply, no parsing. Cache
+        // one handler set per source.
+        const handlersBySource = new Map();
+        const handlersFor = (source) => {
+            let h = handlersBySource.get(source);
+            if (!h) { h = makeSniffConfig(source); handlersBySource.set(source, h); }
+            return h;
+        };
+        // In-flight streaming ops, keyed by the server's slice seq. A null
+        // entry marks a stream whose open was rejected, so its chunks and
+        // close are ignored.
+        const streamHandles = new Map();
+
+        // Region contention. Only an exclusive streaming op (replace) can
+        // clobber a region; additive ops (append/prepend/stream) coexist, so
+        // they never take a lease. The client is the only side that resolves
+        // a selector to a real element, so the lease lives here, keyed by
+        // element identity. Higher tier wins: the agent (structure) preempts
+        // a service (data); same-tier contention is first-come. The agent
+        // never loses, so it never needs to be told it lost — which it
+        // couldn't be, being output-only.
+        const regionLeases = new Map();          // Element -> { source, tier, seq }
+        const tierOf = (source) => (source === 'agent' ? 1 : 0);
+        const releaseLeasesBySeq = (seq) => {
+            for (const [el, lease] of regionLeases) if (lease.seq === seq) regionLeases.delete(el);
+        };
+        const releaseLeasesBySource = (source) => {
+            for (const [el, lease] of regionLeases) if (lease.source === source) regionLeases.delete(el);
+        };
+        // Claim `el` for an exclusive streaming write. Returns false when
+        // `source` loses the contention and the caller must drop the write.
+        const claimRegion = (el, source, seq) => {
+            const lease = regionLeases.get(el);
+            if (lease && lease.source !== source) {
+                if (tierOf(source) <= tierOf(lease.source)) return false;   // lose
+                const held = streamHandles.get(lease.seq);                  // preempt: silence
+                if (held) streamHandles.set(lease.seq, null);               // the holder's stream
+            }
+            regionLeases.set(el, { source, tier: tierOf(source), seq });
+            return true;
+        };
+
+        const applySlice = (payload) => {
+            const source = payload.source || 'agent';
+            const h = handlersFor(source);
+            switch (payload.kind) {
+                case 'narration':
+                    h.onText(payload.text || '');
+                    return;
+                case 'reject':
+                    h.onReject(payload.reason || 'rejected', payload.attrs || {});
+                    return;
+                case 'atomic': {
+                    const attrs = payload.attrs || {};
+                    if (!h.validate(attrs)) { h.onReject('validate-failed', attrs); return; }
+                    h.onAtomic(attrs, payload.inner || '');
+                    return;
+                }
+                case 'open': {
+                    const attrs = payload.attrs || {};
+                    if (!h.validate(attrs)) { h.onReject('validate-failed', attrs); streamHandles.set(payload.seq, null); return; }
+                    // An exclusive replace must own its region for the life of
+                    // the stream. If another producer holds it (and outranks
+                    // or ties this one), drop this stream.
+                    if (attrs.op === 'replace') {
+                        const el = h.resolveTarget(attrs);
+                        if (el && !claimRegion(el, source, payload.seq)) {
+                            h.onReject('region-contended', attrs);
+                            streamHandles.set(payload.seq, null);
+                            return;
+                        }
+                    }
+                    const handle = h.onStreamOpen(attrs);
+                    if (!handle) h.onReject('stream-open-refused', attrs);
+                    streamHandles.set(payload.seq, handle || null);
+                    return;
+                }
+                case 'chunk': {
+                    const handle = streamHandles.get(payload.seq);
+                    if (handle) { try { handle.appendChunk(payload.text || ''); } catch {} }
+                    return;
+                }
+                case 'close': {
+                    const handle = streamHandles.get(payload.seq);
+                    if (handle) { try { handle.close && handle.close(); } catch {} }
+                    streamHandles.delete(payload.seq);
+                    releaseLeasesBySeq(payload.seq);
+                    return;
+                }
+            }
+        };
+
+        // The run-mode <liquidos-file> registers its service's scope here
+        // before spawning, keyed by the same script path the server tags
+        // the service's slices with. Confines the service's patches to its
+        // component; the agent is never registered and stays document-wide.
+        window.liquidos = window.liquidos || {};
+        window.liquidos.bindProducerScope = (source, el) => {
+            if (source && el) sourceRoots.set(source, el);
+        };
+        window.liquidos.unbindProducerScope = (source) => {
+            sourceRoots.delete(source);
+            handlersBySource.delete(source);
+            // A producer that goes away releases any region it was holding,
+            // so a service killed mid-stream can't keep a region locked.
+            releaseLeasesBySource(source);
+        };
 
         const src = new EventSource('/agent/stream');
-        // The `raw` event delivers verbatim host.output chunks — marker
-        // boundaries intact. The debug rail elsewhere on this page reads
-        // `debug-line` from the same stream.
-        src.addEventListener('raw', (e) => {
-            try {
-                const payload = JSON.parse(e.data);
-                if (payload && typeof payload.text === 'string') sniff(payload.text);
-            } catch {}
+        // The server demuxes every producer into framed, sequenced `slice`
+        // events; we validate, scope, and apply them. The debug rail
+        // elsewhere on this page reads `debug-line` from the same stream.
+        src.addEventListener('slice', (e) => {
+            try { applySlice(JSON.parse(e.data)); } catch {}
         });
-        // When the agent transitions out of "running" (back to waiting /
-        // failed / done), flush whatever's left in the sniffer's buffer
-        // as trailing narration. Same role as the experiment page's
-        // src.addEventListener('done', ...) handler.
-        let lastStatus = '';
+        // The agent's writes are a turn-scoped epoch: it owns whatever it
+        // touches while running and yields when the turn ends. Release its
+        // region leases on that transition so services reclaim their regions
+        // on their next tick. (The same transition flushes the agent sniffer
+        // server-side.)
+        let lastAgentStatus = '';
         src.addEventListener('debug-status', (e) => {
             try {
                 const payload = JSON.parse(e.data);
                 const next = payload && payload.current && payload.current.status;
-                if (lastStatus === 'running' && next && next !== 'running') {
-                    sniff.end();
+                if (lastAgentStatus === 'running' && next && next !== 'running') {
+                    releaseLeasesBySource('agent');
                 }
-                if (next) lastStatus = next;
+                if (next) lastAgentStatus = next;
             } catch {}
         });
     </script>

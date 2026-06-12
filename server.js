@@ -318,18 +318,77 @@ const AGENT_SOURCE = 'agent';
 const clients = new Set();
 const agentStreamClients = new Set();
 
-// Mirror every chunk the agent emits via host.output as a `raw` event
-// alongside the existing debug-* events. The debug rail keeps reading
-// `debug-line` (line-buffered, ANSI-stripped); the lqpatch sniffer in
-// index.html reads `raw` (verbatim chunks, marker boundaries intact).
-// One stream, two readers.
-const broadcastAgentRaw = chunk => {
-    if (!chunk) return;
-    const message = JSON.stringify({ type: 'raw', text: String(chunk) });
+// The serializer. Every producer (the agent, each service) streams on the
+// same SSE channel alongside the debug-* events the rail reads. Rather
+// than ship raw bytes and parse on the client, the server runs one lqpatch
+// sniffer PER producer and emits framed, sequenced `slice` events:
+//
+//   { kind:'narration', source, text }            — text outside any marker
+//   { kind:'atomic',  seq, source, attrs, inner }  — a complete non-stream op
+//   { kind:'open',     seq, source, attrs }         — a streaming op begins
+//   { kind:'chunk',    seq, text }                  — one streamed chunk
+//   { kind:'close',    seq }                        — the streaming op ends
+//   { kind:'reject',   seq, source, reason, attrs } — failed framing (bad op)
+//
+// One sniffer per producer means a marker one producer holds open can never
+// swallow another's bytes. The monotonic `seq` gives every slice a single
+// authoritative order across all producers. The client validates targets,
+// enforces per-component scope, and applies — it never has to reassemble an
+// interleaved byte stream. Diagnostics (a service's stderr) never enter
+// here; they stay in the server log.
+let serverCreateSniffer = null;
+const snifferReady = import('./lib/lqpatch-sniffer.js')
+    .then(m => { serverCreateSniffer = m.createSniffer; })
+    .catch(e => { console.error('lqpatch-sniffer import failed', e); });
+
+const SLICE_ALLOWED_OPS = new Set(['replace', 'append', 'prepend', 'setAttr', 'remove', 'stream', 'writeFile', 'streamFile']);
+const SLICE_STREAMING_OPS = new Set(['stream', 'streamFile', 'replace', 'append', 'prepend']);
+
+let sliceSeq = 0;
+const emitSlice = payload => {
+    const message = JSON.stringify(payload);
     agentStreamClients.forEach(res => {
-        res.write('event: raw\n');
+        res.write('event: slice\n');
         res.write('data: ' + message + '\n\n');
     });
+};
+
+const serverSniffers = new Map();
+const serverSnifferFor = (source) => {
+    let sniff = serverSniffers.get(source);
+    if (sniff) return sniff;
+    if (!serverCreateSniffer) return null;
+    // No DOM-aware validate here: the server only frames + sequences.
+    // Target resolution, scope enforcement, and rejection live on the
+    // client, which is the only side with a DOM.
+    sniff = serverCreateSniffer({
+        allowedOps: SLICE_ALLOWED_OPS,
+        streamingOps: SLICE_STREAMING_OPS,
+        onText: (text) => emitSlice({ kind: 'narration', source, text }),
+        onAtomic: (attrs, inner) => emitSlice({ kind: 'atomic', seq: ++sliceSeq, source, attrs, inner }),
+        onStreamOpen: (attrs) => {
+            const seq = ++sliceSeq;
+            emitSlice({ kind: 'open', seq, source, attrs });
+            return {
+                appendChunk: (text) => emitSlice({ kind: 'chunk', seq, text }),
+                close: () => emitSlice({ kind: 'close', seq })
+            };
+        },
+        onReject: (reason, attrs) => emitSlice({ kind: 'reject', seq: ++sliceSeq, source, reason, attrs })
+    });
+    serverSniffers.set(source, sniff);
+    return sniff;
+};
+
+// Feed one producer's output chunk into its sniffer. Until the sniffer
+// module finishes loading (a microtask at startup, long before any agent
+// or service emits), fall back to shipping the chunk as narration so no
+// output is ever dropped.
+const serializeProducerChunk = (source, chunk) => {
+    if (!chunk) return;
+    const sniff = serverSnifferFor(source);
+    if (sniff) sniff(String(chunk));
+    else emitSlice({ kind: 'narration', source, text: String(chunk) });
 };
 
 const emitDebugEvent = payload => {
@@ -380,11 +439,20 @@ const pushAgentDebugLine = chunk => {
 };
 
 const setCurrentAgentDebug = next => {
+    const prevStatus = agentDebugState.current && agentDebugState.current.status;
     agentDebugState.current = {
         ...next,
         source: next.source || AGENT_SOURCE,
         at: new Date().toISOString()
     };
+
+    // When the agent leaves "running", flush its sniffer so any trailing
+    // narration buffered after the last marker is emitted (the client used
+    // to do this on the same transition; the parser lives here now).
+    if (prevStatus === 'running' && agentDebugState.current.status && agentDebugState.current.status !== 'running') {
+        const sniff = serverSniffers.get(AGENT_SOURCE);
+        if (sniff && sniff.end) sniff.end();
+    }
 
     if (typeof emitDebugEvent === 'function') {
         emitDebugEvent({ type: 'debug-status', current: agentDebugState.current });
@@ -453,7 +521,7 @@ const shortText = value => {
 
 runtimeSet.configureHosts({
     output: (label, chunk, stream) => {
-        broadcastAgentRaw(chunk);
+        serializeProducerChunk(AGENT_SOURCE, chunk);
         writeProcessOutput(label, chunk, stream);
     },
     status: setCurrentAgentDebug
@@ -1154,6 +1222,10 @@ const newShapeDescendantsOf = pid => {
 const newShapeKillService = (id) => {
     const svc = newShapeServices.get(id);
     if (!svc) return false;
+    // Drop this producer's server-side sniffer so a half-open marker left
+    // by a mid-stream kill can't bleed into the next spawn that reuses the
+    // same source key.
+    if (svc.source) serverSniffers.delete(svc.source);
     const root = svc.child.pid;
     const tree = [root, ...newShapeDescendantsOf(root)];
     for (const pid of tree) { try { process.kill(pid, 'SIGTERM'); } catch {} }
@@ -1282,8 +1354,19 @@ const server = http.createServer(async (req, res) => {
                 env: { ...process.env, LIQUIDOS_DISPATCH_ID: dispatchId, ...(body.env || {}) }
             });
             const id = newShapeNewServiceId();
-            newShapeServices.set(id, { child, label: body.label || path.basename(abs), dispatchId, abs });
-            child.stdout.on('data', d => process.stdout.write('[' + id + '] ' + d.toString().replace(/\n$/, '') + '\n'));
+            newShapeServices.set(id, { child, label: body.label || path.basename(abs), dispatchId, abs, source: 'service:' + body.script });
+            child.stdout.on('data', d => {
+                const text = d.toString();
+                // A service's stdout is its view-patch channel: feed it to
+                // the serializer under the service's script path — the
+                // stable key the client knows before spawning, so it can
+                // confine the service to its component before any slice
+                // arrives. The server frames it in isolation from the agent
+                // and other services. Diagnostics belong on stderr (below),
+                // which stays in the server log.
+                serializeProducerChunk('service:' + body.script, text);
+                process.stdout.write('[' + id + '] ' + text.replace(/\n$/, '') + '\n');
+            });
             child.stderr.on('data', d => process.stderr.write('[' + id + '] ' + d.toString().replace(/\n$/, '') + '\n'));
             child.on('exit', () => newShapeServices.delete(id));
             newShapeSendJson(res, 200, { id, pid: child.pid, dispatchId });

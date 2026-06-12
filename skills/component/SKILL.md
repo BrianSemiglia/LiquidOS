@@ -112,13 +112,29 @@ When the component needs a long-running process (a feed reader, a native bridge,
 </liquidos-component>
 ```
 
-The `run` element spawns the file at its `path` as a process; the default `<liquidos-file>` renders `<entry>.html` and re-renders whenever the process rewrites it. Conventional layout:
+The `run` element spawns the file at its `path` as a process. Conventional layout:
 
 - service scripts in `components/<name>/services/`
 - internal state in `components/<name>/data/`
-- stdout/stderr in `components/<name>/diagnostics/service.log`
+- diagnostics on **stderr** (the harness logs it) — `stdout` is reserved for the view (below)
 
 Reach for this shape only when something genuinely external is producing the content — a process that watches files, holds a socket, talks to native APIs. Self-contained interactive components don't need it; their DOM goes inline.
+
+### How a service updates the view
+
+A `run` service has two ways to change what the user sees:
+
+- **Rewrite a file.** Write a file that a default `<liquidos-file>` renders; the harness re-renders on the change. Simple, but it replaces the whole rendered region each time — runtime DOM state (typed inputs, scroll, focus) in that region is lost.
+- **Patch the live view over stdout.** Everything the service prints to **stdout** is read as `<lqpatch>` markers — the same protocol the agent uses — and applied to the live view as it streams. Target a region the component's `component.html` shell already defined. This lands incremental updates with no re-render, so sibling state survives.
+
+```js
+// service.js — append a row to a region the shell defined, live, no re-render
+process.stdout.write('<lqpatch op="append" target="#feed-list"><li>' + item + '</li></lqpatch>\n');
+```
+
+**stdout is the view-patch channel; stderr is diagnostics.** Keep all service logging on stderr (or a log file) so it never reaches the view.
+
+A service may only patch **its own component** — its selectors resolve within its component's subtree, so it cannot write into another component's region. When the agent and a service touch the same region, the agent wins: its turn owns the region and the service yields, reclaiming it once the turn ends. Two services contending over one region is first-come; the later writer's patch is dropped.
 
 ## Feature requirements
 
@@ -238,7 +254,7 @@ Let the rest throw. A failed `JSON.parse`, an unexpected schema, "tried to call 
 
 ## Diagnostics
 
-When something looks broken, look in `<component>/diagnostics/` first. Status is in `status.json`; service stdout/stderr is in `service.log`.
+When something looks broken, look in `<component>/diagnostics/` first. Status is in `status.json`; service diagnostics are in `service.log` (stderr — a service's stdout is its view-patch channel, not a log).
 
 ### Escalation
 

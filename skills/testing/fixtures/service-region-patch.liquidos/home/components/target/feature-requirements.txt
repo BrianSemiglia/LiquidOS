@@ -1,0 +1,4 @@
+Streams successive STEP_<n> tokens into the #status region by printing
+lqpatch to stdout — the same view channel the agent uses — without ever
+touching the sibling input. The probe asserts the steps land and the
+typed input survives.

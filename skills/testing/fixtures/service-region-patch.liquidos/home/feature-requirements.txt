@@ -1,0 +1,4 @@
+A run-mode service updates only the #status region of its view while the
+user is editing a sibling input. The status updates must reach the live
+view and the user's typed text must survive, because the service patches
+a region instead of rewriting the whole view.
