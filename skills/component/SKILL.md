@@ -49,13 +49,7 @@ The default `<liquidos-file path="…"></liquidos-file>` (no attributes) fetches
 
 The user watches the canvas while you work, and what they see should always be honest: a control that isn't ready yet should not look ready. Build the body in visible steps:
 
-1. **Scaffold.** `bash skills/component/scripts/create-component.sh <canvas-path> <name>`. Writes:
-   - `diagnostics/status.json` seeded with `{}`
-   - `component.html` containing an empty `<liquidos-component>` wrapper
-   - `feature-requirements.txt` with one seed line
-   - the component path appended to the canvas's `input.json`, last, so the canvas never sees a reference to a missing file
-
-   Prints one-line JSON naming the sanitized component and its absolute path.
+1. **Scaffold.** `bash skills/component/scripts/create-component.sh <canvas-path> <name>` — creates the component and registers it on the canvas.
 2. **Shell.** One `<lqpatch op="streamFile" target="<canvas>/components/<name>/component.html">…</lqpatch>` writes the `<style>` block and the outer containers — empty regions with stable IDs on every part you might later want to target by selector. Without them, the only way to change anything is to rewrite the whole file.
 3. **Fill.** Land the rest of the body in visible chunks — one `<lqpatch>` per piece. `op="append"` for a list of items, `op="replace"` for shaped regions. Avoid a single giant write; the user should see it grow, not pop in already finished.
 4. **Wiring.** If the component needs `functions.js`, that's a separate `streamFile` after the visible elements are in place.
@@ -198,7 +192,7 @@ Starting markup (interactive):
 
 ## Removing
 
-`bash skills/component/scripts/delete-component.sh <canvas-path> <name>` — drops the component from `input.json` and removes the folder, in that order so the harness's watcher doesn't race back and rewrite `diagnostics/` under a folder about to disappear. Idempotent.
+`bash skills/component/scripts/delete-component.sh <canvas-path> <name>` — removes the component and any relationships that wire it. Idempotent.
 
 If the user asked to hide rather than delete, drop the entry from `input.json` and leave the folder.
 

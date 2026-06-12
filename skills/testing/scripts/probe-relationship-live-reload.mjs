@@ -108,6 +108,7 @@ try {
 export const mount = (surface) => {
     let off = null;
     surface.__io = {
+        peers: ['source', 'sink'],
         on() { return () => {}; },
         send() {},
         connect(peers) {

@@ -3,7 +3,6 @@ name: testing
 description: Test a LiquidOS workspace or component through the actual app UI
 triggers:
   - User reports something doesn't look, feel, or work right
-  - You want to verify your work before declaring it done
 ---
 
 # Testing Workspaces

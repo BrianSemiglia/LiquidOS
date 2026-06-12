@@ -1,0 +1,1 @@
+- Static. Exposes no I/O and is part of no relationship.

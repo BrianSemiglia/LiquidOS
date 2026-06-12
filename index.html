@@ -2589,97 +2589,92 @@
             }).catch(() => {});
         };
 
-        let wireIOAttempts = 0;
-        const MAX_WIRE_IO_ATTEMPTS = 40;
-        let wireIOTimer = null;
-        const wireIO = () => {
-            wireIOTimer = null;
+        // Reactive I/O wiring — no polling, no timeouts. A relationship
+        // connects the instant its declared peers are registered, and never
+        // waits on components it doesn't name. A peer's readiness is an event
+        // (its mount prompts a re-resolve), not a value sampled over time.
+        //
+        // A relationship declares the peers it wires via surface.__io.peers.
+        // The harness connects it the instant those peers are present. There is
+        // no derivation or best-effort fallback: a relationship that declares no
+        // peers does not wire, and says so in its diagnostics.
+        const ioRequiredPeers = (io) => Array.isArray(io.peers) ? io.peers.map(String) : null;
+
+        // Collect every present surface.__io, keyed by peer name (folder
+        // basename). A component's mount() sets __io on the surface it's handed
+        // — the <liquidos-component> element itself, or a chrome `.surface`
+        // within it when the presentation wraps the component. A relationship
+        // sets it on its hidden surface.
+        const componentIo = (el) => el && (el.__io || el.querySelector('.surface')?.__io);
+        const collectIoPeers = () => {
             const peers = {};
-            // io → scope so we can attribute connect outcomes back to the
-            // relationship that owns the io, for diagnostics.
             const scopeOfIo = new Map();
-            let pending = 0;
-            // Expected components from the most recent /input. Wait for each
-            // to have both a rendered item AND a surface.__io before proceeding:
-            // a relationship's mount can race ahead of its peers being mounted,
-            // and if connect() runs against a partial peers map the bridge has
-            // no second chance (io.__connected guards re-runs).
-            // For every expected component, the harness paints into
-            // renderedItemsByPath (old shape) OR the new-shape canvas paints
-            // a <liquidos-component> with a matching `path` attribute. In
-            // either case we want surface.__io. If neither has materialized
-            // yet, count it as pending so connect() waits.
+            const add = (scope, io) => {
+                if (!io) return;
+                peers[ioPeerName(scope)] = io;
+                scopeOfIo.set(io, scope);
+            };
             latestComponents.forEach(component => {
                 const scope = component.scope || '';
                 if (!scope) return;
-                const oldItem = renderedItemsByPath.get(scope);
-                const oldSurface = oldItem?.querySelector('.surface');
-                if (oldSurface?.__io) {
-                    peers[ioPeerName(scope)] = oldSurface.__io;
-                    scopeOfIo.set(oldSurface.__io, scope);
-                    return;
-                }
-                const newEl = Array.from(document.querySelectorAll('liquidos-component'))
-                    .find(el => {
-                        const p = el.getAttribute('path') || '';
+                const el = Array.from(document.querySelectorAll('liquidos-component'))
+                    .find(node => {
+                        const p = node.getAttribute('path') || '';
                         return p === scope || scope.endsWith('/' + p) || p.endsWith('/' + scope);
                     });
-                const newSurface = newEl?.querySelector('.surface');
-                if (newSurface?.__io) {
-                    peers[ioPeerName(scope)] = newSurface.__io;
-                    scopeOfIo.set(newSurface.__io, scope);
-                    return;
-                }
-                pending += 1;
+                add(scope, componentIo(el));
             });
-            // Hidden relationships mounted by the harness:
-            relationshipNodesByPath.forEach((entry, scope) => {
-                if (!entry.surface.__io) { pending += 1; return; }
-                peers[ioPeerName(scope)] = entry.surface.__io;
-                scopeOfIo.set(entry.surface.__io, scope);
-            });
-            if (pending > 0 && wireIOAttempts < MAX_WIRE_IO_ATTEMPTS) {
-                wireIOAttempts += 1;
-                wireIOTimer = setTimeout(wireIO, 50);
-                return;
-            }
-            if (pending > 0) {
-                // Out of retries with some peers still missing __io. The
-                // ones present will still get connect()'d, but a bridge
-                // expecting a missing peer will see an incomplete map.
-                // Surface this so it isn't a silent failure during dev.
-                console.warn('wireIO: timed out with', pending, 'component(s) missing surface.__io after', wireIOAttempts, 'retries; connecting with partial peer map');
-            }
+            relationshipNodesByPath.forEach((entry, scope) => add(scope, entry.surface.__io));
+            return { peers, scopeOfIo };
+        };
+
+        // Last "waiting on" signature per relationship, so the derived
+        // missing-peer status is written once per change, not per resolve.
+        const ioWaitingSig = new Map();
+
+        const wireIO = () => {
+            const { peers, scopeOfIo } = collectIoPeers();
             Object.values(peers).forEach(io => {
                 if (typeof io.connect !== 'function' || io.__connected) return;
                 const scope = scopeOfIo.get(io) || '';
                 const isRelationship = relationshipNodesByPath.has(scope);
+                if (isRelationship) {
+                    const required = ioRequiredPeers(io);
+                    if (!required) {
+                        // No declared peers — this relationship can't be wired.
+                        if (ioWaitingSig.get(scope) !== '__no-peers__') {
+                            ioWaitingSig.set(scope, '__no-peers__');
+                            writeRelationshipDiagnostic(scope, 'connect', { ok: false, error: 'relationship declares no __io.peers' });
+                        }
+                        return;
+                    }
+                    const missing = required.filter(name => !peers[name]);
+                    if (missing.length) {
+                        // Not yet satisfiable. Record the unmet dependency as
+                        // derived state (deduped) and wait for the peer's mount
+                        // to prompt the next resolve — no timer.
+                        const sig = missing.join(',');
+                        if (ioWaitingSig.get(scope) !== sig) {
+                            ioWaitingSig.set(scope, sig);
+                            writeRelationshipDiagnostic(scope, 'connect', { ok: false, waiting: true, missing });
+                        }
+                        return;
+                    }
+                    ioWaitingSig.delete(scope);
+                }
                 try {
                     io.connect(peers);
-                    if (isRelationship) {
-                        writeRelationshipDiagnostic(scope, 'connect', {
-                            ok: true,
-                            peers: Object.keys(peers)
-                        });
-                    }
+                    if (isRelationship) writeRelationshipDiagnostic(scope, 'connect', { ok: true, peers: Object.keys(peers) });
                 } catch (error) {
                     console.error('relationship connect threw:', scope, error.message);
-                    if (isRelationship) {
-                        writeRelationshipDiagnostic(scope, 'connect', {
-                            ok: false,
-                            error: error.message,
-                            peers: Object.keys(peers)
-                        });
-                    }
+                    if (isRelationship) writeRelationshipDiagnostic(scope, 'connect', { ok: false, error: error.message, peers: Object.keys(peers) });
                 }
                 io.__connected = true;
             });
         };
-        const scheduleWireIO = () => {
-            if (wireIOTimer) clearTimeout(wireIOTimer);
-            wireIOAttempts = 0;
-            wireIOTimer = setTimeout(wireIO, 0);
-        };
+        // Re-resolve whenever a mount may have registered a new __io. Connects
+        // what's satisfiable now and leaves the rest for the next mount event.
+        const scheduleWireIO = () => wireIO();
         // New-shape <liquidos-file script> mounts happen asynchronously
         // and may set surface.__io after wireIO's last attempt; expose
         // scheduleWireIO so the lib can prompt a fresh wire-up.

@@ -1,0 +1,7 @@
+{
+  "components": [
+    "components/source/component.html",
+    "components/sink/component.html",
+    "components/bystander/component.html"
+  ]
+}

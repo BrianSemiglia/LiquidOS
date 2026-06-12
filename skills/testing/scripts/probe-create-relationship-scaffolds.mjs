@@ -2,17 +2,18 @@
 //
 // probe-create-relationship-scaffolds.mjs
 //
-// Scaffold a canvas with two components (a source button + a sink
-// span) and a relationship that wires them, then drive the UI:
-// clicking the source button must update the sink. If
-// create-relationship.sh produces a non-functional scaffold (wrong
-// path, missing surface.__io, wrong peers shape), the click doesn't
-// propagate and the probe times out.
+// Scaffold a relationship with create-relationship.sh between two
+// components, fill in the scaffold's channel placeholders, and drive the
+// UI: clicking the source button must update the sink. This tests that the
+// scaffold is structurally correct — it declares __io.peers and its
+// connect() wires the two peers — so the harness picks it up and the wire
+// works end to end. If the scaffold dropped peers or shaped connect wrong,
+// the click doesn't propagate and the probe times out.
 //
-// The probe customizes the scaffolded components and relationship
-// after scaffolding — the scaffold lays down a structurally correct
-// template; the probe fills in concrete behavior so the wire is
-// driveable.
+// The two components are written directly in the current (inline
+// <liquidos-component>) shape; only the relationship comes from the
+// scaffold under test.
+//
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -23,111 +24,84 @@ import { chromium } from 'playwright';
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(scriptsDir, '../../..');
-const createComponent = path.join(appRoot, 'skills/component/scripts/create-component.sh');
 const createRelationship = path.join(appRoot, 'skills/relationships/scripts/create-relationship.sh');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-create-relationship-'));
 const ws = path.join(tmp, 'probe-create-relationship.liquidos');
-fs.mkdirSync(ws, { recursive: true });
 const canvasDir = path.join(ws, 'home');
-fs.mkdirSync(canvasDir, { recursive: true });
-fs.writeFileSync(path.join(canvasDir, 'input.json'), '{ "components": [] }\n');
+const sourceDir = path.join(canvasDir, 'components', 'source');
+const sinkDir = path.join(canvasDir, 'components', 'sink');
+fs.mkdirSync(sourceDir, { recursive: true });
+fs.mkdirSync(sinkDir, { recursive: true });
+
+fs.writeFileSync(path.join(canvasDir, 'input.json'), JSON.stringify({
+    components: ['components/source/component.html', 'components/sink/component.html']
+}, null, 2) + '\n');
 fs.writeFileSync(path.join(canvasDir, 'canvas.js'), "import { cssLayout } from '/lib/css-layout.js';\nexport default cssLayout('');\n");
 
-const run = (label, ...args) => {
-    const r = spawnSync('bash', args, { encoding: 'utf8' });
-    if (r.status !== 0) {
-        console.error('FAIL:', label, 'exited', r.status, '\n', r.stderr);
-        process.exit(1);
-    }
-};
-
-run('create-component(source)', createComponent, canvasDir, 'source');
-run('create-component(sink)',   createComponent, canvasDir, 'sink');
-run('create-relationship',      createRelationship, canvasDir, 'source', 'sink');
-
-const sourceDir = path.join(canvasDir, 'components', 'source');
-const sinkDir   = path.join(canvasDir, 'components', 'sink');
-const relDir    = path.join(canvasDir, 'relationships', 'source-to-sink');
-
-// Replace the scaffolded view.json + functions.js with versions that
-// expose driveable behavior — the scaffold's defaults are "Loading…"
-// placeholders and a no-op mount. We're testing the wire, not the
-// templates.
-fs.writeFileSync(path.join(sourceDir, 'view.json'), JSON.stringify({
-    html: '<button data-source-btn type="button">Press</button>'
-}, null, 2) + '\n');
+// Source: a button that emits 'wired' on the 'val' channel when clicked.
+fs.writeFileSync(path.join(sourceDir, 'component.html'),
+`<liquidos-component path="components/source">
+    <button data-source-btn type="button">Press</button>
+    <liquidos-file path="components/source/functions.js" script></liquidos-file>
+</liquidos-component>
+`);
 fs.writeFileSync(path.join(sourceDir, 'functions.js'),
 `export const mount = (surface) => {
     const btn = surface.querySelector('[data-source-btn]');
     const listeners = new Set();
-    const onClick = () => listeners.forEach(fn => { try { fn(); } catch {} });
+    const onClick = () => listeners.forEach(fn => { try { fn('wired'); } catch {} });
     btn.addEventListener('click', onClick);
     surface.__io = {
         on(channel, fn) {
-            if (channel !== 'press' || typeof fn !== 'function') return () => {};
+            if (channel !== 'val' || typeof fn !== 'function') return () => {};
             listeners.add(fn);
             return () => listeners.delete(fn);
         },
-        send() {},
-        connect() {}
+        send() {}, connect() {},
     };
     return () => btn.removeEventListener('click', onClick);
 };
 `);
 
-fs.writeFileSync(path.join(sinkDir, 'view.json'), JSON.stringify({
-    html: '<span data-sink>nothing yet</span>'
-}, null, 2) + '\n');
+// Sink: a span that paints whatever it receives on the 'val' channel.
+fs.writeFileSync(path.join(sinkDir, 'component.html'),
+`<liquidos-component path="components/sink">
+    <span data-sink>nothing yet</span>
+    <liquidos-file path="components/sink/functions.js" script></liquidos-file>
+</liquidos-component>
+`);
 fs.writeFileSync(path.join(sinkDir, 'functions.js'),
 `export const mount = (surface) => {
     const el = surface.querySelector('[data-sink]');
     surface.__io = {
         on() { return () => {}; },
-        send(channel, payload) {
-            if (channel === 'show') el.textContent = String(payload);
-        },
-        connect() {}
+        send(channel, payload) { if (channel === 'val') el.textContent = String(payload); },
+        connect() {},
     };
 };
 `);
 
-// Replace the scaffolded relationship's functions.js with one that
-// wires press → show with a deterministic payload. We're testing the
-// scaffolded SHAPE (does the canvas pick it up, does the harness
-// mount it, does connect run with both peers?), not the placeholder
-// channel names.
-fs.writeFileSync(path.join(relDir, 'functions.js'),
-`export const mount = (surface) => {
-    let off = null;
-    surface.__io = {
-        on() { return () => {}; },
-        send() {},
-        connect(peers) {
-            const from = peers['source'];
-            const to = peers['sink'];
-            if (!from || !to) return;
-            off = from.on('press', () => to.send('show', 'wired'));
-        }
-    };
-    return () => { if (off) { try { off(); } catch {} ; off = null; } };
-};
-`);
+// The thing under test: scaffold the relationship.
+const r = spawnSync('bash', [createRelationship, canvasDir, 'source', 'sink'], { encoding: 'utf8' });
+if (r.status !== 0) {
+    console.error('FAIL: create-relationship exited', r.status, '\n', r.stderr);
+    process.exit(1);
+}
 
-// Strip out the scaffolded start.sh from each component's component.html
-// — those services try to compile/run swiftc & node, which slows boot
-// and isn't relevant to the wire test. The scaffolded component.html
-// has <liquidos-file ... run> for start.sh; just drop it.
-for (const dir of [sourceDir, sinkDir]) {
-    const file = path.join(dir, 'component.html');
-    const html = fs.readFileSync(file, 'utf8')
-        .replace(/\s*<liquidos-file[^>]*start\.sh[^>]*><\/liquidos-file>\s*/, '\n    ');
-    fs.writeFileSync(file, html);
+// Fill in the scaffold's channel placeholder. We keep the scaffold's
+// declared peers and its connect() passthrough untouched — that's what we're
+// testing — and only name the channel both sides speak.
+const relFn = path.join(canvasDir, 'relationships', 'source-to-sink', 'functions.js');
+fs.writeFileSync(relFn, fs.readFileSync(relFn, 'utf8').replace(/<channel>/g, 'val'));
+if (!/peers:\s*\[/.test(fs.readFileSync(relFn, 'utf8'))) {
+    console.error('FAIL: scaffold did not declare __io.peers');
+    process.exit(1);
 }
 
 const launcher = spawn('node', [
     path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
-    '--workspace', ws, '--app', appRoot
+    '--workspace', ws, '--app', appRoot, '--agent', 'none'
 ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
 const sandbox = await new Promise((resolve, reject) => {
@@ -159,11 +133,8 @@ try {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // Wait for both components.
     await page.waitForSelector('[data-source-btn]', { timeout: 20000 });
-    await page.waitForSelector('[data-sink]',       { timeout: 20000 });
-    // Let the relationship connect.
-    await new Promise(r => setTimeout(r, 800));
+    await page.waitForSelector('[data-sink]', { timeout: 20000 });
 
     await page.locator('[data-source-btn]').click();
     await page.waitForFunction(

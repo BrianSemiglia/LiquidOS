@@ -13,6 +13,8 @@ set -euo pipefail
 #     components array (first, so the harness stops watching the
 #     folder and won't recreate diagnostics/ under it).
 #   - Removes the component folder at <canvas>/components/<name>/.
+#   - Cascades: removes any relationship that declared this component as a
+#     peer (it can never wire again), keyed off its __io.peers.
 #
 # Idempotent: succeeds quietly when the component is already absent
 # from either side. This makes it safe to call as a cleanup step
@@ -83,4 +85,26 @@ if (input.components.length !== before) {
 # Now remove the folder. rm -rf is fine when missing — idempotent.
 rm -rf "$component_dir"
 
-printf '{"component":"%s","path":"%s"}\n' "$safe_name" "$component_dir"
+# Cascade: a relationship that declares this component as a peer is now
+# orphaned (its peer can never appear), so remove it. We key off the
+# declared `__io.peers` — the authoritative list of what a relationship
+# wires. The runtime wiring already degrades gracefully (the relationship
+# just reports `waiting`); this keeps the workspace tidy.
+removed_rels=""
+rels_dir="$canvas_dir/relationships"
+if [ -d "$rels_dir" ]; then
+    for rel_dir in "$rels_dir"/*/; do
+        [ -d "$rel_dir" ] || continue
+        fn="$rel_dir/functions.js"
+        [ -f "$fn" ] || continue
+        peers="$(grep -oE "peers:[[:space:]]*\[[^]]*\]" "$fn" | head -1)"
+        if printf '%s' "$peers" | grep -qE "['\"]${safe_name}['\"]"; then
+            rm -rf "$rel_dir"
+            removed_rels="${removed_rels:+$removed_rels,}\"$(basename "$rel_dir")\""
+        fi
+    done
+    # Drop relationships/ entirely if nothing's left.
+    rmdir "$rels_dir" 2>/dev/null || true
+fi
+
+printf '{"component":"%s","path":"%s","removedRelationships":[%s]}\n' "$safe_name" "$component_dir" "$removed_rels"

@@ -19,8 +19,9 @@ set -euo pipefail
 #
 # That's the whole scaffold. The agent fills in component.html with its
 # inline HTML/CSS, and adds whatever else the component needs
-# (functions.js for interactivity, a service script + render.js for a
-# backend pipeline, native binaries, data files) on top.
+# (functions.js for interactivity, a <liquidos-file run> service that
+# patches the live view over stdout for a backend, native binaries, data
+# files) on top.
 #
 # Output: one-line JSON describing the new component.
 #

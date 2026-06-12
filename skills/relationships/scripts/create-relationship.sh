@@ -146,6 +146,10 @@ export const mount = (surface) => {
     let off = null;
 
     surface.__io = {
+        // Declared peers: the harness wires this relationship the instant both
+        // are present — no waiting, no timeout. Keep this list in sync with the
+        // peers connect() looks up below.
+        peers: ['${from_name}', '${to_name}'],
         on() { return () => {}; },
         send() {},
         connect(peers) {

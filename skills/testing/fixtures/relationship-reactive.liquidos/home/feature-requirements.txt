@@ -1,0 +1,1 @@
+- A source feeds a value to a sink; a bystander just sits there.

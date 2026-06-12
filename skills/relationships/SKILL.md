@@ -32,6 +32,7 @@ Every component or relationship may attach an I/O handle to its surface during `
 
 ```js
 surface.__io = {
+    peers: ['from', 'to'],            // relationships: the peers connect() needs
     on(channel, fn) { /* publisher: subscribe — returns unsubscribe */ return () => {} },
     send(channel, payload) { /* acceptor: receive on this channel */ },
     connect(peers) { /* relationships use this; leaves can leave it empty */ },
@@ -40,9 +41,9 @@ surface.__io = {
 
 - **Publishers** (a keyboard, a slider, a clock) implement `on(channel, fn)` so others can subscribe.
 - **Acceptors** (a swatch, a display, an LED strip) implement `send(channel, payload)` so others can drive them.
-- **Relationships** implement `connect(peers)`. `peers` is `{ '<local-name>': <io>, ... }` — every visible component and every other relationship in the canvas, keyed by folder basename.
+- **Relationships** implement `connect(peers)` and declare `peers: [...]` — the local names (folder basenames) they wire. The `peers` passed to `connect()` is `{ '<local-name>': <io>, ... }` for every component and relationship in the canvas.
 
-`connect()` runs once per canvas mount, after every component and relationship has finished its async `mount()`. Subsequent loads do not re-invoke `connect()` on already-connected peers.
+Wiring is **reactive, not timed**. The harness connects a relationship the instant the peers it declared are present — no polling, no timeout. A peer that mounts later wires it then; a peer that's missing shows as a derived `waiting` status in the relationship's `diagnostics/status.json` (`connect.missing`), and connects if/when it appears. A relationship that declares no `peers` falls back to the `<from>-to-<to>` folder name; with neither, it connects best-effort against whatever is present. Re-mounting a relationship (a live edit) re-runs `connect()`.
 
 ## What `connect()` typically does
 
@@ -94,7 +95,7 @@ This keeps the wiring inspectable and editable through tooling users already hav
 
 ## Creating a relationship
 
-Run the scaffold script. It validates that `<from>` and `<to>` exist under the canvas's `components/`, then writes `functions.js`, `feature-requirements.txt`, and `test.js` directly at `relationships/<from>-to-<to>/`.
+Run the scaffold script:
 
 ```sh
 bash skills/relationships/scripts/create-relationship.sh <canvas-path> <from> <to>
@@ -108,7 +109,7 @@ Then:
 2. Fill in `connect()` — channel names, payload transform, anything else specific to this wire.
 3. Write `feature-requirements.txt` in plain language describing what the wire does ("Pressing a key on the keyboard sets the color picker's color; multiple keys mix into one color").
 
-Editing `functions.js` re-mounts the relationship live: the harness sees the file's mtime change, ships the new view through `/input`, and replaces the mounted surface. The next user interaction reflects the new behavior. No canvas reload needed.
+Editing `functions.js` re-mounts the relationship live — the next user interaction reflects the new behavior, no canvas reload needed.
 
 ## Stateful relationships
 
@@ -209,10 +210,15 @@ Run by hand against a live server: `LIQUIDOS_APP_DIR=/path/to/liquidos-source no
 
 ## Removing
 
-1. Delete `<canvas>/relationships/<name>/`. The harness sees the directory disappear and tears down the mounted relationship on the next refresh.
-2. Endpoints don't need any changes — their `surface.__io` stays as-is; nothing is subscribed any more.
+Run the delete script:
 
-No `input.json` edit is required; the canvas was never aware of the relationship through that file.
+```bash
+bash skills/relationships/scripts/delete-relationship.sh <canvas-path> <name>
+# or, by endpoints:
+bash skills/relationships/scripts/delete-relationship.sh <canvas-path> <from> <to>
+```
+
+The endpoints are left untouched, and no `input.json` edit is required.
 
 ## When a relationship grows UI
 
