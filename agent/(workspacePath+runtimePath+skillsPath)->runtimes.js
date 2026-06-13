@@ -104,6 +104,31 @@ const createRuntimes = ({
             }
         });
 
+        // The agent runs with the workspace as its cwd, and skill instructions
+        // use workspace-relative paths (`node skills/testing/scripts/...`,
+        // `bash skills/component/scripts/...`). The materialized, app-baked
+        // skills live in the per-agent discovery dirs above; link a
+        // workspace-root `skills/` to one of them so those commands resolve
+        // directly — no second physical copy of the tree, no agent hunting for
+        // where the scripts live. Relative target so a copied workspace (a test
+        // sandbox) still resolves within itself.
+        const skillsLink = path.join(runtimePath, 'skills');
+        const linkTarget = ownedRuntimePaths()
+            .map(p => path.join(p, 'skills'))
+            .find(s => fs.existsSync(s));
+        try {
+            // `skills/` is runtime-managed and gitignored, so replacing a stale
+            // copy or old link is safe; it never holds the user's canvas data.
+            if (fs.lstatSync(skillsLink, { throwIfNoEntry: false })) {
+                fs.rmSync(skillsLink, { recursive: true, force: true });
+            }
+            if (linkTarget) {
+                fs.symlinkSync(path.relative(runtimePath, linkTarget), skillsLink, 'dir');
+            }
+        } catch {
+            // best-effort; the per-agent discovery dirs still hold the skills
+        }
+
         writeAgentSystemPrompt({ filePath: runtimePromptPath });
 
         return true;

@@ -60,7 +60,8 @@ const REQUIRED_GITIGNORE_ENTRIES = [
     '/.pi/',
     '/.agents/',
     '/AGENTS.md',
-    '/skills/'
+    '/node_modules',
+    '/skills'
 ];
 
 const ensureWorkspaceGitignore = workspacePath => {
@@ -105,12 +106,35 @@ const ensureGitRepo = workspacePath => {
 const hasStagedDelta = (workspacePath, paths) =>
     git(workspacePath, ['diff', '--cached', '--quiet', '--', ...paths]).status === 1;
 
+// Symlink <workspace>/node_modules to the app's node_modules so a probe the
+// agent writes anywhere in the workspace can `import 'playwright'` (and any
+// other app dependency) with zero config — no NODE_PATH, no path hunting.
+// The app root is this module's parent dir (workspace/bootstrap.js lives at
+// the app root). Gitignored, best-effort, never clobbers a real node_modules.
+const ensureNodeModulesLink = workspacePath => {
+    const appModules = path.resolve(__dirname, '..', 'node_modules');
+    if (!fs.existsSync(appModules)) return;
+    const link = path.join(workspacePath, 'node_modules');
+    try {
+        const stat = fs.lstatSync(link, { throwIfNoEntry: false });
+        if (stat) {
+            if (!stat.isSymbolicLink()) return;                          // a real node_modules — leave it
+            if (fs.realpathSync(link) === fs.realpathSync(appModules)) return; // already linked
+            fs.unlinkSync(link);                                          // stale link — replace
+        }
+        fs.symlinkSync(appModules, link, 'dir');
+    } catch {
+        // best-effort; the agent can still set NODE_PATH if it must
+    }
+};
+
 const bootstrapWorkspace = ({ workspacePath }) => {
     const result = { initialized: false, error: null };
 
     try {
         result.initialized = ensureGitRepo(workspacePath);
         ensureWorkspaceGitignore(workspacePath);
+        ensureNodeModulesLink(workspacePath);
 
         if (git(workspacePath, ['add', '--', '.gitignore']).status !== 0) {
             throw new Error('git add .gitignore failed');

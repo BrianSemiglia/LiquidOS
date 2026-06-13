@@ -11,12 +11,11 @@ Use this skill when changing a workspace or component and you need to verify the
 
 ## Contract
 
-The launcher receives a source workspace and the app path. It creates a sandboxed copy, boots that copy with testing disabled, then prints one JSON object.
+The launcher takes a source workspace, makes a sandboxed copy, boots that copy with testing disabled, then prints one JSON object. **The app location is already baked into this script** — the server fills it in when it materializes your skills — so you only pass the workspace:
 
 ```sh
 node skills/testing/scripts/boot-workspace-sandbox.mjs \
-  --workspace /path/to/Workspace.liquidos \
-  --app /path/to/liquidos-source
+  --workspace /path/to/Workspace.liquidos
 ```
 
 Output:
@@ -25,7 +24,7 @@ Output:
 {"url":"http://127.0.0.1:49123","workspace":"/tmp/liquidos-sandbox-abc123/Workspace.liquidos"}
 ```
 
-`--app` is the LiquidOS source checkout (the folder containing `server.js`, `skills/`, `lib/`). A probe script can derive it from its own location: `path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')` from `skills/testing/scripts/*.mjs`.
+Don't go looking for the app, and don't pass `--app` — it's wired in. (Only if you run this straight from a LiquidOS source checkout, where nothing baked it, pass `--app /path/to/liquidos-source` — the folder with `server.js`, `lib/`, `skills/`.)
 
 ## Workspace argument
 
@@ -105,12 +104,11 @@ Browser console is free of relevant runtime errors.
 
 ```js
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
-const appRoot = path.resolve(scriptsDir, '../../..');   // skills/testing/scripts/ → repo root
 
 const sandbox = spawn('node', [
-  path.join(appRoot, 'skills/testing/scripts/boot-workspace-sandbox.mjs'),
-  '--workspace', sourceWorkspace,
-  '--app', appRoot
+  path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
+  '--workspace', sourceWorkspace
+  // no --app — the server baked it in
 ]);
 
 const { url, workspace } = JSON.parse(await firstStdoutLine(sandbox));

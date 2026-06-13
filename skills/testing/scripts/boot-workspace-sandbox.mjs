@@ -26,12 +26,20 @@ const bootTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 
 // pass --agent <kind> and we forward it through.
 const agentKind = typeof agent === 'string' && agent.trim() ? agent.trim() : 'none';
 
-if (!workspace || !app) {
-  fail('usage: node scripts/boot-workspace-sandbox.mjs --workspace /path/to/Workspace.liquidos --app /path/to/app [--agent <kind>] [--timeout-ms 30000]');
+// The server bakes the running app's location in here when it materializes
+// this script into a workspace, so the runtime agent can boot a sandbox
+// without hunting for where the app lives (no lsof, no NODE_PATH archaeology).
+// The sentinel below means "not baked" — i.e. running straight from the repo —
+// in which case pass --app explicitly.
+const BAKED_APP_ROOT = '__LIQUIDOS_APP_ROOT__';
+const resolvedApp = app || (BAKED_APP_ROOT.startsWith('__') ? undefined : BAKED_APP_ROOT);
+
+if (!workspace || !resolvedApp) {
+  fail('usage: node scripts/boot-workspace-sandbox.mjs --workspace /path/to/Workspace.liquidos [--app /path/to/app] [--agent <kind>] [--timeout-ms 30000]\n(--app is optional inside a workspace — the server bakes the app location in)');
 }
 
 const sourceWorkspace = path.resolve(workspace);
-const appDirectory = path.resolve(app);
+const appDirectory = path.resolve(resolvedApp);
 
 if (!fs.existsSync(sourceWorkspace) || !fs.statSync(sourceWorkspace).isDirectory()) {
   fail(`workspace not found or not a directory: ${sourceWorkspace}`);
