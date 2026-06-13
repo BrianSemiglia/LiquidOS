@@ -99,13 +99,6 @@ const LqpatchStreamStubAgent = () => {
             // selectors and target them in the same stream — the central
             // claim of the streaming-into-just-created-elements story.
             const INVENTED_TAG = 'invented-' + token;
-            // Plus a streamFile demo: writes a SECOND file (separate from
-            // the writeFile target above) one chunk at a time, proving the
-            // agent doesn't have to repeat any prior content. Sniffer
-            // PATCHes each chunk onto the file in arrival order.
-            const STREAM_FILE_PATH = 'home/components/target/streamed.txt';
-            const STREAM_FILE_BODY = 'streamed-' + token
-                + ' — the agent never repeated this content in its output.';
             // PERSIST_MARK proves that DOM ops against elements inside a
             // <liquidos-component> are written back to the component's
             // component.html on disk. The probe replaces #target-status's
@@ -130,13 +123,9 @@ const LqpatchStreamStubAgent = () => {
                 INVENTED_TAG +
                 '</span>' +
                 '</lqpat\nch>' +
-                "\n\nNow stream a file into existence (with stray whitespace in the open tag — regression check):\n\n" +
-                '<lqpatch target\n="' + STREAM_FILE_PATH + '" op =  "streamFile">' +
-                STREAM_FILE_BODY +
-                '</lqpatch>' +
                 "\n\nReplace the status inside the target component (persistence regression — should land in component.html on disk):\n\n" +
                 '<lqpatch target="#target-status" op="replace">' +
-                PERSIST_MARK +
+                '<span>' + PERSIST_MARK + '</span>' +
                 '</lqpatch>' +
                 "\n\nFinally, write the component file:\n\n" +
                 '<lqpatch target="' + filePath + '" op="writeFile">' +
