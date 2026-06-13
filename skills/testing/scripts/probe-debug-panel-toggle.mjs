@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 //
 // probe-debug-panel-toggle.mjs
 //
@@ -6,39 +5,11 @@
 // shows it; calling again hides it. The Mac app's View menu calls
 // this same JS, so verifying the toggle in a sandbox is verifying
 // what the menu drives.
+//
+// Run it:  node run-probe.mjs probe-debug-panel-toggle.mjs
+//
 
-import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
-
-const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
-const appRoot = path.resolve(scriptsDir, '../../..');
-const fixture = path.join(scriptsDir, '..', 'fixtures', 'canvas-build.liquidos');
-
-const launcher = spawn('node', [
-    path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
-    '--workspace', fixture, '--app', appRoot
-], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-const sandbox = await new Promise((resolve, reject) => {
-    let buf = '';
-    const onExit = () => reject(new Error('sandbox launcher exited before printing url'));
-    launcher.on('exit', onExit);
-    launcher.stdout.on('data', chunk => {
-        buf += chunk.toString('utf8');
-        const nl = buf.indexOf('\n');
-        if (nl >= 0) {
-            launcher.off('exit', onExit);
-            try { resolve(JSON.parse(buf.slice(0, nl))); }
-            catch (e) { reject(new Error('non-json launcher output: ' + buf.slice(0, 200))); }
-        }
-    });
-    launcher.stderr.on('data', c => process.stderr.write('[launcher] ' + c.toString('utf8')));
-});
-
-const cleanup = () => { try { launcher.kill('SIGTERM'); } catch {} };
-process.on('SIGINT', () => { cleanup(); process.exit(130); });
+export const fixture = 'canvas-build.liquidos';
 
 const railVisible = (page) => page.evaluate(() => {
     const rail = document.querySelector('.debug-rail');
@@ -47,12 +18,10 @@ const railVisible = (page) => page.evaluate(() => {
     return style.display !== 'none' && rail.getBoundingClientRect().width > 0;
 });
 
-let exitCode = 0;
-try {
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+export default async ({ url, page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
     page.on('pageerror', err => console.log('[page error]', err.message));
-    await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     // Module script that defines toggleDebug runs after an async import.
     await page.waitForFunction(() => typeof window.liquidos?.toggleDebug === 'function', { timeout: 10000 });
     // Clear any persisted state from previous runs.
@@ -62,30 +31,25 @@ try {
 
     // 1. Hidden by default.
     if (await railVisible(page)) {
-        console.error('FAIL: debug rail visible on first load — should be hidden by default');
-        exitCode = 1;
+        throw new Error('debug rail visible on first load — should be hidden by default');
     }
 
     // 2. toggleDebug shows it.
     const r1 = await page.evaluate(() => window.liquidos?.toggleDebug?.());
     if (r1 !== true) {
-        console.error('FAIL: toggleDebug() should return true when opening, returned', r1);
-        exitCode = 1;
+        throw new Error('toggleDebug() should return true when opening, returned ' + r1);
     }
     if (!await railVisible(page)) {
-        console.error('FAIL: debug rail still hidden after toggleDebug()');
-        exitCode = 1;
+        throw new Error('debug rail still hidden after toggleDebug()');
     }
 
     // 3. toggleDebug again hides it.
     const r2 = await page.evaluate(() => window.liquidos?.toggleDebug?.());
     if (r2 !== false) {
-        console.error('FAIL: toggleDebug() should return false when closing, returned', r2);
-        exitCode = 1;
+        throw new Error('toggleDebug() should return false when closing, returned ' + r2);
     }
     if (await railVisible(page)) {
-        console.error('FAIL: debug rail still visible after second toggleDebug()');
-        exitCode = 1;
+        throw new Error('debug rail still visible after second toggleDebug()');
     }
 
     // 4. State persists across reload (open then reload, must stay open).
@@ -93,8 +57,7 @@ try {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => typeof window.liquidos?.toggleDebug === 'function', { timeout: 10000 });
     if (!await railVisible(page)) {
-        console.error('FAIL: debug rail did not stay open after reload — localStorage persistence broken');
-        exitCode = 1;
+        throw new Error('debug rail did not stay open after reload — localStorage persistence broken');
     }
 
     // 5. A previously-stored width must not reserve a grid column when
@@ -113,8 +76,7 @@ try {
     const closedRailWidth = await page.evaluate(() =>
         getComputedStyle(document.body).getPropertyValue('--debug-rail-width').trim());
     if (closedRailWidth !== '0px') {
-        console.error('FAIL: --debug-rail-width is', closedRailWidth, 'when panel closed — body grid still reserves a column');
-        exitCode = 1;
+        throw new Error('--debug-rail-width is ' + closedRailWidth + ' when panel closed — body grid still reserves a column');
     }
 
     // Clean up.
@@ -124,10 +86,4 @@ try {
             localStorage.removeItem('live-edit-debug-rail-width');
         } catch {}
     });
-
-    if (!exitCode) console.log('PASS');
-    await browser.close();
-} catch (e) {
-    console.error('FAIL:', e.message);
-    exitCode = 1;
-} finally { cleanup(); process.exit(exitCode); }
+};

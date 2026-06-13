@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 //
 // probe-persist-no-chrome-leak.mjs
 //
@@ -27,43 +26,13 @@
 // enough to make the file diverge from the authored shape; reloading
 // would then re-wrap and bury content further.
 //
+// Run it:  node run-probe.mjs probe-persist-no-chrome-leak.mjs
+//
 
 import fs from 'node:fs';
-import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
 
-const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
-const appRoot = path.resolve(scriptsDir, '../../..');
-const fixture = path.join(scriptsDir, '..', 'fixtures', 'agent-edit-stub.liquidos');
-
-const launcher = spawn('node', [
-    path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
-    '--workspace', fixture,
-    '--app', appRoot,
-    '--agent', 'lqpatch-stream-stub'
-], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-const sandbox = await new Promise((resolve, reject) => {
-    let buf = '';
-    const onExit = () => reject(new Error('sandbox launcher exited before printing url'));
-    launcher.on('exit', onExit);
-    launcher.stdout.on('data', chunk => {
-        buf += chunk.toString('utf8');
-        const nl = buf.indexOf('\n');
-        if (nl >= 0) {
-            launcher.off('exit', onExit);
-            try { resolve(JSON.parse(buf.slice(0, nl))); }
-            catch (e) { reject(new Error('non-json launcher output: ' + buf.slice(0, 200))); }
-        }
-    });
-    launcher.stderr.on('data', c => process.stderr.write('[launcher] ' + c.toString('utf8')));
-});
-
-const cleanup = () => { try { launcher.kill('SIGTERM'); } catch {} };
-process.on('SIGINT', () => { cleanup(); process.exit(130); });
-process.on('SIGTERM', () => { cleanup(); process.exit(143); });
+export const fixture = 'agent-edit-stub.liquidos';
+export const agent = 'lqpatch-stream-stub';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const expect = (label, predicate, detail) => {
@@ -71,26 +40,23 @@ const expect = (label, predicate, detail) => {
     throw new Error('FAIL: ' + label + (detail ? ' — ' + detail : ''));
 };
 
-let exitCode = 0;
-try {
-    const targetHtmlPath = path.join(sandbox.workspace, 'home/components/target/component.html');
+export default async ({ url, workspace, page }) => {
+    const targetHtmlPath = workspace + '/home/components/target/component.html';
     const beforeFile = fs.readFileSync(targetHtmlPath, 'utf8');
     expect('baseline component.html is the authored shape',
         !beforeFile.includes('harness-component-frame-watcher')
         && !beforeFile.includes('class="surface"'),
         'fixture is already chrome-poisoned: ' + beforeFile.slice(0, 200));
 
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
     page.on('pageerror', err => console.log('[pageerror]', err.message));
 
-    await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForFunction(() => !!window.__lqpatch, undefined, { timeout: 10000 });
     await page.waitForSelector('#target-status', { timeout: 10000 });
 
     // Dispatch — agent emits op="replace" on #target-status (among others).
     const token = 'CHROME_' + Math.random().toString(36).slice(2, 10).toUpperCase();
-    const dispatch = await fetch(sandbox.url + '/output', {
+    const dispatch = await fetch(url + '/output', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -137,13 +103,4 @@ try {
     expect('live #target-status still rendered after persist',
         liveStatus.includes(persistMark),
         'live text: ' + JSON.stringify(liveStatus));
-
-    console.log('PASS');
-    await browser.close();
-} catch (e) {
-    console.error(e.message);
-    exitCode = 1;
-} finally {
-    cleanup();
-    process.exit(exitCode);
-}
+};

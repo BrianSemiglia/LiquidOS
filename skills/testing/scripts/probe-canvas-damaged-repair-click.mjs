@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 //
 // probe-canvas-damaged-repair-click.mjs
 //
@@ -7,46 +6,16 @@
 // to point at a pre-staged repaired component (carrying a known DOM
 // marker). The probe asserts the marker appears — proof that the
 // Repair click actually drove the canvas back to a healthy state.
+//
+// Run it:  node run-probe.mjs probe-canvas-damaged-repair-click.mjs
+//
 
-import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+export const fixture = 'canvas-damaged-repair.liquidos';
+export const agent = 'canvas-damaged-repair-test';
 
-const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
-const appRoot = path.resolve(scriptsDir, '../../..');
-const fixture = path.join(scriptsDir, '..', 'fixtures', 'canvas-damaged-repair.liquidos');
-
-const launcher = spawn('node', [
-    path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
-    '--workspace', fixture, '--app', appRoot, '--agent', 'canvas-damaged-repair-test'
-], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-const sandbox = await new Promise((resolve, reject) => {
-    let buf = '';
-    const onExit = () => reject(new Error('sandbox launcher exited before printing url'));
-    launcher.on('exit', onExit);
-    launcher.stdout.on('data', chunk => {
-        buf += chunk.toString('utf8');
-        const nl = buf.indexOf('\n');
-        if (nl >= 0) {
-            launcher.off('exit', onExit);
-            try { resolve(JSON.parse(buf.slice(0, nl))); }
-            catch (e) { reject(new Error('non-json launcher output: ' + buf.slice(0, 200))); }
-        }
-    });
-    launcher.stderr.on('data', c => process.stderr.write('[launcher] ' + c.toString('utf8')));
-});
-
-const cleanup = () => { try { launcher.kill('SIGTERM'); } catch {} };
-process.on('SIGINT', () => { cleanup(); process.exit(130); });
-
-let exitCode = 0;
-try {
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
-    await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     // Wait for the "Canvas is damaged" Repair card and click its button.
     // The card itself is the role="group" wrapper — narrowing on that
@@ -71,16 +40,9 @@ try {
         };
     });
     if (failure) {
-        console.error('FAIL:', failure.reason);
         console.error('--- prompt the agent received ---');
         console.error(failure.promptReceived);
         console.error('---');
-        exitCode = 1;
-    } else {
-        console.log('PASS');
+        throw new Error(failure.reason);
     }
-    await browser.close();
-} catch (e) {
-    console.error('FAIL:', e.message);
-    exitCode = 1;
-} finally { cleanup(); process.exit(exitCode); }
+};

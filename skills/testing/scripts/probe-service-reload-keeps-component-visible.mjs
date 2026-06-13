@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 //
 // probe-service-reload-keeps-component-visible.mjs
 //
@@ -21,43 +20,14 @@
 //      the new one.
 //   4. Assert the same user-visible content is STILL on screen.
 //
+// Run it:  node run-probe.mjs probe-service-reload-keeps-component-visible.mjs
+//
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
 
-const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
-const appRoot = path.resolve(scriptsDir, '../../..');
-const fixture = path.join(scriptsDir, '..', 'fixtures', 'agent-service-restart.liquidos');
-
-const launcher = spawn('node', [
-    path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
-    '--workspace', fixture,
-    '--app', appRoot,
-    '--agent', 'service-rewrite-stub'
-], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-const sandbox = await new Promise((resolve, reject) => {
-    let buf = '';
-    const onExit = () => reject(new Error('sandbox launcher exited before printing url'));
-    launcher.on('exit', onExit);
-    launcher.stdout.on('data', chunk => {
-        buf += chunk.toString('utf8');
-        const nl = buf.indexOf('\n');
-        if (nl >= 0) {
-            launcher.off('exit', onExit);
-            try { resolve(JSON.parse(buf.slice(0, nl))); }
-            catch (e) { reject(new Error('non-json launcher output: ' + buf.slice(0, 200))); }
-        }
-    });
-    launcher.stderr.on('data', c => process.stderr.write('[launcher] ' + c.toString('utf8')));
-});
-
-const cleanup = () => { try { launcher.kill('SIGTERM'); } catch {} };
-process.on('SIGINT', () => { cleanup(); process.exit(130); });
-process.on('SIGTERM', () => { cleanup(); process.exit(143); });
+export const fixture = 'agent-service-restart.liquidos';
+export const agent = 'service-rewrite-stub';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const expect = (label, predicate, detail) => {
@@ -65,13 +35,10 @@ const expect = (label, predicate, detail) => {
     throw new Error('FAIL: ' + label + (detail ? ' — ' + detail : ''));
 };
 
-let exitCode = 0;
-try {
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[pageerror]', err.message));
 
-    await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForFunction(() => !!window.__lqpatch, undefined, { timeout: 10000 });
     await page.waitForSelector('#target-status', { timeout: 10000 });
 
@@ -111,7 +78,7 @@ try {
 
     // Dispatch — stub agent rewrites service.sh via op="writeFile".
     const token = 'REWRITE_' + Math.random().toString(36).slice(2, 10).toUpperCase();
-    const dispatch = await fetch(sandbox.url + '/output', {
+    const dispatch = await fetch(url + '/output', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -124,7 +91,7 @@ try {
 
     // Wait for the script rewrite to land on disk so we know the
     // restart actually had something to react to.
-    const servicePath = path.join(sandbox.workspace, 'home/components/target/service.js');
+    const servicePath = path.join(workspace, 'home/components/target/service.js');
     const writeDeadline = Date.now() + 10000;
     while (Date.now() < writeDeadline) {
         const body = fs.readFileSync(servicePath, 'utf8');
@@ -145,13 +112,4 @@ try {
     expect('after service reload: view.json marker STILL visible with MARKER_BEFORE',
         after.markerVisible && after.markerText.includes('MARKER_BEFORE'),
         'marker disappeared — after: ' + JSON.stringify(after));
-
-    console.log('PASS');
-    await browser.close();
-} catch (e) {
-    console.error(e.message);
-    exitCode = 1;
-} finally {
-    cleanup();
-    process.exit(exitCode);
-}
+};

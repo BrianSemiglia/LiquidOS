@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 //
 // probe-canvas-damaged-prompt-carries-contract.mjs
 //
@@ -9,46 +8,15 @@
 // the contract (input.json entries must end in component.html, the
 // agent must write the file AND update input.json), so a dispatched
 // agent has the recipe without needing to find any specific skill.
+//
+// Run it:  node run-probe.mjs probe-canvas-damaged-prompt-points-at-skill.mjs
+//
 
-import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+export const fixture = 'component-missing.liquidos';
 
-const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
-const appRoot = path.resolve(scriptsDir, '../../..');
-const fixture = path.join(scriptsDir, '..', 'fixtures', 'component-missing.liquidos');
-
-const launcher = spawn('node', [
-    path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
-    '--workspace', fixture, '--app', appRoot
-], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-const sandbox = await new Promise((resolve, reject) => {
-    let buf = '';
-    const onExit = () => reject(new Error('sandbox launcher exited before printing url'));
-    launcher.on('exit', onExit);
-    launcher.stdout.on('data', chunk => {
-        buf += chunk.toString('utf8');
-        const nl = buf.indexOf('\n');
-        if (nl >= 0) {
-            launcher.off('exit', onExit);
-            try { resolve(JSON.parse(buf.slice(0, nl))); }
-            catch (e) { reject(new Error('non-json launcher output: ' + buf.slice(0, 200))); }
-        }
-    });
-    launcher.stderr.on('data', c => process.stderr.write('[launcher] ' + c.toString('utf8')));
-});
-
-const cleanup = () => { try { launcher.kill('SIGTERM'); } catch {} };
-process.on('SIGINT', () => { cleanup(); process.exit(130); });
-
-let exitCode = 0;
-try {
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
-    await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     // Wait for the canvas Repair card.
     await page.waitForSelector('[role="group"][data-repair-level="canvas"]', { timeout: 10000 });
@@ -66,16 +34,10 @@ try {
     ];
     const failed = expectations.filter(e => !e.ok);
     if (failed.length > 0) {
-        console.error('FAIL: prompt missing contract:', failed.map(f => f.name).join(', '));
+        console.error('prompt missing contract:', failed.map(f => f.name).join(', '));
         console.error('--- prompt as carried ---');
         console.error(prompt);
         console.error('---');
-        exitCode = 1;
-    } else {
-        console.log('PASS');
+        throw new Error('prompt missing contract: ' + failed.map(f => f.name).join(', '));
     }
-    await browser.close();
-} catch (e) {
-    console.error('FAIL:', e.message);
-    exitCode = 1;
-} finally { cleanup(); process.exit(exitCode); }
+};

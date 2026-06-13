@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 //
 // probe-browse-popularity.mjs
 //
@@ -28,17 +27,16 @@
 // short-circuit libp2p DHT bootstrap (no UI for that — peer discovery is
 // designed to be automatic).
 //
+// Run it:  node run-probe.mjs probe-browse-popularity.mjs
+//
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { bootSandbox } from './sandbox.mjs';
 
-const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
-const appRoot = path.resolve(scriptsDir, '../../..');
-const publisherFixture = path.join(scriptsDir, '..', 'fixtures', 'popularity-publisher.liquidos');
-const consumerFixture = path.join(scriptsDir, '..', 'fixtures', 'canvas-build.liquidos');
+export const fixture = 'canvas-build.liquidos';
+export const agent = 'none';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -98,211 +96,170 @@ const writeComponent = (workspace, name, bullets, lookup) => {
     fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + '\n');
 };
 
-const bootSandbox = async (fixture) => {
-    const launcher = spawn('node', [
-        path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
-        '--workspace', fixture, '--app', appRoot, '--agent', 'none'
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
-    const handle = await new Promise((resolve, reject) => {
-        let buf = '';
-        const onExit = () => reject(new Error('sandbox exited before printing url'));
-        launcher.on('exit', onExit);
-        launcher.stdout.on('data', chunk => {
-            buf += chunk.toString('utf8');
-            const nl = buf.indexOf('\n');
-            if (nl >= 0) {
-                launcher.off('exit', onExit);
-                try { resolve(JSON.parse(buf.slice(0, nl))); } catch (e) { reject(e); }
-            }
-        });
-        launcher.stderr.on('data', c => process.stderr.write('[launcher] ' + c.toString('utf8')));
-    });
-    return { ...handle, launcher };
-};
+export default async ({ url, page, browser }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
 
-const publishers = [];
-let consumer;
-let browser;
-const cleanup = () => {
-    if (browser) browser.close().catch(() => {});
-    for (const p of publishers) { try { p.launcher.kill('SIGTERM'); } catch {} }
-    if (consumer?.launcher) { try { consumer.launcher.kill('SIGTERM'); } catch {} }
-};
-process.on('SIGINT', () => { cleanup(); process.exit(130); });
-process.on('SIGTERM', () => { cleanup(); process.exit(143); });
-
-let exitCode = 0;
-const fail = msg => { console.error('FAIL:', msg); exitCode = 1; };
-
-try {
-    // --- Boot publishers + populate components ----------------------
-    for (const def of PUBLISHERS) {
-        const handle = await bootSandbox(publisherFixture);
-        // Canvas-level requirements: minimal, just enough text to be
-        // searchable on TOPIC even if the topic isn't in component names.
-        fs.writeFileSync(
-            path.join(handle.workspace, 'home/feature-requirements.txt'),
-            '- ' + TOPIC + '\n'
-        );
-        for (const [name, ids] of Object.entries(def.components)) {
-            const lookup = name === 'restaurant-list' ? RESTAURANT_BULLETS : WAIT_TIMES_BULLETS;
-            writeComponent(handle.workspace, name, ids, lookup);
-        }
-        publishers.push({ ...handle, label: def.label });
-        console.log(`publisher ${def.label}: ${handle.url}`);
-    }
-
-    browser = await chromium.launch({ headless: true });
-
-    // --- Share each publisher's home canvas through the UI ------------
-    // One tab per publisher: open Canvas Info, click Shared, wait for
-    // aria-checked='true' AND !disabled (server-committed, not just the
-    // optimistic flip).
-    for (const pub of publishers) {
-        const tab = await browser.newPage();
-        tab.on('pageerror', err => console.warn(`[${pub.label} pageerror]`, err.message));
-        await tab.goto(pub.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await tab.waitForSelector('#canvas-info', { timeout: 20000 });
-        await tab.locator('#canvas-info').click();
-        await tab.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
-        await tab.locator('#canvas-share-switch').click();
-        await tab.waitForFunction(
-            () => {
-                const btn = document.getElementById('canvas-share-switch');
-                return btn
-                    && btn.getAttribute('aria-checked') === 'true'
-                    && !btn.hasAttribute('disabled');
-            },
-            undefined,
-            { timeout: 30000 }
-        );
-        console.log(`publisher ${pub.label}: share toggle ON`);
-        await tab.close();
-    }
-
-    // --- Boot consumer, dial each publisher ---------------------------
-    consumer = await bootSandbox(consumerFixture);
-    console.log(`consumer: ${consumer.url}`);
-
-    const expectedPeerIds = new Set();
-    for (const pub of publishers) {
-        // /network/status to get the loopback multiaddr and peerId, and
-        // /network/dial to skip libp2p DHT bootstrap. Both are
-        // documented test-setup precursors with no UI equivalent.
-        const status = await fetch(pub.url + '/network/status').then(r => r.json());
-        expectedPeerIds.add(status.peerId);
-        const addr = (status.multiaddrs || []).find(a => a.startsWith('/ip4/127.0.0.1/'));
-        const dial = await fetch(consumer.url + '/network/dial', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ multiaddr: addr })
-        }).then(r => r.json()).catch(e => ({ ok: false, error: String(e) }));
-        if (!dial.ok) throw new Error(`dial ${pub.label} failed`);
-    }
-
-    // --- Drive the Browse overlay -------------------------------------
-    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-    page.on('pageerror', err => console.log('[pageerror]', err.message));
-    await page.goto(consumer.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#new-canvas', { timeout: 20000 });
-    await sleep(500);
-    await page.locator('#new-canvas').click();
-    await page.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
-    await page.locator('#browse-query').fill(TOPIC);
-
-    // Wait for the publisher bundles to surface in the Browse UI. Each
-    // publisher's feed was fetched on peer:connect (right after dial);
-    // the popularity block renders once we have multiple matches.
-    await page.waitForFunction(
-        (peerIds) => {
-            const cards = document.querySelectorAll('#browse-results .browse-result');
-            const seen = new Set();
-            for (const c of cards) if (peerIds.includes(c.dataset.peer)) seen.add(c.dataset.peer);
-            return seen.size >= 3;
-        },
-        Array.from(expectedPeerIds),
-        { timeout: 60000 }
-    );
-    console.log('consumer saw all 3 publisher bundles in Browse');
+    const publishers = [];
+    const fail = msg => { throw new Error(msg); };
 
     try {
-        await page.waitForSelector('.browse-popularity', { timeout: 10000 });
-    } catch {
-        throw new Error('.browse-popularity never appeared after typing the query');
+        // --- Boot publishers + populate components ----------------------
+        for (const def of PUBLISHERS) {
+            const handle = await bootSandbox('popularity-publisher.liquidos', { agent: 'none' });
+            // Canvas-level requirements: minimal, just enough text to be
+            // searchable on TOPIC even if the topic isn't in component names.
+            fs.writeFileSync(
+                path.join(handle.workspace, 'home/feature-requirements.txt'),
+                '- ' + TOPIC + '\n'
+            );
+            for (const [name, ids] of Object.entries(def.components)) {
+                const lookup = name === 'restaurant-list' ? RESTAURANT_BULLETS : WAIT_TIMES_BULLETS;
+                writeComponent(handle.workspace, name, ids, lookup);
+            }
+            publishers.push({ ...handle, label: def.label });
+            console.log(`publisher ${def.label}: ${handle.url}`);
+        }
+
+        // --- Share each publisher's home canvas through the UI ------------
+        // One tab per publisher: open Canvas Info, click Shared, wait for
+        // aria-checked='true' AND !disabled (server-committed, not just the
+        // optimistic flip).
+        for (const pub of publishers) {
+            const tab = await browser.newPage();
+            tab.on('pageerror', err => console.warn(`[${pub.label} pageerror]`, err.message));
+            await tab.goto(pub.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await tab.waitForSelector('#canvas-info', { timeout: 20000 });
+            await tab.locator('#canvas-info').click();
+            await tab.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
+            await tab.locator('#canvas-share-switch').click();
+            await tab.waitForFunction(
+                () => {
+                    const btn = document.getElementById('canvas-share-switch');
+                    return btn
+                        && btn.getAttribute('aria-checked') === 'true'
+                        && !btn.hasAttribute('disabled');
+                },
+                undefined,
+                { timeout: 30000 }
+            );
+            console.log(`publisher ${pub.label}: share toggle ON`);
+            await tab.close();
+        }
+
+        // --- Dial each publisher from the consumer (provided url) ---------
+        const expectedPeerIds = new Set();
+        for (const pub of publishers) {
+            // /network/status to get the loopback multiaddr and peerId, and
+            // /network/dial to skip libp2p DHT bootstrap. Both are
+            // documented test-setup precursors with no UI equivalent.
+            const status = await fetch(pub.url + '/network/status').then(r => r.json());
+            expectedPeerIds.add(status.peerId);
+            const addr = (status.multiaddrs || []).find(a => a.startsWith('/ip4/127.0.0.1/'));
+            const dial = await fetch(url + '/network/dial', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ multiaddr: addr })
+            }).then(r => r.json()).catch(e => ({ ok: false, error: String(e) }));
+            if (!dial.ok) throw new Error(`dial ${pub.label} failed`);
+        }
+
+        // --- Drive the Browse overlay -------------------------------------
+        page.on('pageerror', err => console.log('[pageerror]', err.message));
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.waitForSelector('#new-canvas', { timeout: 20000 });
+        await sleep(500);
+        await page.locator('#new-canvas').click();
+        await page.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
+        await page.locator('#browse-query').fill(TOPIC);
+
+        // Wait for the publisher bundles to surface in the Browse UI. Each
+        // publisher's feed was fetched on peer:connect (right after dial);
+        // the popularity block renders once we have multiple matches.
+        await page.waitForFunction(
+            (peerIds) => {
+                const cards = document.querySelectorAll('#browse-results .browse-result');
+                const seen = new Set();
+                for (const c of cards) if (peerIds.includes(c.dataset.peer)) seen.add(c.dataset.peer);
+                return seen.size >= 3;
+            },
+            Array.from(expectedPeerIds),
+            { timeout: 60000 }
+        );
+        console.log('consumer saw all 3 publisher bundles in Browse');
+
+        try {
+            await page.waitForSelector('.browse-popularity', { timeout: 10000 });
+        } catch {
+            throw new Error('.browse-popularity never appeared after typing the query');
+        }
+
+        // --- Assertions on the rendered two-level histogram ---------------
+        const observed = await page.evaluate(() => {
+            const block = document.querySelector('.browse-popularity');
+            if (!block) return null;
+            const sample = block.dataset.popularitySample;
+            const heading = block.querySelector('.browse-popularity-heading')?.textContent || '';
+            const components = Array.from(block.querySelectorAll('.browse-popularity-component')).map(c => ({
+                name: c.dataset.componentName,
+                count: Number.parseInt(c.dataset.componentCount, 10),
+                bullets: Array.from(c.querySelectorAll('.browse-popularity-row')).map(row => ({
+                    count: Number.parseInt(row.dataset.count, 10),
+                    text: row.querySelector('.browse-popularity-text')?.textContent || '',
+                    checked: row.querySelector('.browse-popularity-pick')?.checked || false
+                })),
+                headerChecked: c.querySelector('.browse-popularity-component-pick')?.checked || false
+            }));
+            const installBtn = block.querySelector('.browse-popularity-install');
+            const nameInput = block.querySelector('.browse-popularity-name');
+            return {
+                sample, heading, components,
+                buttonExists: !!installBtn,
+                hasNameInput: !!nameInput
+            };
+        });
+        console.log('observed:', JSON.stringify(observed, null, 2));
+        if (!observed) throw new Error('no .browse-popularity in the DOM');
+        if (observed.sample !== '3') fail('expected sample size 3, got ' + observed.sample);
+        if (!observed.heading.includes('3 results')) fail('expected heading to mention "3 results", got ' + observed.heading);
+        if (!observed.buttonExists) fail('Build button missing');
+        if (observed.hasNameInput) fail('name input should NOT be present — the agent names everything');
+
+        const byName = Object.fromEntries(observed.components.map(c => [c.name, c]));
+
+        // Outer cluster expectations.
+        const rl = byName['restaurant-list'];
+        if (!rl) fail('expected a restaurant-list component cluster');
+        else {
+            if (rl.count !== 3) fail('restaurant-list count: got ' + rl.count + ', expected 3');
+            if (!rl.headerChecked) fail('restaurant-list header should default to checked');
+            const expectedRL = new Set([
+                '3|' + normalizeBullet(RESTAURANT_BULLETS[1]),
+                '3|' + normalizeBullet(RESTAURANT_BULLETS[2]),
+                '2|' + normalizeBullet(RESTAURANT_BULLETS[3]),
+                '1|' + normalizeBullet(RESTAURANT_BULLETS[4]),
+                '1|' + normalizeBullet(RESTAURANT_BULLETS[5]),
+                '1|' + normalizeBullet(RESTAURANT_BULLETS[6]),
+                '1|' + normalizeBullet(RESTAURANT_BULLETS[7])
+            ]);
+            const seenRL = new Set(rl.bullets.map(b => b.count + '|' + normalizeBullet(b.text)));
+            for (const e of expectedRL) if (!seenRL.has(e)) fail('restaurant-list missing bullet: ' + e);
+            for (const s of seenRL) if (!expectedRL.has(s)) fail('restaurant-list unexpected bullet: ' + s);
+            if (!rl.bullets.every(b => b.checked)) fail('restaurant-list bullets should default to checked');
+        }
+
+        const wt = byName['wait-times'];
+        if (!wt) fail('expected a wait-times component cluster');
+        else {
+            if (wt.count !== 1) fail('wait-times count: got ' + wt.count + ', expected 1');
+            const expectedWT = new Set([
+                '1|' + normalizeBullet(WAIT_TIMES_BULLETS.a),
+                '1|' + normalizeBullet(WAIT_TIMES_BULLETS.b)
+            ]);
+            const seenWT = new Set(wt.bullets.map(b => b.count + '|' + normalizeBullet(b.text)));
+            for (const e of expectedWT) if (!seenWT.has(e)) fail('wait-times missing bullet: ' + e);
+            for (const s of seenWT) if (!expectedWT.has(s)) fail('wait-times unexpected bullet: ' + s);
+        }
+    } finally {
+        for (const p of publishers) { try { p.teardown(); } catch {} }
     }
-
-    // --- Assertions on the rendered two-level histogram ---------------
-    const observed = await page.evaluate(() => {
-        const block = document.querySelector('.browse-popularity');
-        if (!block) return null;
-        const sample = block.dataset.popularitySample;
-        const heading = block.querySelector('.browse-popularity-heading')?.textContent || '';
-        const components = Array.from(block.querySelectorAll('.browse-popularity-component')).map(c => ({
-            name: c.dataset.componentName,
-            count: Number.parseInt(c.dataset.componentCount, 10),
-            bullets: Array.from(c.querySelectorAll('.browse-popularity-row')).map(row => ({
-                count: Number.parseInt(row.dataset.count, 10),
-                text: row.querySelector('.browse-popularity-text')?.textContent || '',
-                checked: row.querySelector('.browse-popularity-pick')?.checked || false
-            })),
-            headerChecked: c.querySelector('.browse-popularity-component-pick')?.checked || false
-        }));
-        const installBtn = block.querySelector('.browse-popularity-install');
-        const nameInput = block.querySelector('.browse-popularity-name');
-        return {
-            sample, heading, components,
-            buttonExists: !!installBtn,
-            hasNameInput: !!nameInput
-        };
-    });
-    console.log('observed:', JSON.stringify(observed, null, 2));
-    if (!observed) throw new Error('no .browse-popularity in the DOM');
-    if (observed.sample !== '3') fail('expected sample size 3, got ' + observed.sample);
-    if (!observed.heading.includes('3 results')) fail('expected heading to mention "3 results", got ' + observed.heading);
-    if (!observed.buttonExists) fail('Build button missing');
-    if (observed.hasNameInput) fail('name input should NOT be present — the agent names everything');
-
-    const byName = Object.fromEntries(observed.components.map(c => [c.name, c]));
-
-    // Outer cluster expectations.
-    const rl = byName['restaurant-list'];
-    if (!rl) fail('expected a restaurant-list component cluster');
-    else {
-        if (rl.count !== 3) fail('restaurant-list count: got ' + rl.count + ', expected 3');
-        if (!rl.headerChecked) fail('restaurant-list header should default to checked');
-        const expectedRL = new Set([
-            '3|' + normalizeBullet(RESTAURANT_BULLETS[1]),
-            '3|' + normalizeBullet(RESTAURANT_BULLETS[2]),
-            '2|' + normalizeBullet(RESTAURANT_BULLETS[3]),
-            '1|' + normalizeBullet(RESTAURANT_BULLETS[4]),
-            '1|' + normalizeBullet(RESTAURANT_BULLETS[5]),
-            '1|' + normalizeBullet(RESTAURANT_BULLETS[6]),
-            '1|' + normalizeBullet(RESTAURANT_BULLETS[7])
-        ]);
-        const seenRL = new Set(rl.bullets.map(b => b.count + '|' + normalizeBullet(b.text)));
-        for (const e of expectedRL) if (!seenRL.has(e)) fail('restaurant-list missing bullet: ' + e);
-        for (const s of seenRL) if (!expectedRL.has(s)) fail('restaurant-list unexpected bullet: ' + s);
-        if (!rl.bullets.every(b => b.checked)) fail('restaurant-list bullets should default to checked');
-    }
-
-    const wt = byName['wait-times'];
-    if (!wt) fail('expected a wait-times component cluster');
-    else {
-        if (wt.count !== 1) fail('wait-times count: got ' + wt.count + ', expected 1');
-        const expectedWT = new Set([
-            '1|' + normalizeBullet(WAIT_TIMES_BULLETS.a),
-            '1|' + normalizeBullet(WAIT_TIMES_BULLETS.b)
-        ]);
-        const seenWT = new Set(wt.bullets.map(b => b.count + '|' + normalizeBullet(b.text)));
-        for (const e of expectedWT) if (!seenWT.has(e)) fail('wait-times missing bullet: ' + e);
-        for (const s of seenWT) if (!expectedWT.has(s)) fail('wait-times unexpected bullet: ' + s);
-    }
-
-    if (exitCode === 0) console.log('PASS');
-} catch (e) {
-    console.error('THREW:', e.message);
-    if (!exitCode) exitCode = 1;
-} finally {
-    cleanup();
-    process.exit(exitCode);
-}
+};

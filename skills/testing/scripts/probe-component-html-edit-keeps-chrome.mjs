@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 //
 // probe-component-html-edit-keeps-chrome.mjs
 //
@@ -28,43 +27,14 @@
 //   4. Assert: the chrome (.surface) is STILL in the DOM, and
 //      #target-status is STILL visible.
 //
+// Run it:  node run-probe.mjs probe-component-html-edit-keeps-chrome.mjs
+//
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
 
-const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
-const appRoot = path.resolve(scriptsDir, '../../..');
-const fixture = path.join(scriptsDir, '..', 'fixtures', 'agent-edit-stub.liquidos');
-
-const launcher = spawn('node', [
-    path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
-    '--workspace', fixture,
-    '--app', appRoot,
-    '--agent', 'lqpatch-stream-stub'
-], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-const sandbox = await new Promise((resolve, reject) => {
-    let buf = '';
-    const onExit = () => reject(new Error('sandbox launcher exited before printing url'));
-    launcher.on('exit', onExit);
-    launcher.stdout.on('data', chunk => {
-        buf += chunk.toString('utf8');
-        const nl = buf.indexOf('\n');
-        if (nl >= 0) {
-            launcher.off('exit', onExit);
-            try { resolve(JSON.parse(buf.slice(0, nl))); }
-            catch (e) { reject(new Error('non-json launcher output: ' + buf.slice(0, 200))); }
-        }
-    });
-    launcher.stderr.on('data', c => process.stderr.write('[launcher] ' + c.toString('utf8')));
-});
-
-const cleanup = () => { try { launcher.kill('SIGTERM'); } catch {} };
-process.on('SIGINT', () => { cleanup(); process.exit(130); });
-process.on('SIGTERM', () => { cleanup(); process.exit(143); });
+export const fixture = 'agent-edit-stub.liquidos';
+export const agent = 'lqpatch-stream-stub';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const expect = (label, predicate, detail) => {
@@ -72,13 +42,10 @@ const expect = (label, predicate, detail) => {
     throw new Error('FAIL: ' + label + (detail ? ' — ' + detail : ''));
 };
 
-let exitCode = 0;
-try {
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[pageerror]', err.message));
 
-    await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForFunction(() => !!window.__lqpatch, undefined, { timeout: 10000 });
     await page.waitForSelector('#target-status', { timeout: 10000 });
 
@@ -114,7 +81,7 @@ try {
 
     // Edit component.html — add a third child (benign liquidos-file that
     // points at a nonexistent path; we only care about the shape change).
-    const targetHtmlPath = path.join(sandbox.workspace, 'home/components/target/component.html');
+    const targetHtmlPath = path.join(workspace, 'home/components/target/component.html');
     const original = fs.readFileSync(targetHtmlPath, 'utf8');
     const edited = original.replace(
         '</liquidos-component>',
@@ -126,7 +93,7 @@ try {
 
     // PUT through the harness endpoint so the file watcher and SSE fire
     // the same way they would for a real edit.
-    const put = await fetch(sandbox.url + '/workspace/home/components/target/component.html', {
+    const put = await fetch(url + '/workspace/home/components/target/component.html', {
         method: 'PUT',
         headers: { 'Content-Type': 'text/plain' },
         body: edited
@@ -157,13 +124,4 @@ try {
     expect('after edit: view.json marker is STILL visible on screen with MARKER_BEFORE',
         after.markerVisible && after.markerText.includes('MARKER_BEFORE'),
         'the user lost the component\'s rendered view content — after: ' + JSON.stringify(after));
-
-    console.log('PASS');
-    await browser.close();
-} catch (e) {
-    console.error(e.message);
-    exitCode = 1;
-} finally {
-    cleanup();
-    process.exit(exitCode);
-}
+};

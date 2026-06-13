@@ -1,0 +1,57 @@
+//
+// sandbox.mjs — boot a LiquidOS sandbox by driving boot-workspace-sandbox.mjs.
+//
+// One shared boot path: run-probe.mjs uses it for each probe's primary
+// sandbox, and a probe that needs extra peers (cross-peer, install-from-peer)
+// imports `bootSandbox` to bring them up and tears them down in a `finally`.
+//
+//   import { bootSandbox } from './sandbox.mjs';
+//   const peer = await bootSandbox('canvas-build.liquidos', { agent: 'none' });
+//   try { /* drive peer.url / peer.workspace */ } finally { peer.teardown(); }
+//
+// teardown SIGTERMs the launcher, whose own handler tears the server down
+// (SIGKILL fallback + temp-dir removal). Idempotent.
+//
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURES_DIR = path.resolve(SCRIPT_DIR, '..', 'fixtures');
+const LAUNCHER = path.join(SCRIPT_DIR, 'boot-workspace-sandbox.mjs');
+
+// The launcher needs to know where the app is. In a materialized workspace it
+// has the location baked in (pass nothing). From the repo, ../../.. is the app
+// — recognize it by its server.js and forward it.
+const hasServerJs = dir => { try { return fs.existsSync(path.join(dir, 'server.js')); } catch { return false; } };
+const repoRoot = path.resolve(SCRIPT_DIR, '../../..');
+
+export const fixturesDir = FIXTURES_DIR;
+
+// Boot a sandbox of `fixture` — a name under skills/testing/fixtures, or an
+// absolute .liquidos path. Resolves { url, workspace, teardown }.
+export const bootSandbox = (fixture, { agent = 'none', app } = {}) => new Promise((resolve, reject) => {
+  const source = path.isAbsolute(fixture) ? fixture : path.resolve(FIXTURES_DIR, fixture);
+  const appRoot = app || (hasServerJs(repoRoot) ? repoRoot : null);
+  const args = ['--workspace', source, '--agent', agent];
+  if (appRoot) args.push('--app', appRoot);
+
+  const child = spawn('node', [LAUNCHER, ...args], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const teardown = () => { try { child.kill('SIGTERM'); } catch {} };
+
+  let buf = '';
+  const onExit = () => reject(new Error('launcher exited before printing url'));
+  child.on('exit', onExit);
+  child.stdout.on('data', chunk => {
+    buf += chunk.toString('utf8');
+    const nl = buf.indexOf('\n');
+    if (nl < 0) return;
+    child.off('exit', onExit);
+    try {
+      const { url, workspace } = JSON.parse(buf.slice(0, nl));
+      resolve({ url, workspace, teardown });
+    } catch { teardown(); reject(new Error('non-json launcher output: ' + buf.slice(0, 200))); }
+  });
+});

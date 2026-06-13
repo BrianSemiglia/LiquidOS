@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 //
 // probe-component-build.mjs
 //
@@ -8,55 +7,28 @@
 // the component's view to a known marker; the probe waits for the
 // marker to appear in the live DOM. If Build never dispatched the
 // agent, the marker never lands and the assertion times out.
+//
+// Run it:  node run-probe.mjs probe-component-build.mjs
+//
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
 
-const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
-const appRoot = path.resolve(scriptsDir, '../../..');
-const fixture = path.join(scriptsDir, '..', 'fixtures', 'component-repair.liquidos');
+export const fixture = 'component-repair.liquidos';
+export const agent = 'component-build-test';
+
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-const launcher = spawn('node', [
-    path.join(scriptsDir, 'boot-workspace-sandbox.mjs'),
-    '--workspace', fixture, '--app', appRoot, '--agent', 'component-build-test'
-], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-const sandbox = await new Promise((resolve, reject) => {
-    let buf = '';
-    const onExit = () => reject(new Error('sandbox launcher exited before printing url'));
-    launcher.on('exit', onExit);
-    launcher.stdout.on('data', chunk => {
-        buf += chunk.toString('utf8');
-        const nl = buf.indexOf('\n');
-        if (nl >= 0) {
-            launcher.off('exit', onExit);
-            try { resolve(JSON.parse(buf.slice(0, nl))); }
-            catch (e) { reject(new Error('non-json launcher output: ' + buf.slice(0, 200))); }
-        }
-    });
-    launcher.stderr.on('data', c => process.stderr.write('[launcher] ' + c.toString('utf8')));
-});
-
-const cleanup = () => { try { launcher.kill('SIGTERM'); } catch {} };
-process.on('SIGINT', () => { cleanup(); process.exit(130); });
-
-let exitCode = 0;
-try {
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     // Seed a known BEFORE_PROBE_MARKER in feature-requirements.txt so
     // the dispatched prompt's "Previous requirements:" section has a
     // string we can assert on. The textarea will load this value when
     // the modal opens.
-    const featurePath = path.join(sandbox.workspace, 'home', 'components', 'probe', 'feature-requirements.txt');
+    const featurePath = path.join(workspace, 'home', 'components', 'probe', 'feature-requirements.txt');
     fs.writeFileSync(featurePath, '- BEFORE_PROBE_MARKER initial text\n');
 
-    await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('[data-probe]', { timeout: 20000 });
 
     // Open the modal; wait for the textarea to actually carry the
@@ -93,12 +65,6 @@ try {
         console.error('--- prompt the agent received ---');
         console.error(failure.promptReceived);
         console.error('---');
-        exitCode = 1;
-    } else {
-        console.log('PASS');
+        throw new Error(failure.reason);
     }
-    await browser.close();
-} catch (e) {
-    console.error('FAIL:', e.message);
-    exitCode = 1;
-} finally { cleanup(); process.exit(exitCode); }
+};
