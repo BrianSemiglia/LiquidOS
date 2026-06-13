@@ -80,6 +80,12 @@ fi
 
 mkdir -p "$component_dir/diagnostics"
 
+# tests/ and data/ — empty, but present so the obvious move is the right one:
+# drop probes in tests/ (the testing skill saves them here), and persist
+# user-produced state to a file in data/ rather than reaching for
+# localStorage (which doesn't travel with the component).
+mkdir -p "$component_dir/tests" "$component_dir/data"
+
 # diagnostics/status.json — populated by the harness when something goes wrong.
 # The agent reads this file as its first move when fixing a broken component.
 printf '{}\n' > "$component_dir/diagnostics/status.json"

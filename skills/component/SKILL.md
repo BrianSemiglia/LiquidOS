@@ -49,14 +49,15 @@ The default `<liquidos-file path="…"></liquidos-file>` (no attributes) fetches
 
 ## Building the body progressively
 
-The user watches the canvas while you work, and what they see should always be honest: a control that isn't ready yet should not look ready. Build the body in visible steps:
+Two moves, and only two: lay the **scaffolding**, then **stream the content** into it. The scaffolding is `component.html` — the `<style>` block and the empty containers with stable IDs, structure with no content yet. The content — the items, the text, the things the user reads — arrives as `<lqpatch>` patches aimed at those containers. Keeping content out of `component.html` is exactly what lets the user watch it stream in instead of popping in finished.
 
-1. **Scaffold.** `bash skills/component/scripts/create-component.sh <canvas-path> <name>` — creates the component and registers it on the canvas.
-2. **Shell.** One `<lqpatch op="streamFile" target="<canvas>/components/<name>/component.html">…</lqpatch>` writes the `<style>` block and the outer containers — empty regions with stable IDs on every part you might later want to target by selector. Without them, the only way to change anything is to rewrite the whole file.
-3. **Fill.** Land the rest of the body in visible chunks — one `<lqpatch>` per piece. `op="append"` for a list of items, `op="replace"` for shaped regions. Avoid a single giant write; the user should see it grow, not pop in already finished.
-4. **Wiring.** If the component needs a behavior script, that's a separate `streamFile` after the visible elements are in place.
+1. **Scaffold.** `bash skills/component/scripts/create-component.sh <canvas-path> <name>` creates the component, registers it on the canvas, and renders an empty `<liquidos-component path="components/<name>">`. To shape the scaffolding, `op="writeFile"` the structure — `<style>` and the empty containers — into `<canvas>/components/<name>/component.html`. Structure only, with stable IDs; no items yet.
+2. **Fill.** Stream the content in — one `<lqpatch>` per piece, aimed at the containers you just laid. `op="append"` for a list of items, `op="replace"` for a shaped region. One patch per piece, not one giant write; the user should see it grow.
+3. **Wiring.** If the component needs a behavior script, `op="writeFile"` the script file and put a `<liquidos-file path="…" script>` element in a container (a patch) so the harness mounts it.
 
-Selectors in `op="append"` / `op="replace"` markers are matched with `document.querySelector` against the live page. Use IDs you wrote into the shell — class and attribute selectors also work. Each op targeting an element inside a `<liquidos-component>` is persisted back to that component's `component.html` — reload preserves what you wrote.
+Selectors in `op="append"` / `op="replace"` markers are matched with `document.querySelector` against the live page. Use the IDs you put in the scaffolding — class and attribute selectors also work. Each op targeting an element inside a `<liquidos-component>` is persisted back to that component's `component.html`, so the scaffolding-plus-content you streamed survives a reload.
+
+Write `component.html` for the **scaffolding** — and when you genuinely need to re-shape it (different containers, mounts, wiring), `op="writeFile"` the new structure, which replaces the whole file. Never pour the *content* into it; a whole-file write of the items lands them all at once instead of streaming. There is no `op="streamFile"`. Files the component *owns* but the user never sees — the behavior script, `data/*.json` — are also written with `op="writeFile"`.
 
 Read `<canvas>/feature-requirements.txt` first if it exists — your component should fit the canvas's intent. Work on one component per turn.
 
@@ -117,10 +118,10 @@ The component is already on the page. The user is watching its current state, an
    - `op="remove" target="#some-id"` — drop one.
    The user sees each one land as a discrete beat, the same way they saw the original elements arrive.
 3. For a style overhaul (a vibe shift, a theme change), `op="replace"` on the existing `<style>` element's contents is one marker that swaps the look in place. The DOM keeps its shape; only the painted appearance changes.
-4. For behavior changes, rewrite the behavior script with `op="streamFile"`. The harness re-mounts; your old cleanup runs.
+4. For behavior changes, rewrite the behavior script with `op="writeFile"`. The harness re-mounts; your old cleanup runs.
 5. Update `feature-requirements.txt` if anything was learned.
 
-`streamFile` on `component.html` is the right move when the skeleton itself is changing — different containers, different IDs, different mounts, different wiring. Otherwise edit the live DOM via `<lqpatch>` selectors. Running services and hydrated views survive across the re-render as long as their `<liquidos-file>` is unchanged; static markup rebuilds.
+When the skeleton itself is changing — different containers, different IDs, different mounts, different wiring — `op="writeFile"` the new `component.html` structure; it replaces the whole file, and you re-stream the content into the new containers. Otherwise edit the live DOM via individual `<lqpatch>` selectors. Running services and hydrated views survive the re-lay as long as their `<liquidos-file>` is unchanged; static markup rebuilds.
 
 ## Progressive view updates
 

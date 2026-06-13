@@ -341,8 +341,8 @@ const snifferReady = import('./lib/lqpatch-sniffer.js')
     .then(m => { serverCreateSniffer = m.createSniffer; })
     .catch(e => { console.error('lqpatch-sniffer import failed', e); });
 
-const SLICE_ALLOWED_OPS = new Set(['replace', 'append', 'prepend', 'setAttr', 'remove', 'stream', 'writeFile', 'streamFile']);
-const SLICE_STREAMING_OPS = new Set(['stream', 'streamFile', 'replace', 'append', 'prepend']);
+const SLICE_ALLOWED_OPS = new Set(['replace', 'append', 'prepend', 'setAttr', 'remove', 'stream', 'writeFile']);
+const SLICE_STREAMING_OPS = new Set(['stream', 'replace', 'append', 'prepend']);
 
 let sliceSeq = 0;
 const emitSlice = payload => {
@@ -1319,17 +1319,6 @@ const server = http.createServer(async (req, res) => {
                 const tmp = abs + '.tmp-' + process.pid + '-' + Date.now();
                 fs.writeFileSync(tmp, body);
                 fs.renameSync(tmp, abs);
-                newShapeSendJson(res, 200, { ok: true });
-                return;
-            }
-            if (req.method === 'PATCH') {
-                // Append-only — the streaming-file companion to PUT. The
-                // body of each PATCH is one chunk emitted by the agent's
-                // op="streamFile" patch; the file grows on disk without
-                // the agent having to repeat any prior content.
-                const body = await newShapeReadBody(req);
-                fs.mkdirSync(path.dirname(abs), { recursive: true });
-                fs.appendFileSync(abs, body);
                 newShapeSendJson(res, 200, { ok: true });
                 return;
             }

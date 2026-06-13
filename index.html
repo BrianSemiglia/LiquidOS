@@ -146,28 +146,38 @@
 
         const ALLOWED_FILE_PATHS = /^[a-z0-9_\-/]+\.(?:json|txt|js|html|css)$/i;
 
-        // After a DOM op lands on an element inside a <liquidos-component>,
-        // serialize that component back to its component.html on disk so the
-        // change survives a page reload. Without this, op="replace" /
-        // op="append" / op="setAttr" / op="remove" only live in the live
-        // DOM; reload re-fetches the unchanged file and the edit is gone.
+        // The single render path for a change to a component. Apply the DOM
+        // op to a detached clone of the component, write the result to its
+        // component.html, and let the file-watcher re-render (morph) the live
+        // view — the same path scaffolding edits and external writes already
+        // take. The live DOM is never painted here, so there is one writer
+        // (the renderer) and no echo race, and a change renders identically no
+        // matter who set it: agent, service, or a scaffolding write.
         //
-        // What counts as "runtime state" (chrome added by buildShell, the
-        // server-driven busy attrs on liquidos-callback, the hydrated
-        // children of a render-mode liquidos-file, ...) is each custom
-        // element's call: the walk below invokes prepareForPersist() on
-        // every element in the clone that exposes one. Adding a new
-        // custom element with its own runtime state means adding that
-        // method to it; this function doesn't need to change.
-        const persistHostComponent = (host) => {
+        // prepareForPersist() strips each custom element's runtime state
+        // (chrome added by buildShell, busy attrs on liquidos-callback,
+        // hydrated children of a render-mode liquidos-file) from the clone
+        // before it's written, so the file holds stable content. We map the
+        // live target to its twin in the clone by child-index path — taken
+        // before prepareForPersist may restructure things — so any selector
+        // resolves, including the host element itself (empty path).
+        const indexPath = (host, el) => {
+            const path = [];
+            for (let n = el; n && n !== host; n = n.parentNode) {
+                path.unshift(Array.prototype.indexOf.call(n.parentNode.childNodes, n));
+            }
+            return path;
+        };
+        const nodeAtPath = (rootNode, path) =>
+            path.reduce((n, i) => (n ? n.childNodes[i] : null), rootNode);
+
+        const writeComponentOp = (host, targetEl, applyToTwin) => {
             if (!host || !host.workspacePath) return;
+            const path = indexPath(host, targetEl);
             const clone = host.cloneNode(true);
-            // Each custom element owns its own definition of "runtime
-            // state" via a `prepareForPersist()` method on its prototype
-            // (lib/liquidos-elements/*). Walk top-down so container
-            // elements that restructure (liquidos-component unwrapping
-            // its chrome, for one) drop the descendants they don't want
-            // persisted before we descend into them.
+            const twin = path.length ? nodeAtPath(clone, path) : clone;
+            if (!twin) return;
+            applyToTwin(twin);
             const visit = (el) => {
                 if (typeof el.prepareForPersist === 'function') {
                     try { el.prepareForPersist(); } catch {}
@@ -195,8 +205,8 @@
         const makeSniffConfig = (source) => {
           const root = () => sourceRoots.get(source) || document;
           return {
-            allowedOps: new Set(['replace', 'append', 'prepend', 'setAttr', 'remove', 'stream', 'writeFile', 'streamFile']),
-            streamingOps: new Set(['stream', 'streamFile', 'replace', 'append', 'prepend']),
+            allowedOps: new Set(['replace', 'append', 'prepend', 'setAttr', 'remove', 'stream', 'writeFile']),
+            streamingOps: new Set(['stream', 'replace', 'append', 'prepend']),
             // Resolve a slice's target to a concrete element within this
             // source's scope. Used by the contention layer, which can only
             // key a region lease by element identity.
@@ -205,7 +215,7 @@
                 catch { return null; }
             },
             validate: (attrs) => {
-                if (attrs.op === 'writeFile' || attrs.op === 'streamFile') {
+                if (attrs.op === 'writeFile') {
                     return typeof attrs.target === 'string'
                         && ALLOWED_FILE_PATHS.test(attrs.target)
                         && !attrs.target.includes('..');
@@ -236,128 +246,80 @@
                 }
                 const el = root().querySelector(attrs.target);
                 const host = el.closest('liquidos-component');
-                if (attrs.op === 'setAttr') el.setAttribute(attrs.attr, attrs.value);
-                else if (attrs.op === 'remove') el.remove();
                 state.dispatches.push({ op: attrs.op, target: attrs.target, inner: inner.slice(0, 80) });
-                persistHostComponent(host);
+                const apply = (target) => {
+                    if (attrs.op === 'setAttr') target.setAttribute(attrs.attr, attrs.value);
+                    else if (attrs.op === 'remove') target.remove();
+                };
+                // A component change is written to its file and rendered by
+                // the watcher morph — never painted here. Page chrome (no host
+                // component, e.g. #agent-activity) has no file, so it applies
+                // to the live DOM directly.
+                if (host && host.workspacePath) writeComponentOp(host, el, apply);
+                else apply(el);
             },
             onStreamOpen: (attrs) => {
-                if (attrs.op === 'streamFile') {
-                    // Truncate (or create) the target so the file is
-                    // empty before chunks start landing. We chain every
-                    // subsequent PATCH off this promise so the file is
-                    // assembled in arrival order, not in whatever order
-                    // the requests happen to settle.
-                    let chain = fetch('/workspace/' + attrs.target, {
-                        method: 'PUT',
-                        headers: { 'content-type': 'text/plain' },
-                        body: ''
-                    }).catch(err => {
-                        state.rejects.push({ reason: 'streamFile-init-failed: ' + err.message, attrs });
-                    });
-                    let bytes = 0;
-                    let chunks = 0;
-                    state.dispatches.push({ op: 'streamFile-open', target: attrs.target });
+                const el = root().querySelector(attrs.target);
+                if (!el) return null;
+                const host = el.closest('liquidos-component');
+                const toFile = !!(host && host.workspacePath);
+                let buffer = '';
+                let chunks = 0;
+
+                if (attrs.op === 'replace' || attrs.op === 'append' || attrs.op === 'prepend') {
+                    // Page chrome (no file) keeps the per-chunk live paint so
+                    // the narration badge and debug regions tune in as the
+                    // markup arrives. A component accumulates and writes its
+                    // file once at close; the watcher morph renders the result
+                    // — one render path, no live paint here.
+                    let wrapper = null;
+                    if (!toFile) {
+                        if (attrs.op === 'replace') {
+                            el.innerHTML = '';
+                        } else {
+                            wrapper = document.createElement('div');
+                            wrapper.style.display = 'contents';
+                            if (attrs.op === 'append') el.appendChild(wrapper);
+                            else el.insertBefore(wrapper, el.firstChild);
+                        }
+                    }
                     return {
                         appendChunk: (text) => {
-                            bytes += text.length;
+                            buffer += text;
                             chunks += 1;
-                            // Each chunk PATCHes onto the file — server
-                            // appends and returns. One PATCH per call
-                            // = one chunk arrived from the agent stream;
-                            // probes count these to prove the agent's
-                            // output actually streamed instead of
-                            // landing as one atomic blob.
-                            chain = chain.then(() => fetch('/workspace/' + attrs.target, {
-                                method: 'PATCH',
-                                headers: { 'content-type': 'text/plain' },
-                                body: text
-                            })).catch(err => {
-                                state.rejects.push({ reason: 'streamFile-patch-failed: ' + err.message, attrs });
-                            });
+                            if (toFile) return;
+                            if (attrs.op === 'replace') el.innerHTML = buffer;
+                            else wrapper.innerHTML = buffer;
                         },
                         close: () => {
-                            chain.finally(() => {
-                                state.writeFiles.push({ target: attrs.target, bytes, chunks });
-                                state.dispatches.push({
-                                    op: 'streamFile-close',
-                                    target: attrs.target, bytes, chunks
+                            if (toFile) {
+                                writeComponentOp(host, el, (twin) => {
+                                    if (attrs.op === 'replace') twin.innerHTML = buffer;
+                                    else twin.insertAdjacentHTML(
+                                        attrs.op === 'append' ? 'beforeend' : 'afterbegin', buffer);
                                 });
-                            });
-                        }
-                    };
-                }
-                if (attrs.op === 'replace') {
-                    // Streaming op="replace": accumulate the body and rewrite
-                    // the target's innerHTML on every chunk so the user sees
-                    // the new content materialize (especially CSS in a <style>
-                    // block, where partial rules render incrementally and the
-                    // look "tunes in" as the markup arrives). Reset to empty
-                    // up front so the old content is gone the moment the
-                    // first chunk lands.
-                    const el = root().querySelector(attrs.target);
-                    if (!el) return null;
-                    const host = el.closest('liquidos-component');
-                    el.innerHTML = '';
-                    let buffer = '';
-                    let chunks = 0;
-                    return {
-                        appendChunk: (text) => {
-                            buffer += text;
-                            chunks += 1;
-                            el.innerHTML = buffer;
-                        },
-                        close: () => {
-                            state.dispatches.push({
-                                op: 'replace', target: attrs.target, bytes: buffer.length, chunks
-                            });
-                            persistHostComponent(host);
-                        }
-                    };
-                }
-                if (attrs.op === 'append' || attrs.op === 'prepend') {
-                    // Streaming append/prepend: park the in-flight content in
-                    // a `display: contents` wrapper so the browser re-parses
-                    // the accumulated buffer on every chunk (lets partial
-                    // CSS / partial markup tune in visibly) without
-                    // disturbing siblings. At close, unwrap so the final DOM
-                    // is identical to the atomic version.
-                    const el = root().querySelector(attrs.target);
-                    if (!el) return null;
-                    const host = el.closest('liquidos-component');
-                    const wrapper = document.createElement('div');
-                    wrapper.style.display = 'contents';
-                    if (attrs.op === 'append') el.appendChild(wrapper);
-                    else el.insertBefore(wrapper, el.firstChild);
-                    let buffer = '';
-                    let chunks = 0;
-                    return {
-                        appendChunk: (text) => {
-                            buffer += text;
-                            chunks += 1;
-                            wrapper.innerHTML = buffer;
-                        },
-                        close: () => {
-                            const parent = wrapper.parentNode;
-                            while (wrapper.firstChild) parent.insertBefore(wrapper.firstChild, wrapper);
-                            parent.removeChild(wrapper);
+                            } else if (wrapper) {
+                                const parent = wrapper.parentNode;
+                                while (wrapper.firstChild) parent.insertBefore(wrapper.firstChild, wrapper);
+                                parent.removeChild(wrapper);
+                            }
                             state.dispatches.push({
                                 op: attrs.op, target: attrs.target, bytes: buffer.length, chunks
                             });
-                            persistHostComponent(host);
                         }
                     };
                 }
-                const el = root().querySelector(attrs.target);
-                if (!el) return null;
-                const node = document.createTextNode('');
-                el.appendChild(node);
+
+                // op="stream": plain text into the target.
+                const node = toFile ? null : el.appendChild(document.createTextNode(''));
                 state.dispatches.push({ op: 'stream-open', target: attrs.target });
                 return {
-                    appendChunk: (text) => node.appendData(text),
+                    appendChunk: (text) => { buffer += text; if (!toFile) node.appendData(text); },
                     close: () => {
+                        if (toFile) writeComponentOp(host, el, (twin) =>
+                            twin.appendChild(document.createTextNode(buffer)));
                         state.dispatches.push({
-                            op: 'stream-close', target: attrs.target, chars: node.data.length
+                            op: 'stream-close', target: attrs.target, chars: buffer.length
                         });
                     }
                 };
@@ -1145,6 +1107,17 @@
         @keyframes agent-pulse {
             0%, 100% { opacity: 0.45; }
             50% { opacity: 1; }
+        }
+
+        /* When the morph structurally swaps a region's content, the new
+           content fades in — an in-place update, not an insert. Text ticks,
+           appends, and removes don't get it, so clocks and live tickers never
+           strobe. Opacity-only so it never fights a presentation's own
+           transforms (grid spans, 3D positions). Applied by file.js's morph. */
+        @keyframes lq-enter { from { opacity: 0; } to { opacity: 1; } }
+        .lq-enter { animation: lq-enter 200ms ease-out; }
+        @media (prefers-reduced-motion: reduce) {
+            .lq-enter { animation: none; }
         }
 
         .global-prompt select,
