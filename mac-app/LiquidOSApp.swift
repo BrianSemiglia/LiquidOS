@@ -683,9 +683,29 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     }
 
 
+    // The PATH the server (and anything it spawns, e.g. `claude`) runs with.
+    // The GUI app's inherited PATH is stripped and a login-but-non-interactive
+    // `zsh -lc` sources ~/.zprofile but not ~/.zshrc — where user bin dirs like
+    // ~/.local/bin usually live — so we set it explicitly here.
+    private static func launchPath() -> String {
+        [
+            NSHomeDirectory() + "/.local/bin",
+            NSHomeDirectory() + "/.cargo/bin",
+            NSHomeDirectory() + "/.bun/bin",
+            "/opt/homebrew/bin",
+            "/opt/homebrew/sbin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+        ].joined(separator: ":")
+    }
+
     private static func serverEnvironment() -> [String: String] {
         [
-            "LIQUIDOS_RUNTIME_KIND": "mac-app"
+            "LIQUIDOS_RUNTIME_KIND": "mac-app",
+            "PATH": launchPath()
         ]
     }
 
@@ -706,18 +726,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         task.arguments = ["which", command]
         task.environment = [
-            "PATH": [
-                NSHomeDirectory() + "/.local/bin",
-                NSHomeDirectory() + "/.cargo/bin",
-                NSHomeDirectory() + "/.bun/bin",
-                "/opt/homebrew/bin",
-                "/opt/homebrew/sbin",
-                "/usr/local/bin",
-                "/usr/bin",
-                "/bin",
-                "/usr/sbin",
-                "/sbin"
-            ].joined(separator: ":"),
+            "PATH": launchPath(),
             "HOME": NSHomeDirectory(),
             "LIQUIDOS_NATIVE": "1"
         ].merging(environment) { _, new in new }
