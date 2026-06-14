@@ -1,3 +1,0 @@
-X holds an exclusive replace stream open on #shared; Y repeatedly tries to
-replace the same region. Only one owns it at a time, so Y_INTRUDER must
-never appear in #shared while X holds it.

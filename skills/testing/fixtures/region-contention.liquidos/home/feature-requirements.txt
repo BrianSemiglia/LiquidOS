@@ -1,4 +1,0 @@
-Two services in one component both stream exclusive replace patches at the
-same #shared region. They are co-owners, so both are allowed to target it —
-but only one may own the region at a time. The region must show one
-service's content cleanly, never a clobbered mix of both.

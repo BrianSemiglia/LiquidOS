@@ -1,2 +1,0 @@
-Patches its own #a-own region and also attempts to patch #b-guarded in
-the other component. Only the own-region patch may take effect.

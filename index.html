@@ -207,13 +207,6 @@
           return {
             allowedOps: new Set(['replace', 'append', 'prepend', 'setAttr', 'remove', 'stream', 'writeFile']),
             streamingOps: new Set(['stream', 'replace', 'append', 'prepend']),
-            // Resolve a slice's target to a concrete element within this
-            // source's scope. Used by the contention layer, which can only
-            // key a region lease by element identity.
-            resolveTarget: (attrs) => {
-                try { return root().querySelector(attrs.target); }
-                catch { return null; }
-            },
             validate: (attrs) => {
                 if (attrs.op === 'writeFile') {
                     return typeof attrs.target === 'string'
@@ -345,35 +338,12 @@
         // close are ignored.
         const streamHandles = new Map();
 
-        // Region contention. Only an exclusive streaming op (replace) can
-        // clobber a region; additive ops (append/prepend/stream) coexist, so
-        // they never take a lease. The client is the only side that resolves
-        // a selector to a real element, so the lease lives here, keyed by
-        // element identity. Higher tier wins: the agent (structure) preempts
-        // a service (data); same-tier contention is first-come. The agent
-        // never loses, so it never needs to be told it lost — which it
-        // couldn't be, being output-only.
-        const regionLeases = new Map();          // Element -> { source, tier, seq }
-        const tierOf = (source) => (source === 'agent' ? 1 : 0);
-        const releaseLeasesBySeq = (seq) => {
-            for (const [el, lease] of regionLeases) if (lease.seq === seq) regionLeases.delete(el);
-        };
-        const releaseLeasesBySource = (source) => {
-            for (const [el, lease] of regionLeases) if (lease.source === source) regionLeases.delete(el);
-        };
-        // Claim `el` for an exclusive streaming write. Returns false when
-        // `source` loses the contention and the caller must drop the write.
-        const claimRegion = (el, source, seq) => {
-            const lease = regionLeases.get(el);
-            if (lease && lease.source !== source) {
-                if (tierOf(source) <= tierOf(lease.source)) return false;   // lose
-                const held = streamHandles.get(lease.seq);                  // preempt: silence
-                if (held) streamHandles.set(lease.seq, null);               // the holder's stream
-            }
-            regionLeases.set(el, { source, tier: tierOf(source), seq });
-            return true;
-        };
-
+        // No region arbitration. Every producer's patch applies as it
+        // arrives. Producers are expected to own distinct regions — who writes
+        // where is the agent's job to coordinate, not the runtime's to police.
+        // If two ever target the same element, last writer wins (a visible
+        // flicker, never garbled output: the slice stream still frames each
+        // producer separately, so one's tags can't truncate another's).
         const applySlice = (payload) => {
             const source = payload.source || 'agent';
             const h = handlersFor(source);
@@ -393,17 +363,6 @@
                 case 'open': {
                     const attrs = payload.attrs || {};
                     if (!h.validate(attrs)) { h.onReject('validate-failed', attrs); streamHandles.set(payload.seq, null); return; }
-                    // An exclusive replace must own its region for the life of
-                    // the stream. If another producer holds it (and outranks
-                    // or ties this one), drop this stream.
-                    if (attrs.op === 'replace') {
-                        const el = h.resolveTarget(attrs);
-                        if (el && !claimRegion(el, source, payload.seq)) {
-                            h.onReject('region-contended', attrs);
-                            streamHandles.set(payload.seq, null);
-                            return;
-                        }
-                    }
                     const handle = h.onStreamOpen(attrs);
                     if (!handle) h.onReject('stream-open-refused', attrs);
                     streamHandles.set(payload.seq, handle || null);
@@ -418,7 +377,6 @@
                     const handle = streamHandles.get(payload.seq);
                     if (handle) { try { handle.close && handle.close(); } catch {} }
                     streamHandles.delete(payload.seq);
-                    releaseLeasesBySeq(payload.seq);
                     return;
                 }
             }
@@ -435,9 +393,6 @@
         window.liquidos.unbindProducerScope = (source) => {
             sourceRoots.delete(source);
             handlersBySource.delete(source);
-            // A producer that goes away releases any region it was holding,
-            // so a service killed mid-stream can't keep a region locked.
-            releaseLeasesBySource(source);
         };
 
         const src = new EventSource('/agent/stream');
@@ -446,22 +401,6 @@
         // elsewhere on this page reads `debug-line` from the same stream.
         src.addEventListener('slice', (e) => {
             try { applySlice(JSON.parse(e.data)); } catch {}
-        });
-        // The agent's writes are a turn-scoped epoch: it owns whatever it
-        // touches while running and yields when the turn ends. Release its
-        // region leases on that transition so services reclaim their regions
-        // on their next tick. (The same transition flushes the agent sniffer
-        // server-side.)
-        let lastAgentStatus = '';
-        src.addEventListener('debug-status', (e) => {
-            try {
-                const payload = JSON.parse(e.data);
-                const next = payload && payload.current && payload.current.status;
-                if (lastAgentStatus === 'running' && next && next !== 'running') {
-                    releaseLeasesBySource('agent');
-                }
-                if (next) lastAgentStatus = next;
-            } catch {}
         });
     </script>
     <style>

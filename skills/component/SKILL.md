@@ -94,7 +94,7 @@ process.stdout.write('<lqpatch op="append" target="#feed-list"><li>' + item + '<
 
 **stdout is the view-patch channel; stderr is diagnostics.** Keep all service logging on stderr (or a log file) so it never reaches the view.
 
-A service may only patch **its own component** — its selectors resolve within its component's subtree, so it cannot write into another component's region. When the agent and a service touch the same region, the agent wins: its turn owns the region and the service yields, reclaiming it once the turn ends. Two services contending over one region is first-come; the later writer's patch is dropped.
+A service may only patch **its own component** — its selectors resolve within its component's subtree, so it cannot write into another component's region. Within that subtree, patches apply as they arrive; the runtime does not arbitrate, so if two producers write the same element the last write wins (a flicker, never garbled output). Giving each producer its own region so they don't collide is your job to coordinate, not the runtime's to police.
 
 ## Feature requirements
 
