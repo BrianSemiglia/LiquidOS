@@ -1,42 +1,4 @@
-import http from "node:http"
-import { readFile, writeFile, rename, stat } from "node:fs/promises"
-
-const truthPath = new URL("../data/truth.json", import.meta.url)
-const viewPath = new URL("../rendered.html", import.meta.url)
-const temporaryViewPath = new URL("../rendered.html.tmp", import.meta.url)
-
-const log = (...values) =>
-  console.log(new Date().toISOString(), "renderer:", ...values)
-
-const escapeHtml = value =>
-  String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-
-const clampPercent = value =>
-  Math.max(0, Math.min(100, Number(value) || 0))
-
-const readTruth = () =>
-  readFile(truthPath, "utf8")
-    .then(JSON.parse)
-    .catch(error => ({
-      inputDeviceName: "Microphone",
-      level: 0,
-      peak: 0,
-      active: false,
-      status: "waiting",
-      updatedAt: "not updated yet",
-      error: error.message
-    }))
-
-// The component's body is whatever component.html includes — here a plain
-// rendered.html this service writes once; the inline <script> in the markup
-// then keeps it live over the service's /events SSE stream.
-const writeView = origin =>
-  writeFile(temporaryViewPath, `
-      <style>
+<style>
         .microphone-activity-hud {
           width: 510px;
           padding: 22px 28px 24px;
@@ -161,7 +123,7 @@ const writeView = origin =>
         }
       </style>
 
-      <section class="microphone-activity-hud" data-stream-origin="${escapeHtml(origin)}">
+      <section class="microphone-activity-hud" data-stream-origin="http://127.0.0.1:46667">
         <img
           alt=""
           src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
@@ -203,7 +165,7 @@ const writeView = origin =>
             <div class="microphone-activity-fill"></div>
             <div class="microphone-activity-peak"></div>
             <div class="microphone-activity-ticks" aria-hidden="true">
-              ${Array.from({ length: 17 }, () => "<span></span>").join("")}
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
             </div>
           </div>
 
@@ -213,61 +175,3 @@ const writeView = origin =>
           </div>
         </div>
       </section>
-    `).then(() => rename(temporaryViewPath, viewPath))
-
-let lastModified = 0
-let sequence = 0
-let clients = []
-
-const send = (response, value) =>
-  response.write(`data: ${JSON.stringify(value)}\n\n`)
-
-const broadcast = value =>
-  clients.forEach(response => send(response, value))
-
-const server = http.createServer((request, response) => {
-  if (request.url === "/events") {
-    response.writeHead(200, {
-      "content-type": "text/event-stream",
-      "cache-control": "no-cache",
-      "connection": "keep-alive",
-      "access-control-allow-origin": "*"
-    })
-    clients = [...clients, response]
-    request.on("close", () => clients = clients.filter(client => client !== response))
-    return readTruth().then(truth => send(response, { ...truth, sequence }))
-  }
-
-  if (request.url === "/truth") {
-    return readTruth().then(truth => {
-      response.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" })
-      response.end(JSON.stringify({ ...truth, sequence }))
-    })
-  }
-
-  response.writeHead(404)
-  response.end("Not found")
-})
-
-const poll = () =>
-  stat(truthPath)
-    .then(file => {
-      if (file.mtimeMs === lastModified) return
-      lastModified = file.mtimeMs
-      return readTruth().then(truth => {
-        sequence += 1
-        broadcast({ ...truth, sequence })
-        log("streamed truth", `sequence=${sequence}`, `level=${clampPercent(truth.level)}`, `peak=${clampPercent(truth.peak)}`)
-      })
-    })
-    .catch(error => log("poll error", error.message))
-
-server.listen(0, "127.0.0.1", () => {
-  writeView(`http://127.0.0.1:${server.address().port}`)
-    .then(() => log("wrote rendered.html once", `origin=http://127.0.0.1:${server.address().port}`))
-    .then(() => readTruth().then(truth => broadcast({ ...truth, sequence })))
-    .catch(error => log("view write error", error.message))
-
-  setInterval(poll, 80)
-  log("stream server listening", `http://127.0.0.1:${server.address().port}`)
-})

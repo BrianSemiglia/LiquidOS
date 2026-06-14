@@ -1,107 +1,4 @@
-import http from 'node:http';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const services = path.dirname(fileURLToPath(import.meta.url));
-const component = path.dirname(services);
-const data = path.join(component, 'data');
-const todosPath = path.join(data, 'todos.json');
-const logPath = process.argv[2];
-
-if (!logPath) {
-  throw new Error('missing log path');
-}
-
-fs.mkdirSync(data, { recursive: true });
-fs.mkdirSync(path.dirname(logPath), { recursive: true });
-
-const log = (...values) => {
-  fs.appendFileSync(logPath, `${new Date().toISOString()} ${values.map(value => typeof value === 'string' ? value : JSON.stringify(value)).join(' ')}\n`);
-  console.log(...values);
-};
-
-const escapeHtml = value => String(value)
-  .replaceAll('&', '&amp;')
-  .replaceAll('<', '&lt;')
-  .replaceAll('>', '&gt;')
-  .replaceAll('"', '&quot;')
-  .replaceAll("'", '&#39;');
-
-const readTodos = () => {
-  try {
-    return JSON.parse(fs.readFileSync(todosPath, 'utf8'));
-  } catch {
-    return [];
-  }
-};
-
-const writeTodos = todos => {
-  fs.writeFileSync(todosPath, JSON.stringify(todos, null, 2));
-  log('writeTodos', { count: todos.length });
-  return todos;
-};
-
-const readJson = request => new Promise((resolve, reject) => {
-  request.setEncoding('utf8');
-  request.on('data', chunk => request.body = `${request.body || ''}${chunk}`);
-  request.on('end', () => {
-    try {
-      log('requestBody', request.body || '');
-      resolve(request.body ? JSON.parse(request.body) : {});
-    } catch (error) {
-      reject(error);
-    }
-  });
-  request.on('error', reject);
-});
-
-const send = (response, status, headers, body) => {
-  response.writeHead(status, {
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS',
-    'access-control-allow-headers': 'content-type',
-    ...headers
-  });
-  response.end(body);
-};
-
-const json = (response, status, value) => send(response, status, { 'content-type': 'application/json; charset=utf-8' }, JSON.stringify(value));
-
-const renderView = origin => {
-  const todos = readTodos();
-  const active = todos.filter(todo => !todo.done).length;
-  const plural = active === 1 ? 'reminder' : 'reminders';
-  const rows = todos.map((todo, index) => `
-    <li class="todo-item ${todo.done ? 'is-done' : ''}" style="--row-index: ${index}">
-      <label class="todo-checkline">
-        <input class="todo-checkbox" type="checkbox" ${todo.done ? 'checked' : ''} onchange="
-          this.closest('.todo-item').classList.toggle('is-done', this.checked);
-          fetch('${origin}/api/todos/${encodeURIComponent(todo.id)}', {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ done: this.checked })
-          })
-          .then(() => fetch('${origin}/view'))
-          .then(response => response.text())
-          .then(html => this.closest('.todo-app').outerHTML = html)
-          .catch(error => this.closest('.todo-app').querySelector('[data-status]').textContent = error.message);
-        ">
-        <span class="todo-title">${escapeHtml(todo.text)}</span>
-      </label>
-      <button class="todo-delete" type="button" aria-label="Delete ${escapeHtml(todo.text)}" onclick="
-        this.closest('.todo-item').classList.add('is-removing');
-        setTimeout(() => {
-          fetch('${origin}/api/todos/${encodeURIComponent(todo.id)}', { method: 'DELETE' })
-            .then(() => fetch('${origin}/view'))
-            .then(response => response.text())
-            .then(html => this.closest('.todo-app').outerHTML = html)
-            .catch(error => this.closest('.todo-app').querySelector('[data-status]').textContent = error.message);
-        }, 180);
-      ">×</button>
-    </li>`).join('');
-
-  return `<section class="todo-app">
+<section class="todo-app">
   <style>
     .todo-app {
       width: min(430px, calc(100vw - 40px));
@@ -368,7 +265,7 @@ const renderView = origin => {
       <p class="todo-kicker">Today</p>
       <div class="todo-heading">
         <h1>Reminders</h1>
-        <span class="todo-count">${active} ${plural}</span>
+        <span class="todo-count">0 reminders</span>
       </div>
     </header>
     <form class="todo-form" onsubmit="
@@ -376,12 +273,12 @@ const renderView = origin => {
       if (!this.text.value.trim()) return;
       this.querySelector('button').disabled = true;
       this.querySelector('.todo-input').style.transform = 'scale(0.99)';
-      fetch('${origin}/api/todos', {
+      fetch('http://127.0.0.1:58412/api/todos', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: this.text.value })
       })
-      .then(() => fetch('${origin}/view'))
+      .then(() => fetch('http://127.0.0.1:58412/view'))
       .then(response => response.text())
       .then(html => this.closest('.todo-app').outerHTML = html)
       .catch(error => {
@@ -393,66 +290,7 @@ const renderView = origin => {
       <input class="todo-input" name="text" type="text" placeholder="New reminder" autocomplete="off">
       <button class="todo-add" type="submit">Add</button>
     </form>
-    <ul class="todo-list">${rows || '<li class="todo-empty">No reminders</li>'}</ul>
+    <ul class="todo-list"><li class="todo-empty">No reminders</li></ul>
     <div class="todo-footer" data-status></div>
   </div>
-</section>`;
-};
-
-// The component's body is whatever component.html includes — here a plain
-// rendered.html this service rewrites with the current todo list. The canvas
-// re-renders it on every write; the inline handlers in the markup keep it live
-// by fetching /view directly between writes.
-const writeView = origin => {
-  fs.writeFileSync(path.join(component, 'rendered.html'), renderView(origin));
-  log('writeView', { origin, path: path.join(component, 'rendered.html') });
-};
-
-const server = http.createServer((request, response) => {
-  log('request', request.method, request.url);
-
-  if (request.method === 'OPTIONS') {
-    return send(response, 204, {}, '');
-  }
-
-  if (request.method === 'GET' && request.url === '/view') {
-    return send(response, 200, { 'content-type': 'text/html; charset=utf-8' }, renderView(`http://127.0.0.1:${server.address().port}`));
-  }
-
-  if (request.method === 'GET' && request.url === '/api/todos') {
-    return json(response, 200, readTodos());
-  }
-
-  if (request.method === 'POST' && request.url === '/api/todos') {
-    return readJson(request)
-      .then(body => json(response, 201, writeTodos([...readTodos(), { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text: String(body.text || '').trim() || 'Untitled todo', done: false }])))
-      .catch(error => json(response, 400, { error: error.message }));
-  }
-
-  if (request.method === 'PATCH' && request.url.startsWith('/api/todos/')) {
-    return readJson(request)
-      .then(patch => json(response, 200, writeTodos(readTodos().map(todo => todo.id === decodeURIComponent(request.url.split('/').pop() || '') ? { ...todo, ...patch } : todo))))
-      .catch(error => json(response, 400, { error: error.message }));
-  }
-
-  if (request.method === 'DELETE' && request.url.startsWith('/api/todos/')) {
-    return json(response, 200, writeTodos(readTodos().filter(todo => todo.id !== decodeURIComponent(request.url.split('/').pop() || ''))));
-  }
-
-  return json(response, 404, { error: 'not found' });
-});
-
-server.listen(0, '127.0.0.1', () => {
-  log('started', `http://127.0.0.1:${server.address().port}`);
-  writeView(`http://127.0.0.1:${server.address().port}`);
-});
-
-process.on('SIGTERM', () => {
-  log('SIGTERM');
-  server.close(() => process.exit(0));
-});
-
-process.on('SIGINT', () => {
-  log('SIGINT');
-  server.close(() => process.exit(0));
-});
+</section>
