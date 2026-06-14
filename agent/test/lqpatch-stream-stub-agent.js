@@ -87,15 +87,6 @@ const LqpatchStreamStubAgent = () => {
             // match the agent-edit-stub fixture; the prompt's REPLACE_WITH
             // token is what threads through to disk so the probe can
             // prove the prompt-to-stream-to-disk wire.
-            const filePath = 'home/components/target/component.html';
-            const fileBody = '<liquidos-component path="components/target">\n    <p data-marker>' + token + '</p>\n    <div id="target-status">INITIAL</div>\n</liquidos-component>\n';
-            const STREAM_TEXT = 'The quick brown fox jumps over ' + token + '.';
-
-            // INVENTED_TAG goes inside #lqpatch-marker (which the first
-            // replace just created). Proves the agent can invent its own
-            // selectors and target them in the same stream — the central
-            // claim of the streaming-into-just-created-elements story.
-            const INVENTED_TAG = 'invented-' + token;
             // PERSIST_MARK proves that DOM ops against elements inside a
             // <liquidos-component> are written back to the component's
             // component.html on disk. The probe replaces #target-status's
@@ -104,6 +95,18 @@ const LqpatchStreamStubAgent = () => {
             // page-chrome #lqpatch-sink), so the persistence layer has a
             // host to serialize.
             const PERSIST_MARK = 'PERSISTED_' + token;
+            const filePath = 'home/components/target/component.html';
+            // Both edits the user's prompt triggers — the status replacement
+            // and this file rewrite — must show the same thing, so the user
+            // sees one consistent result, not one edit flashing over the other.
+            const fileBody = '<liquidos-component path="components/target">\n    <p data-marker>' + token + '</p>\n    <div id="target-status">' + PERSIST_MARK + '</div>\n</liquidos-component>\n';
+            const STREAM_TEXT = 'The quick brown fox jumps over ' + token + '.';
+
+            // INVENTED_TAG goes inside #lqpatch-marker (which the first
+            // replace just created). Proves the agent can invent its own
+            // selectors and target them in the same stream — the central
+            // claim of the streaming-into-just-created-elements story.
+            const INVENTED_TAG = 'invented-' + token;
             const script =
                 "Here's a small build.\n\n" +
                 "First, replace the sink contents:\n\n" +

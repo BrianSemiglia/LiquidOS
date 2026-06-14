@@ -45,6 +45,15 @@ export default async ({ url, workspace, page }) => {
 
     const onScreen = (text, timeout = 8000) => page.waitForFunction(
         t => document.body.innerText.includes(t), text, { timeout });
+    // The requirements button — the flip affordance the user reaches for to
+    // open a component's requirements — is harness chrome on every component.
+    // It has no text to read, but it's a real, user-facing thing, so assert
+    // it's displayed directly. (Content lives in .surface; the flip button
+    // lives in the chrome frame — a morph can drop the frame while keeping the
+    // surface, which is exactly the bug where content stays but the button
+    // disappears.)
+    const requirementsButtonShown = () => page.evaluate(() =>
+        !!document.querySelector('[data-component-flip]'));
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForFunction(() => !!window.__lqpatch, undefined, { timeout: 10000 });
@@ -56,7 +65,10 @@ export default async ({ url, workspace, page }) => {
     await onScreen('MARKER_BEFORE').catch(() => {
         throw new Error('"MARKER_BEFORE" never appeared — component marker did not render');
     });
-    console.log('  ok  baseline: INITIAL and MARKER_BEFORE visible');
+    if (!(await requirementsButtonShown())) {
+        throw new Error('the requirements button is not displayed on the component');
+    }
+    console.log('  ok  baseline: INITIAL, MARKER_BEFORE, and the requirements button shown');
 
     // Edit component.html — add a third child (benign liquidos-file that
     // points at a nonexistent path; we only care about the shape change).
@@ -101,5 +113,8 @@ export default async ({ url, workspace, page }) => {
     await onScreen('MARKER_BEFORE').catch(() => {
         throw new Error('FAIL: "MARKER_BEFORE" vanished after the component.html edit — rendered content was lost');
     });
-    console.log('  ok  after edit: INITIAL and MARKER_BEFORE still visible');
+    if (!(await requirementsButtonShown())) {
+        throw new Error('the requirements button vanished after the component.html edit — the chrome frame was torn down even though the surface content survived');
+    }
+    console.log('  ok  after edit: content AND the requirements button still shown');
 };

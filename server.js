@@ -992,10 +992,18 @@ const refreshGraphWatchers = () => {
             watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, (eventType, filename) => {
                 broadcastWorkspaceFile(entry.path, filename);
 
-                // The canvas-root watch covers canvas.js (presentation reload).
+                // Component content is re-rendered by the workspace-file morph
+                // above (the page has a <liquidos-file> watching it). But the
+                // canvas's own wiring — canvas.js (presentation) and the
+                // relationships under relationships/ — is mounted by the graph
+                // itself, with no element in the page to observe the change, so
+                // a morph can't re-mount it. Re-render the graph for those.
                 if (entry.kind === 'canvas-root' && filename) {
+                    const normalized = filename.split(path.sep).join('/');
                     if (filename === 'canvas.js') {
                         scheduleWatchRefresh({ ...entry, kind: 'canvas-js' });
+                    } else if (normalized.startsWith('relationships/')) {
+                        scheduleWatchRefresh({ ...entry, kind: 'relationship' });
                     }
                     return;
                 }
