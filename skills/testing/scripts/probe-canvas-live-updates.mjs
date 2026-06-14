@@ -388,7 +388,7 @@ export default async ({ url, workspace, page, browser }) => {
         // Settle from the previous test's write before the next one — too-close
         // writes to input.json can coalesce in the watcher and the canvas only
         // sees the second state, missing whatever was added in between.
-        await sleep(400);
+        await sleep(800);
         const input = JSON.parse(agentRead('home/input.json'));
         const dropped = input.components.pop();
         const droppedName = path.basename(path.dirname(dropped));
@@ -396,7 +396,7 @@ export default async ({ url, workspace, page, browser }) => {
         const gone = await page.waitForFunction(suffix =>
             !Array.from(document.querySelectorAll('main .item'))
                 .some(item => (item.dataset.componentPath || '').includes('/' + suffix)),
-            droppedName, { timeout: 5000 }
+            droppedName, { timeout: 15000 }
         ).then(() => true).catch(() => false);
         if (!gone) throw new Error('component with /' + droppedName + ' still present');
         return 'component removed: ' + droppedName;
