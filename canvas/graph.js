@@ -341,44 +341,24 @@ const createCanvasGraph = ({
         }
     };
 
-    const isInsideCanvas = file => {
-        const relative = path.relative(getCanvasPath(), file);
-        return relative && !relative.startsWith('..') && !path.isAbsolute(relative);
-    };
-
-    // Watch the entire component folder recursively. file-change events
-    // bubble up to the SSE stream so <liquidos-file> elements can re-render
-    // when the agent or a service writes to anything inside.
-    const componentFolderEntries = (componentPaths, kind) =>
-        componentPaths.flatMap(componentPath => {
-            const folder = componentFolderPath(componentPath);
-            if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory() || !isInsideCanvas(folder)) {
-                return [];
-            }
-            return [{ path: folder, recursive: true, kind, componentPath }];
-        });
-
     const watchedPaths = () => {
-        const componentPaths = inputEntries().map(entry => entry.componentPath);
-        const relationshipPaths = relationshipEntries().map(entry => entry.componentPath);
         const relationshipsDirPath = relationshipsDir();
 
         return [
+            // input.json drives the graph — watch it directly so a component
+            // add/remove re-reads the config.
             ...[getInputPath()].filter(Boolean).map(file => ({ path: file, recursive: false, kind: 'canvas' })),
-            // Non-recursive watch on the canvas root to catch edits to
-            // canvas.js. The watch callback in server.js filters by filename
-            // so input.json (watched directly) and other top-level files
-            // (active-canvas.json, state.json, etc.) don't trigger.
+            // One recursive watch on the whole canvas catches every file change
+            // — canvas.js and any file inside any component — and never changes
+            // as components come and go. So the watcher is never torn down and
+            // recreated; that close/reopen cycle raced FSEvents and dropped
+            // events, which was why patches wrote to disk but never painted.
             ...[getCanvasPath()].filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
-                .map(file => ({ path: file, recursive: false, kind: 'canvas-root' })),
-            ...componentFolderEntries(componentPaths, 'component'),
-            // Non-recursive watch on relationships/ catches add/remove of
-            // relationships themselves (a new bridge folder appearing).
+                .map(file => ({ path: file, recursive: true, kind: 'canvas-root' })),
+            // relationships/ add/remove also changes the graph.
             ...(fs.existsSync(relationshipsDirPath) && fs.statSync(relationshipsDirPath).isDirectory()
                 ? [{ path: relationshipsDirPath, recursive: false, kind: 'relationships-root' }]
-                : []),
-            // Relationships use the same contract as components.
-            ...componentFolderEntries(relationshipPaths, 'relationship')
+                : [])
         ];
     };
 
