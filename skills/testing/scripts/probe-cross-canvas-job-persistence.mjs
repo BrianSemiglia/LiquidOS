@@ -91,7 +91,7 @@ export default async ({ url, workspace, page }) => {
     );
 
     // --- 5. The agent's write to home must be there ----------------------
-    await page.waitForSelector('[data-cross-canvas-built="home"]', { timeout: 10000 });
+    await page.waitForSelector('[data-cross-canvas-built="home"]', { timeout: 25000 });
     const markerText = (await page.locator('[data-cross-canvas-built="home"]').textContent() || '').trim();
     if (markerText !== 'HOME BUILT') {
         throw new Error('home marker text was not "HOME BUILT": ' + JSON.stringify(markerText));

@@ -46,14 +46,13 @@ const InstallBuildTestAgent = () => {
                 const input = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
                 const entries = Array.isArray(input.components) ? input.components : [];
                 for (const entry of entries) {
-                    // entry is "components/<name>/component.html"; the
-                    // component folder is its dirname.
-                    const componentDir = path.join(canvasFolder, path.dirname(String(entry)));
-                    const viewJsonPath = path.join(componentDir, 'view.json');
-                    if (!fs.existsSync(viewJsonPath)) continue;
-                    fs.writeFileSync(viewJsonPath, JSON.stringify({
-                        html: '<p data-install-build-marker="true">built</p>'
-                    }, null, 2) + '\n');
+                    // entry is "components/<name>/component.html"; rewrite that
+                    // file with the build marker so the harness re-renders it.
+                    const rel = path.dirname(String(entry));
+                    const compHtmlPath = path.join(canvasFolder, rel, 'component.html');
+                    if (!fs.existsSync(compHtmlPath)) continue;
+                    fs.writeFileSync(compHtmlPath,
+                        `<liquidos-component path="${rel}">\n    <p data-install-build-marker="true">built</p>\n</liquidos-component>\n`);
                 }
                 setStatus({ status: 'waiting' });
                 resolve('ok');

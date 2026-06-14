@@ -3,7 +3,7 @@
 // What a real agent would do for "user clicked something, dispatch agent
 // to react": some action that surfaces in the UI. This test agent does
 // the smallest deterministic version of that — rewrites the probe
-// component's view.json so its <span data-pong> reads "PONG". The
+// component's component.html so its <span data-pong> reads "PONG". The
 // harness's file watcher picks up the change and re-renders the
 // component; the probe asserts the span text in the DOM.
 //
@@ -41,16 +41,18 @@ const CallbackDispatchTestAgent = () => {
             const workingDirectory = context.workingDirectory || context.canvasPath;
             if (!workingDirectory) { reject(new Error(KIND + ': run requires workingDirectory')); return; }
             const scope = extractScope(prompt);
-            // Scope is the component folder. Re-emit view.json with a PONG span
-            // so the harness re-renders and the probe can read it via the DOM.
-            if (!scope.includes('/components/')) {
+            // Scope is the component folder. Rewrite its component.html with a
+            // PONG span so the harness re-renders it and the probe reads the
+            // span via the DOM.
+            if (!scope.includes('components/')) {
                 reject(new Error(KIND + ': scope did not point at a component: ' + scope));
                 return;
             }
             setStatus({ status: 'running', cwd: workingDirectory });
             try {
-                const viewPath = path.join(scope, 'presented', 'view.json');
-                fs.writeFileSync(viewPath, JSON.stringify({ title: 'Probe', html: PONG_HTML }, null, 2) + '\n');
+                const rel = scope.slice(scope.indexOf('components/')).replace(/\/+$/, '');
+                const compHtmlPath = path.join(scope, 'component.html');
+                fs.writeFileSync(compHtmlPath, `<liquidos-component path="${rel}">\n    ${PONG_HTML}\n</liquidos-component>\n`);
                 setStatus({ status: 'waiting' });
                 resolve('ok');
             } catch (error) {

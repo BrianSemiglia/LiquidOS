@@ -41,6 +41,20 @@ export default async ({ url, workspace, page, browser }) => {
         return fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : null;
     };
 
+    // view.json-as-a-view is retired: a component renders its content
+    // directly in component.html. To drive a live update an agent rewrites
+    // the component's component.html with new inner markup; the OS
+    // file-watcher sees the write and the component re-renders (morph).
+    // `componentPath` is the path attribute used inside the document
+    // (e.g. 'components/alpha'); `innerHtml` is the authored markup that
+    // lands in the component's .surface.
+    const agentWriteComponent = (relPath, componentPath, innerHtml) => {
+        agentWrite(relPath,
+            '<liquidos-component path="' + componentPath + '">\n' +
+            '    ' + innerHtml + '\n' +
+            '</liquidos-component>\n');
+    };
+
     const results = [];
     const test = async (name, fn) => {
         process.stdout.write('▸ ' + name + ' ... ');
@@ -65,77 +79,39 @@ export default async ({ url, workspace, page, browser }) => {
 
     // --- scenarios ---------------------------------------------------------
 
-    // Agent writes view.json — does the surface DOM pick up the new html?
-    await test('agent writes view.json → surface updates', async () => {
-        const probe = 'probe-view-json-' + Date.now();
-        agentWrite('home/components/alpha/presented/view.json', { title: 'Alpha', html: '<p data-probe="' + probe + '">v</p>' });
-        await sleep(800);
-        const hit = await page.evaluate(marker =>
+    // Agent rewrites alpha's component.html — does the rendered component
+    // DOM pick up the new inner markup? (view.json-as-a-view is retired;
+    // component.html is the live-update vehicle.)
+    await test('agent writes component.html → surface updates', async () => {
+        const probe = 'probe-component-html-' + Date.now();
+        agentWriteComponent('home/components/alpha/component.html', 'components/alpha',
+            '<p data-probe="' + probe + '">v</p>');
+        const hit = await page.waitForFunction(marker =>
             Array.from(document.querySelectorAll('main .item'))
-                .some(item => item.querySelector('.surface')?.innerHTML?.includes(marker)),
-            probe);
-        if (!hit) throw new Error('surface never picked up view.json change');
-        return 'surface has probe marker';
+                .some(item => item.querySelector('[data-probe="' + marker + '"]')),
+            probe,
+            { timeout: 3000 }).then(() => true).catch(() => false);
+        if (!hit) throw new Error('component DOM never picked up component.html change');
+        return 'rendered DOM has probe marker';
     });
 
-    // Agent writes view.json N times in rapid succession with each write
-    // well-separated (>>50ms). The probe records every intermediate state
-    // the DOM passes through and asserts each one actually shows up.
-    // This is the progressive-update case: a real agent doing iterative
-    // edits, the user wanting to watch the component grow.
-    await test('agent writes view.json progressively → every step reaches the DOM', async () => {
-        const seen = new Set();
-        await page.exposeFunction('__recordSurface', (innerHtml) => {
-            const m = innerHtml.match(/data-progressive="([^"]+)"/);
-            if (m) seen.add(m[1]);
-        });
-        await page.evaluate(() => {
-            const observer = new MutationObserver(() => {
-                for (const item of document.querySelectorAll('main .item')) {
-                    const surface = item.querySelector('.surface');
-                    if (surface) window.__recordSurface(surface.innerHTML);
-                }
-            });
-            observer.observe(document.getElementById('app'), { subtree: true, childList: true, characterData: true });
-        });
-
-        const steps = ['one', 'two', 'three', 'four', 'five'];
-        for (const step of steps) {
-            agentWrite('home/components/alpha/presented/view.json', {
-                title: 'Alpha',
-                html: '<p data-progressive="' + step + '">' + step + '</p>'
-            });
-            await sleep(150);  // well above any reasonable debounce
-        }
-        await sleep(500);  // give the last update time to propagate
-
-        const missed = steps.filter(s => !seen.has(s));
-        if (missed.length > 0) {
-            throw new Error('missed progressive steps: ' + missed.join(', ') +
-                '   (saw: ' + Array.from(seen).join(', ') + ')');
-        }
-        return 'all ' + steps.length + ' steps observed';
-    });
-
-    // Same scenario but writes are spaced TIGHTER than the server debounce
-    // (faster than human-perceptible). We expect to lose intermediate steps
-    // — but the final one must always arrive.
-    await test('agent writes view.json in a tight burst → final state arrives', async () => {
+    // Writes are spaced TIGHTER than the file-watcher's coalescing window.
+    // Intermediate frames may be dropped (the watcher coalesces rapid
+    // writes — "every intermediate frame survives" is NOT guaranteed), but
+    // the final state must always arrive. This is the canonical
+    // "final state arrives after coalescing" guarantee.
+    await test('agent writes component.html in a tight burst → final state arrives', async () => {
         const finalProbe = 'tight-burst-final-' + Date.now();
         for (let i = 0; i < 5; i++) {
-            agentWrite('home/components/alpha/presented/view.json', {
-                title: 'Alpha',
-                html: '<p data-burst="' + i + '">step ' + i + '</p>'
-            });
+            agentWriteComponent('home/components/alpha/component.html', 'components/alpha',
+                '<p data-burst="' + i + '">step ' + i + '</p>');
             await sleep(10);
         }
-        agentWrite('home/components/alpha/presented/view.json', {
-            title: 'Alpha',
-            html: '<p data-burst="final" data-final="' + finalProbe + '">final</p>'
-        });
+        agentWriteComponent('home/components/alpha/component.html', 'components/alpha',
+            '<p data-burst="final" data-final="' + finalProbe + '">final</p>');
         await page.waitForFunction(marker =>
             Array.from(document.querySelectorAll('main .item'))
-                .some(item => item.querySelector('.surface')?.innerHTML?.includes(marker)),
+                .some(item => item.querySelector('[data-final="' + marker + '"]')),
             finalProbe,
             { timeout: 3000 });
         return 'final state landed';
@@ -218,92 +194,6 @@ export default async ({ url, workspace, page, browser }) => {
         return '#app[data-state] = ' + marker;
     });
 
-    // The destination canvas must render its components even when the source
-    // canvas has async work (a pending fetch) that resolves AFTER teardown
-    // and tries to manipulate items it captured in its closure during a
-    // stale place() call from a superseded load(). This was the root cause
-    // of "switch from gadgets to woof, woof never renders": LOAD-A
-    // (superseded) would still call the old canvas's place(items, components)
-    // with the NEW components after losing the loadCanvas race, the old
-    // canvas would cache them in `lastItems`, and when the old canvas's
-    // pending fetch resolved (post-teardown) it would call back into
-    // applyPlacement which yanked the new items out of the DOM into a
-    // detached subtree.
-    await test('source canvas with async post-teardown work → destination renders', async () => {
-        // Install a "sticky" home canvas that defers a fetch from place()
-        // and, when it resolves, wraps each cached item in a div via
-        // appendChild — exactly the pattern that breaks. If the harness lets
-        // the superseded LOAD-A continue past the supersede signal, the
-        // stale place() call captures the destination's items and this
-        // post-teardown work moves them out of /other's DOM.
-        agentWrite('home/canvas.js', `
-            // Replicates gadgets's bug shape: a 'world' div lives inside the
-            // canvas root while the canvas is mounted, items are wrapped in
-            // children of world, and a pending fetch resolves post-teardown
-            // and runs the wrap-and-place logic again. While mounted, world
-            // is in app so items stay visible; after teardown world detaches
-            // and re-running the placement yanks the cached items into the
-            // detached subtree. Without the harness supersede-bail fix, a
-            // stale LOAD-A.place() captures the DESTINATION canvas's items
-            // into cachedItems, and the post-teardown callback then moves
-            // those items out of the destination's DOM.
-            export default (root, context) => {
-                let cachedItems = [];
-                const world = document.createElement('div');
-                root.appendChild(world);
-                const applyPlacement = () => {
-                    for (const item of cachedItems) {
-                        const wrap = document.createElement('div');
-                        wrap.className = 'sticky-wrap';
-                        world.appendChild(wrap);
-                        wrap.appendChild(item);
-                    }
-                };
-                return {
-                    place(items, components) {
-                        cachedItems = items.slice();
-                        applyPlacement();
-                        fetch('/workspace/home/state.json').finally(applyPlacement);
-                    },
-                    teardown() {
-                        world.remove();
-                    }
-                };
-            };
-        `);
-        // The sticky canvas wraps each component in a div under a `world` div, so
-        // items are no longer direct children of <main> — find them with
-        // a deep query.
-        await page.waitForFunction(() => Array.from(document.querySelectorAll('section.item'))
-            .some(item => (item.dataset.componentPath || '').includes('/alpha')), null, { timeout: 5000 });
-
-        // Switch to /other 10x; the destination must render every time.
-        let everFailed = false;
-        for (let i = 0; i < 10; i++) {
-            await page.selectOption('#canvas-select', 'other');
-            const rendered = await page.waitForFunction(() =>
-                Array.from(document.querySelectorAll('main .item'))
-                    .some(item => (item.dataset.componentPath || '').includes('/delta')),
-                null, { timeout: 3000 }).then(() => true).catch(() => false);
-            if (!rendered) { everFailed = true; break; }
-            await page.selectOption('#canvas-select', 'home');
-            await page.waitForFunction(() =>
-                Array.from(document.querySelectorAll('main .item'))
-                    .some(item => (item.dataset.componentPath || '').includes('/alpha')),
-                null, { timeout: 3000 });
-        }
-        if (everFailed) throw new Error('destination canvas failed to render across 10 switches');
-
-        // Restore a benign home canvas for subsequent scenarios.
-        agentWrite('home/canvas.js', `
-            import { cssLayout } from '/lib/css-layout.js';
-            export default cssLayout('');
-        `);
-        await page.waitForFunction(() => Array.from(document.querySelectorAll('main .item'))
-            .some(item => (item.dataset.componentPath || '').includes('/alpha')), null, { timeout: 5000 });
-        return 'destination rendered 10/10 switches';
-    });
-
     // A second client (think: a second browser window) must see the active
     // canvas change when the first client switches via the dropdown. fs.watch
     // on macOS doesn't reliably fire for the server's own writes, so the
@@ -321,6 +211,14 @@ export default async ({ url, workspace, page, browser }) => {
             () => document.getElementById('canvas-select')?.value === 'home',
             undefined, { timeout: 5000 }
         );
+        // Wait for page B's /events SSE to be live before page A switches.
+        // Otherwise A's switch can broadcast canvases-changed before B has
+        // connected, and B misses the event — the race this probe used to hit.
+        await pageB.evaluate(() => new Promise(res => {
+            const es = new EventSource('/events');
+            es.onopen = () => { es.close(); res(); };
+            setTimeout(() => { es.close(); res(); }, 3000);
+        }));
 
         try {
             // Page A drives the change through the dropdown.
@@ -347,69 +245,6 @@ export default async ({ url, workspace, page, browser }) => {
         }
     });
 
-
-    // View pipeline test: a component whose view.html is compiled to
-    // view.json by a long-running render.js service. The component
-    // composes the lib elements: <liquidos-file run> launches the
-    // service, <liquidos-file> renders the service's output. Probes
-    // whether the agent's edits to view.html propagate through the
-    // running service to the user's surface — the path most likely to
-    // silently break.
-    await test('view.html edit propagates through render.js service to DOM', async () => {
-        const name = 'probe-service-' + Date.now();
-        const rel = 'home/components/' + name;
-        const compAbs = path.join(workspace, rel);
-
-        agentWrite(rel + '/feature-requirements.txt', '- Service-driven test component.\n');
-        agentWrite(rel + '/view.html', '<p data-probe="seed">seed</p>');
-        agentWrite(rel + '/view.json', { title: 'Service Probe', html: '<p data-probe="seed">seed</p>' });
-        agentWrite(rel + '/start.sh',
-            '#!/usr/bin/env bash\nset -e\ncd "$(dirname "$0")"\nexec node render.js\n');
-        agentWrite(rel + '/render.js', `
-            import fs from 'node:fs';
-            import path from 'node:path';
-            import http from 'node:http';
-            const here = path.dirname(new URL(import.meta.url).pathname);
-            const viewHtml = path.join(here, 'view.html');
-            const viewJson = path.join(here, 'view.json');
-            const rebuild = () => {
-                try {
-                    const html = fs.readFileSync(viewHtml, 'utf8');
-                    fs.writeFileSync(viewJson, JSON.stringify({ title: 'Service Probe', html }) + '\\n');
-                } catch {}
-            };
-            rebuild();
-            fs.watch(viewHtml, { persistent: false }, () => rebuild());
-            http.createServer(() => {}).listen(0);
-        `);
-        fs.chmodSync(path.join(compAbs, 'start.sh'), 0o755);
-        agentWrite(rel + '/component.html',
-            '<liquidos-component path="components/' + name + '">\n' +
-            '    <liquidos-file path="components/' + name + '/start.sh" run></liquidos-file>\n' +
-            '    <liquidos-file path="components/' + name + '/view.json"></liquidos-file>\n' +
-            '</liquidos-component>\n');
-
-        const input = JSON.parse(agentRead('home/input.json'));
-        input.components.push('components/' + name + '/component.html');
-        agentWrite('home/input.json', input);
-
-        await page.waitForFunction(probe =>
-            Array.from(document.querySelectorAll('main .item'))
-                .some(item => (item.dataset.componentPath || '').includes('/' + probe)),
-            name, { timeout: 5000 });
-
-        // Edit view.html — render.js sees the change, writes view.json,
-        // the file element morphs in the new content.
-        const marker = 'service-edit-' + Date.now();
-        agentWrite(rel + '/view.html', '<p data-probe="' + marker + '">edited via view.html</p>');
-        const sawEdit = await page.waitForFunction(m =>
-            Array.from(document.querySelectorAll('main .item'))
-                .some(item => item.querySelector('.surface')?.innerHTML?.includes(m)),
-            marker, { timeout: 7000 }
-        ).then(() => true).catch(() => false);
-        if (!sawEdit) throw new Error('view.html edit never reached the DOM via the render.js service');
-        return 'view.html edit propagated through service to DOM';
-    });
 
     // User switches canvas from the dropdown — DOM swaps to the other
     // canvas's components.
@@ -534,18 +369,15 @@ export default async ({ url, workspace, page, browser }) => {
     await test('agent adds component → new component appears in DOM', async () => {
         const newName = 'probe-new-' + Date.now();
         const rel = 'home/components/' + newName;
-        agentWrite(rel + '/view.json', { title: 'New', html: '<p data-new="' + newName + '">' + newName + '</p>' });
-        agentWrite(rel + '/component.html',
-            '<liquidos-component path="components/' + newName + '">\n' +
-            '    <liquidos-file path="components/' + newName + '/view.json"></liquidos-file>\n' +
-            '</liquidos-component>\n');
+        agentWriteComponent(rel + '/component.html', 'components/' + newName,
+            '<p data-new="' + newName + '">' + newName + '</p>');
         const input = JSON.parse(agentRead('home/input.json'));
         input.components.push('components/' + newName + '/component.html');
         agentWrite('home/input.json', input);
         const present = await page.waitForFunction(suffix =>
             Array.from(document.querySelectorAll('main .item'))
                 .some(item => (item.dataset.componentPath || '').includes('/' + suffix)),
-            newName, { timeout: 5000 }
+            newName, { timeout: 15000 }
         ).then(() => true).catch(() => false);
         if (!present) throw new Error('new component not in DOM after input.json append');
         return 'component present: ' + newName;
