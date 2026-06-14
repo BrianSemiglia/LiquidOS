@@ -4,9 +4,12 @@
 // Clicking the runtime Repair button on a component whose functions.js
 // has thrown dispatches the agent scoped to that component. The stub
 // agent rewrites functions.js to a clean mount and rewrites component.html
-// with a known DOM marker. The probe asserts the marker appears AND
-// the runtime Repair button disappears — proof that clicking it drove
-// the component back to a healthy state.
+// with a known DOM marker. The probe asserts the marker "runtime repaired"
+// appears on screen AND the runtime Repair button disappears — proof that
+// clicking it drove the component back to a healthy state.
+//
+// Asserts only what a person sees on screen, never internal DOM structure
+// or geometry.
 //
 // Run it:  node run-probe.mjs probe-component-runtime-repair-click.mjs
 //
@@ -18,44 +21,38 @@ export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
+    const onScreen = (text, timeout = 15000) => page.waitForFunction(
+        t => document.body.innerText.includes(t), text, { timeout });
+    const offScreen = (text, timeout = 10000) => page.waitForFunction(
+        t => !document.body.innerText.includes(t), text, { timeout });
+
     // Wait for the runtime Repair button to surface (component has thrown).
-    await page.waitForFunction(
-        () => Array.from(document.querySelectorAll('button'))
-            .some(b => (b.textContent || '').trim() === 'Repair'
-                && b.getBoundingClientRect().width > 0),
-        { timeout: 15000 }
-    );
+    await onScreen('Repair', 15000).catch(() => {
+        throw new Error('"Repair" never appeared — runtime error did not surface the repair affordance');
+    });
 
     // Click it.
     await page.locator('button', { hasText: 'Repair' }).first().click();
 
-    // Agent dispatches → either the success marker appears, or the
-    // failure marker surfaces the actual prompt the agent received.
-    await page.waitForFunction(
-        () => document.querySelector('[data-runtime-repair-marker]')
-            || document.querySelector('[data-runtime-repair-failure]'),
-        { timeout: 10000 }
-    );
-    const failure = await page.evaluate(() => {
-        const el = document.querySelector('[data-runtime-repair-failure]');
-        if (!el) return null;
-        return {
-            reason: el.querySelector('p')?.textContent || '(no reason)',
-            promptReceived: el.querySelector('[data-prompt-received]')?.textContent || '(empty)'
-        };
+    // Agent dispatches and either:
+    //   success → writes "runtime repaired" to the screen
+    //   failure → writes "contract failed:" to the screen (with the prompt)
+    await onScreen('runtime repaired', 10000).catch(async () => {
+        // Check whether a contract failure was surfaced instead.
+        const screenText = await page.evaluate(() => document.body.innerText);
+        if (screenText.includes('contract failed:')) {
+            console.error('--- screen text at failure ---');
+            console.error(screenText);
+            console.error('---');
+            throw new Error('agent contract check failed — see screen text above');
+        }
+        throw new Error('"runtime repaired" never appeared — agent did not complete successfully');
     });
-    if (failure) {
-        console.error('--- prompt the agent received ---');
-        console.error(failure.promptReceived);
-        console.error('---');
-        throw new Error(failure.reason);
-    }
+    console.log('  ok  "runtime repaired" appeared on screen');
 
     // On success, the runtime Repair button must also disappear.
-    await page.waitForFunction(
-        () => !Array.from(document.querySelectorAll('button'))
-            .some(b => (b.textContent || '').trim() === 'Repair'
-                && b.getBoundingClientRect().width > 0),
-        { timeout: 10000 }
-    );
+    await offScreen('Repair').catch(() => {
+        throw new Error('"Repair" is still on screen after the agent repaired the component');
+    });
+    console.log('  ok  "Repair" cleared from screen after successful repair');
 };

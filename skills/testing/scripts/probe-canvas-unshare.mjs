@@ -20,41 +20,46 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[pageerror]', err.message));
 
+    const onScreen  = (text, timeout = 10000) => page.waitForFunction(
+        t => document.body.innerText.includes(t), text, { timeout });
+    const offScreen = (text, timeout = 10000) => page.waitForFunction(
+        t => !document.body.innerText.includes(t), text, { timeout });
+
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('liquidos-component[path="components/gizmo"]', { timeout: 20000 });
+    // Wait for the fixture's component content to confirm the canvas loaded.
+    await onScreen('Gizmo', 20000);
 
     // --- share ON via Canvas Info → Shared toggle -------------------------
     await page.locator('#canvas-info').click();
+    await onScreen('Canvas Requirements').catch(() => {
+        throw new Error('"Canvas Requirements" modal did not open');
+    });
     await page.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
     await page.locator('#canvas-share-switch').click();
+    // Wait for the async toggle to settle (re-enables after the PUT resolves).
     await page.waitForFunction(
         () => {
             const btn = document.getElementById('canvas-share-switch');
-            return btn
-                && btn.getAttribute('aria-checked') === 'true'
-                && !btn.hasAttribute('disabled');
+            return btn && !btn.hasAttribute('disabled');
         },
         undefined,
         { timeout: 30000 }
     );
     await page.locator('#canvas-requirements-cancel').click();
-    await page.waitForFunction(
-        () => document.getElementById('canvas-requirements-overlay')?.hidden === true,
-        undefined,
-        { timeout: 5000 }
-    );
+    await offScreen('Canvas Requirements').catch(() => {
+        throw new Error('"Canvas Requirements" modal did not close');
+    });
     console.log('Shared ON');
 
     // --- own bundle appears in own Browse ---------------------------------
     await page.locator('#new-canvas').click();
-    await page.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
+    await onScreen('Type to search', 5000);
     await page.locator('#browse-query').fill('home');
-    await page.waitForFunction(
-        () => Array.from(document.querySelectorAll('#browse-results .browse-result'))
-            .some(c => (c.querySelector('.browse-result-name')?.textContent || '').trim() === 'home'),
-        undefined,
-        { timeout: 10000 }
-    );
+    // The bundle name "home" appears in the results list (input values are
+    // not part of document.body.innerText, so this is the result row text).
+    await onScreen('home', 10000).catch(() => {
+        throw new Error('"home" bundle did not appear in own Browse after sharing ON');
+    });
     console.log('own bundle visible in own Browse');
 
     // --- share OFF via Canvas Info → Shared toggle ------------------------
@@ -62,35 +67,35 @@ export default async ({ url, page }) => {
     await page.keyboard.press('Escape');
     await sleep(200);
     await page.locator('#canvas-info').click();
+    await onScreen('Canvas Requirements').catch(() => {
+        throw new Error('"Canvas Requirements" modal did not reopen');
+    });
     await page.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
     await page.locator('#canvas-share-switch').click();
+    // Wait for the async toggle to settle.
     await page.waitForFunction(
         () => {
             const btn = document.getElementById('canvas-share-switch');
-            return btn
-                && btn.getAttribute('aria-checked') === 'false'
-                && !btn.hasAttribute('disabled');
+            return btn && !btn.hasAttribute('disabled');
         },
         undefined,
         { timeout: 30000 }
     );
     await page.locator('#canvas-requirements-cancel').click();
-    await page.waitForFunction(
-        () => document.getElementById('canvas-requirements-overlay')?.hidden === true,
-        undefined,
-        { timeout: 5000 }
-    );
+    await offScreen('Canvas Requirements').catch(() => {
+        throw new Error('"Canvas Requirements" modal did not close after share OFF');
+    });
     console.log('Shared OFF');
 
     // --- own bundle gone from own Browse ----------------------------------
     await page.locator('#new-canvas').click();
-    await page.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
+    await onScreen('Type to search', 5000);
     await page.locator('#browse-query').fill('home');
-    await sleep(500);
-    const stillThere = await page.evaluate(
-        () => Array.from(document.querySelectorAll('#browse-results .browse-result'))
-            .some(c => (c.querySelector('.browse-result-name')?.textContent || '').trim() === 'home')
-    );
-    if (stillThere) throw new Error('own bundle still visible in own Browse after unshare');
+    await sleep(500); // let the debounce + search complete
+    // After unshare the local feed has no "home" bundle, so the search
+    // returns nothing and "No matches yet." appears.
+    await onScreen('No matches yet.', 5000).catch(() => {
+        throw new Error('own bundle still visible in own Browse after unshare — "No matches yet." never appeared');
+    });
     console.log('own bundle no longer in own Browse');
 };

@@ -1,10 +1,10 @@
 //
 // probe-canvas-damaged.mjs
 //
-// A malformed input.json on the active canvas surfaces a red "canvas-
-// repair" card in the DOM with a Repair button. The probe writes a bad
-// input.json into the sandbox after boot (so the harness sees the
-// change), then asserts on the rendered card.
+// A malformed input.json on the active canvas surfaces a "Repair" button
+// the user can see. The probe writes a bad input.json into the sandbox
+// after boot (so the harness sees the change), then asserts on what
+// appears on screen.
 //
 // Run it:  node run-probe.mjs probe-canvas-damaged.mjs
 //
@@ -21,27 +21,23 @@ export default async ({ url, workspace, page }) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await sleep(1500);
 
-    // Pre-condition: no visible Repair button yet (an undamaged canvas
+    const onScreen = (text) => page.waitForFunction(
+        t => document.body.innerText.includes(t), text, { timeout: 8000 });
+    const offScreen = (text) => page.waitForFunction(
+        t => !document.body.innerText.includes(t), text, { timeout: 8000 });
+
+    // Pre-condition: no visible "Repair" text yet (an undamaged canvas
     // with no failing components shouldn't show one).
-    const visibleRepairs = () => page.evaluate(() => {
-        return Array.from(document.querySelectorAll('button'))
-            .filter(b => (b.textContent || '').trim() === 'Repair'
-                && b.getBoundingClientRect().width > 0)
-            .length;
+    await offScreen('Repair').catch(() => {
+        throw new Error('"Repair" was already visible before damage');
     });
-    if (await visibleRepairs() !== 0) {
-        throw new Error('a Repair button was already visible before damage');
-    }
 
     // Corrupt input.json mid-session — the watcher sees the change.
     const inputPath = path.join(workspace, 'home', 'input.json');
     fs.writeFileSync(inputPath, '{ this is not valid JSON', 'utf8');
 
-    // A Repair button surfaces — the user sees a broken canvas and can act on it.
-    await page.waitForFunction(
-        () => Array.from(document.querySelectorAll('button'))
-            .some(b => (b.textContent || '').trim() === 'Repair'
-                && b.getBoundingClientRect().width > 0),
-        { timeout: 8000 }
-    );
+    // "Repair" surfaces — the user sees a broken canvas and can act on it.
+    await onScreen('Repair').catch(() => {
+        throw new Error('"Repair" never appeared on screen after the canvas was damaged');
+    });
 };

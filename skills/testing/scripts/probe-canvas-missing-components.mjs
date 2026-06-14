@@ -17,34 +17,27 @@ export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // The user-facing affordance: a visible Repair button on first paint.
-    await page.waitForFunction(
-        () => Array.from(document.querySelectorAll('button'))
-            .some(b => (b.textContent || '').trim() === 'Repair'
-                && b.getBoundingClientRect().width > 0),
-        { timeout: 10000 }
-    );
+    const onScreen  = (text, timeout = 10000) => page.waitForFunction(
+        t => document.body.innerText.includes(t), text, { timeout });
+    const offScreen = (text, timeout = 10000) => page.waitForFunction(
+        t => !document.body.innerText.includes(t), text, { timeout });
 
-    // And nothing else — no per-file "missing:" noise sitting next to
-    // the Repair card, no leftover canvas decoration (e.g. a rain
-    // overlay) that the canvas painted before the harness knew it was
-    // broken. Either would be confusing noise around the Repair card.
-    await new Promise(r => setTimeout(r, 500)); // let any race flicker in
-    const noisy = await page.evaluate(() => {
-        const bodyText = document.body.innerText || '';
-        return {
-            missingHits:          (bodyText.match(/missing:/g) || []).length,
-            stillHasLiquidosFile: !!document.querySelector('liquidos-file'),
-            canvasOverlayHits:    document.querySelectorAll('[data-canvas-overlay]').length
-        };
+    // The user-facing affordance: a visible "Repair" label on first paint.
+    await onScreen('Repair').catch(() => {
+        throw new Error('"Repair" never appeared on screen for a missing-component canvas');
     });
-    if (noisy.missingHits > 0) {
-        throw new Error(noisy.missingHits + ' "missing:" text(s) still rendered next to Repair card');
-    }
-    if (noisy.stillHasLiquidosFile) {
-        throw new Error('<liquidos-file> elements still in DOM after canvas-level error');
-    }
-    if (noisy.canvasOverlayHits > 0) {
-        throw new Error(noisy.canvasOverlayHits + ' canvas-overlay element(s) still in DOM after canvas-level error');
-    }
+
+    // Let any race flicker settle then assert no noise.
+    await new Promise(r => setTimeout(r, 500));
+
+    // No "missing:" diagnostic text sitting next to the Repair card.
+    await offScreen('missing:').catch(() => {
+        throw new Error('"missing:" diagnostic text is still visible next to the Repair card');
+    });
+
+    // The canvas's decorative overlay (textContent "rain-overlay") must be
+    // torn down — leaving it beside the Repair card would be confusing noise.
+    await offScreen('rain-overlay').catch(() => {
+        throw new Error('"rain-overlay" canvas overlay is still on screen after canvas-level error');
+    });
 };

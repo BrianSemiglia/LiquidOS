@@ -23,9 +23,8 @@ export default async ({ url, page }) => {
     // A Repair button must appear on first paint — same affordance the
     // user gets when a canvas breaks mid-session.
     await page.waitForFunction(
-        () => Array.from(document.querySelectorAll('button'))
-            .some(b => (b.textContent || '').trim() === 'Repair'
-                && b.getBoundingClientRect().width > 0),
-        { timeout: 10000 }
-    );
+        t => document.body.innerText.includes(t), 'Repair', { timeout: 10000 }
+    ).catch(() => {
+        throw new Error('"Repair" never appeared on screen — damaged workspace did not surface the repair affordance');
+    });
 };

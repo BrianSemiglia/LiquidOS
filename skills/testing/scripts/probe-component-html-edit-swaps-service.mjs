@@ -16,10 +16,13 @@
 //   1. Renders a component whose component.html declares
 //      <liquidos-file run path="service-a.js">
 //      <p data-marker>SURVIVED_THE_SWAP</p>
-//   2. Confirms SURVIVED_THE_SWAP is visible.
+//   2. Confirms SURVIVED_THE_SWAP is visible on screen.
 //   3. PUTs a new component.html with the run path swapped to
 //      service-b.js — same marker content, no other change.
 //   4. Asserts SURVIVED_THE_SWAP is STILL visible after the swap.
+//
+// Asserts only what a person sees on screen, never internal DOM structure
+// or geometry.
 //
 // Run it:  node run-probe.mjs probe-component-html-edit-swaps-service.mjs
 //
@@ -38,27 +41,16 @@ const expect = (label, predicate, detail) => {
 export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[pageerror]', err.message));
 
+    const onScreen = (text, timeout = 10000) => page.waitForFunction(
+        t => document.body.innerText.includes(t), text, { timeout });
+
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // Visibility: real area on screen, not display:none / hidden / opaque.
-    const markerVisibility = () => page.evaluate(() => {
-        const el = document.querySelector('[data-marker]');
-        if (!el) return { visible: false, text: '' };
-        const r = el.getBoundingClientRect();
-        const cs = getComputedStyle(el);
-        const visible = r.width > 0 && r.height > 0
-            && cs.display !== 'none' && cs.visibility !== 'hidden' && cs.opacity !== '0';
-        return { visible, text: el.textContent || '' };
+    // Baseline: the component's visible marker is on screen.
+    await onScreen('SURVIVED_THE_SWAP').catch(() => {
+        throw new Error('"SURVIVED_THE_SWAP" never appeared — component did not render');
     });
-
-    await page.waitForFunction(() =>
-        document.querySelector('[data-marker]')?.textContent?.includes('SURVIVED_THE_SWAP'),
-        undefined, { timeout: 10000 });
-
-    const before = await markerVisibility();
-    expect('baseline: view marker visible with SURVIVED_THE_SWAP',
-        before.visible && before.text.includes('SURVIVED_THE_SWAP'),
-        'before: ' + JSON.stringify(before));
+    console.log('  ok  baseline: SURVIVED_THE_SWAP visible');
 
     // Swap which service the run-mode liquidos-file points at by editing
     // component.html. This is the exact edit the user made (start.sh →
@@ -79,6 +71,8 @@ export default async ({ url, workspace, page }) => {
 
     // Wait for the live DOM to reflect the swap — the new run-mode
     // liquidos-file (pointing at service-b.js) appears in the document.
+    // This is a driving step: we need to know the edit landed before
+    // asserting the view survived.
     const deadline = Date.now() + 8000;
     while (Date.now() < deadline) {
         const swapped = await page.evaluate(() =>
@@ -94,8 +88,8 @@ export default async ({ url, workspace, page }) => {
         'mount reconcile never propagated');
 
     // The whole point: did the rendered view survive the swap?
-    const after = await markerVisibility();
-    expect('after service swap: view marker STILL visible with SURVIVED_THE_SWAP',
-        after.visible && after.text.includes('SURVIVED_THE_SWAP'),
-        'the rendered view was torn down by the structural edit — after: ' + JSON.stringify(after));
+    await onScreen('SURVIVED_THE_SWAP').catch(() => {
+        throw new Error('FAIL: "SURVIVED_THE_SWAP" vanished after the service swap — rendered view was torn down by the structural edit');
+    });
+    console.log('  ok  after service swap: SURVIVED_THE_SWAP still visible');
 };

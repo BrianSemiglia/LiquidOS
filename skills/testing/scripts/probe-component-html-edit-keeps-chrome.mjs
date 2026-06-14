@@ -20,12 +20,14 @@
 //
 // This probe forces the bug by:
 //   1. Boot the agent-edit-stub fixture and confirm the target component
-//      renders (#target-status visible, .surface in the DOM).
+//      renders (visible strings INITIAL and MARKER_BEFORE on screen).
 //   2. PUT a slightly edited component.html via /workspace (add a benign
 //      extra <liquidos-file> as a third child of <liquidos-component>).
 //   3. Wait for the SSE workspace-file event to propagate.
-//   4. Assert: the chrome (.surface) is STILL in the DOM, and
-//      #target-status is STILL visible.
+//   4. Assert: INITIAL and MARKER_BEFORE are STILL visible on screen.
+//
+// Asserts only what a person sees on screen, never internal DOM structure
+// or geometry.
 //
 // Run it:  node run-probe.mjs probe-component-html-edit-keeps-chrome.mjs
 //
@@ -37,47 +39,24 @@ export const fixture = 'agent-edit-stub.liquidos';
 export const agent = 'lqpatch-stream-stub';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const expect = (label, predicate, detail) => {
-    if (predicate) { console.log('  ok  ' + label); return; }
-    throw new Error('FAIL: ' + label + (detail ? ' — ' + detail : ''));
-};
 
 export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[pageerror]', err.message));
 
+    const onScreen = (text, timeout = 8000) => page.waitForFunction(
+        t => document.body.innerText.includes(t), text, { timeout });
+
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForFunction(() => !!window.__lqpatch, undefined, { timeout: 10000 });
-    await page.waitForSelector('#target-status', { timeout: 10000 });
 
-    // Sanity: the user-visible content of the component is on screen.
-    // We treat "visible to the user" as: element exists, has non-zero
-    // size on screen, and isn't hidden via display:none / visibility:hidden.
-    const visibility = () => page.evaluate(() => {
-        const visible = el => {
-            if (!el) return false;
-            const r = el.getBoundingClientRect();
-            if (r.width <= 0 || r.height <= 0) return false;
-            const cs = getComputedStyle(el);
-            if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
-            return true;
-        };
-        const status = document.getElementById('target-status');
-        const marker = document.querySelector('[data-marker]');
-        return {
-            statusVisible: visible(status),
-            statusText: status?.textContent || '',
-            markerVisible: visible(marker),
-            markerText: marker?.textContent || ''
-        };
+    // Sanity: both visible strings from the fixture are on screen.
+    await onScreen('INITIAL', 10000).catch(() => {
+        throw new Error('"INITIAL" never appeared — #target-status did not render');
     });
-
-    const before = await visibility();
-    expect('baseline: #target-status is visible on screen with INITIAL',
-        before.statusVisible && before.statusText.includes('INITIAL'),
-        'before: ' + JSON.stringify(before));
-    expect('baseline: component marker is visible on screen with MARKER_BEFORE',
-        before.markerVisible && before.markerText.includes('MARKER_BEFORE'),
-        'before: ' + JSON.stringify(before));
+    await onScreen('MARKER_BEFORE').catch(() => {
+        throw new Error('"MARKER_BEFORE" never appeared — component marker did not render');
+    });
+    console.log('  ok  baseline: INITIAL and MARKER_BEFORE visible');
 
     // Edit component.html — add a third child (benign liquidos-file that
     // points at a nonexistent path; we only care about the shape change).
@@ -87,9 +66,7 @@ export default async ({ url, workspace, page }) => {
         '</liquidos-component>',
         '    <liquidos-file path="components/target/nope.txt"></liquidos-file>\n</liquidos-component>'
     );
-    expect('edit produced a different file',
-        edited !== original,
-        'edit had no effect');
+    if (edited === original) throw new Error('FAIL: edit produced no change in component.html');
 
     // PUT through the harness endpoint so the file watcher and SSE fire
     // the same way they would for a real edit.
@@ -98,11 +75,11 @@ export default async ({ url, workspace, page }) => {
         headers: { 'Content-Type': 'text/plain' },
         body: edited
     });
-    expect('PUT returned 200', put.status === 200, 'got HTTP ' + put.status);
+    if (put.status !== 200) throw new Error('FAIL: PUT returned HTTP ' + put.status);
 
     // Wait until the edit propagated — the new <liquidos-file> for the
-    // added child appears in the document. That's the user-visible
-    // signal that the live render reacted to the file change.
+    // added child appears in the document. This is a driving step: we need
+    // to know the live render reacted before we assert the chrome survived.
     const deadline = Date.now() + 8000;
     while (Date.now() < deadline) {
         const landed = await page.evaluate(() =>
@@ -110,18 +87,19 @@ export default async ({ url, workspace, page }) => {
         if (landed) break;
         await sleep(120);
     }
-    expect('edit propagated to the live DOM',
-        await page.evaluate(() =>
-            !!document.querySelector('liquidos-file[path="components/target/nope.txt"]')),
-        'edit never reached the page — file watcher / SSE / morph did not fire');
+    if (!await page.evaluate(() =>
+        !!document.querySelector('liquidos-file[path="components/target/nope.txt"]'))) {
+        throw new Error('FAIL: edit never reached the page — file watcher / SSE / morph did not fire');
+    }
+    console.log('  ok  edit propagated to the live DOM');
 
-    // The point of this probe: after the file change, is the content
-    // the user was looking at still on screen?
-    const after = await visibility();
-    expect('after edit: #target-status is STILL visible on screen with INITIAL',
-        after.statusVisible && after.statusText.includes('INITIAL'),
-        'the user lost the component\'s status text — after: ' + JSON.stringify(after));
-    expect('after edit: component marker is STILL visible on screen with MARKER_BEFORE',
-        after.markerVisible && after.markerText.includes('MARKER_BEFORE'),
-        'the user lost the component\'s rendered content — after: ' + JSON.stringify(after));
+    // The point of this probe: after the file change, the content the user
+    // was looking at must still be on screen.
+    await onScreen('INITIAL').catch(() => {
+        throw new Error('FAIL: "INITIAL" vanished after the component.html edit — chrome was torn down');
+    });
+    await onScreen('MARKER_BEFORE').catch(() => {
+        throw new Error('FAIL: "MARKER_BEFORE" vanished after the component.html edit — rendered content was lost');
+    });
+    console.log('  ok  after edit: INITIAL and MARKER_BEFORE still visible');
 };

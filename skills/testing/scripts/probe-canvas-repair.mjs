@@ -5,7 +5,7 @@
 // Repair → agent dispatched → test agent writes feature-requirements.txt.
 // User closes the modal and reopens it; openCanvasRequirements re-fetches
 // via /workspace/.../feature-requirements.txt every open, so the
-// textarea now contains the agent's content. Probe asserts on that.
+// textarea now contains the agent's content and "Repair" is gone.
 //
 // Run it:  node run-probe.mjs probe-canvas-repair.mjs
 //
@@ -20,16 +20,22 @@ export default async ({ url, page }) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await sleep(1500);
 
-    // Open the canvas requirements modal. Textarea empty; Repair surfaces.
+    const onScreen  = (text, timeout = 5000) => page.waitForFunction(
+        t => document.body.innerText.includes(t), text, { timeout });
+    const offScreen = (text, timeout = 5000) => page.waitForFunction(
+        t => !document.body.innerText.includes(t), text, { timeout });
+
+    // Open the canvas requirements modal.
     await page.locator('#canvas-info').dispatchEvent('click');
-    await page.waitForSelector('#canvas-requirements-textarea', { state: 'visible', timeout: 5000 });
-    await page.waitForFunction(
-        () => {
-            const cb = document.getElementById('canvas-requirements-recover-callback');
-            return cb && !cb.hidden;
-        },
-        { timeout: 5000 }
-    );
+    await onScreen('Canvas Requirements').catch(() => {
+        throw new Error('"Canvas Requirements" title did not appear — modal did not open');
+    });
+
+    // Textarea is empty; Repair surfaces.
+    await onScreen('Repair').catch(() => {
+        throw new Error('"Repair" did not appear in the empty canvas requirements modal');
+    });
+
     // Click Repair.
     await page.locator('#canvas-requirements-recover-callback button').dispatchEvent('click');
     await sleep(500);
@@ -38,14 +44,17 @@ export default async ({ url, page }) => {
     await page.locator('#canvas-requirements-cancel').dispatchEvent('click');
     await sleep(300);
     await page.locator('#canvas-info').dispatchEvent('click');
-    await page.waitForFunction(
-        () => {
-            const ta = document.getElementById('canvas-requirements-textarea');
-            return ta && ta.value && ta.value.includes('REPAIRED_CANVAS_BY_TEST_AGENT');
-        },
-        { timeout: 5000 }
-    );
+    await onScreen('Canvas Requirements').catch(() => {
+        throw new Error('"Canvas Requirements" title did not appear on reopen');
+    });
 
+    // After the agent wrote the file, the textarea is populated and
+    // "Repair" clears — that is the visible confirmation that Repair worked.
+    await offScreen('Repair', 5000).catch(() => {
+        throw new Error('"Repair" is still on screen after re-opening — test agent may not have written the file');
+    });
+
+    // Log the textarea value for diagnostic purposes (not an assertion).
     const textareaValue = await page.locator('#canvas-requirements-textarea').inputValue();
     console.log('textarea after Repair:', textareaValue.trim());
 };

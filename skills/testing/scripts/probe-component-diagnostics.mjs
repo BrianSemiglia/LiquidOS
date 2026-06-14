@@ -8,26 +8,28 @@
 // failure and runtime throw are the same broken-component story from
 // the user's perspective.
 //
+// Asserts only what a person sees on screen (the word "Repair" coming
+// and going), never the harness's internal elements or attributes.
+//
 // Run it:  node run-probe.mjs probe-component-diagnostics.mjs
 //
 
 export const fixture = 'component-diagnostics.liquidos';
 
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('[data-broken]', { timeout: 20000 });
 
-    // Repair button surfaces — same affordance the user sees for any
-    // broken component. Reads "Repair", hover reveals it.
-    await page.waitForFunction(
-        () => {
-            const buttons = Array.from(document.querySelectorAll('button'));
-            return buttons.some(b => (b.textContent || '').trim() === 'Repair'
-                && b.getBoundingClientRect().width > 0);
-        },
-        { timeout: 10000 }
-    );
+    const onScreen = (text, timeout = 10000) => page.waitForFunction(
+        t => document.body.innerText.includes(t), text, { timeout });
+
+    // Wait for the component's own visible content to confirm it mounted.
+    await onScreen('component with a deliberately broken functions.js', 20000);
+
+    // Repair button surfaces — the affordance the user sees for any broken
+    // component. The script has a syntax error, so the harness records the
+    // load failure and surfaces "Repair" exactly as it does for a runtime throw.
+    await onScreen('Repair').catch(() => {
+        throw new Error('"Repair" never appeared on screen after the broken functions.js load failure');
+    });
 };

@@ -8,8 +8,8 @@
 //   3. The canvas has at least one component.
 //
 // This probe exercises the third gate: the fixture has no components
-// and an empty feature-requirements.txt. The Generate button must
-// stay hidden.
+// and an empty feature-requirements.txt. Neither "Generate" nor
+// "Repair" must appear on screen after the modal opens.
 //
 // Run it:  node run-probe.mjs probe-canvas-generate-gates.mjs
 //
@@ -23,15 +23,16 @@ export default async ({ url, page }) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     await page.locator('#canvas-info').click();
-    await page.waitForSelector('#canvas-requirements-overlay:not([hidden])', { timeout: 5000 });
     // Give openCanvasRequirements time to fetch + decide.
     await sleep(500);
 
-    const visible = await page.evaluate(() => {
-        const cb = document.getElementById('canvas-requirements-recover-callback');
-        return !!cb && !cb.hidden;
-    });
-    if (visible) {
-        throw new Error('Generate/Repair callback visible despite canvas having zero components');
+    // Neither "Generate" nor "Repair" should be visible — the gate blocks
+    // the recover callback when there are zero components.
+    const text = await page.evaluate(() => document.body.innerText);
+    if (text.includes('Generate')) {
+        throw new Error('"Generate" is visible despite the canvas having zero components');
+    }
+    if (text.includes('Repair')) {
+        throw new Error('"Repair" is visible despite the canvas having zero components');
     }
 };

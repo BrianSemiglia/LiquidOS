@@ -7,6 +7,14 @@
 // it. The whole container lifts together so multiple buttons stay
 // aligned.
 //
+// FLAG: this probe is a genuine pixel-layout test. The assertions
+// verify spatial relationships between DOM elements (chrome sits above
+// the front card, stays inside item bounds, is right-aligned with the
+// card). There is no unique visible string that encodes these geometry
+// invariants, so the assertions remain as getBoundingClientRect checks.
+// Do not convert to visible-text checks — that would lose the layout
+// guarantee entirely.
+//
 // Run it:  node run-probe.mjs probe-component-chrome-lifted.mjs
 //
 
@@ -18,7 +26,12 @@ export default async ({ url, page }) => {
     await page.setViewportSize({ width: 1400, height: 900 });
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('[data-narrow]', { timeout: 15000 });
+    // Wait for the fixture's component content ("200px wide") to confirm render.
+    await page.waitForFunction(
+        t => document.body.innerText.includes(t),
+        '200px wide',
+        { timeout: 15000 }
+    );
     // Hover to surface the chrome.
     await page.locator('.harness-component-frame-watcher').first().hover();
     await sleep(200);

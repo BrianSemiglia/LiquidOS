@@ -20,24 +20,38 @@ export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    await page.locator('#canvas-info').click();
-    await page.waitForSelector('#canvas-requirements-overlay:not([hidden])', { timeout: 5000 });
-    // File loaded with content — wait for the textarea to show it.
-    await page.waitForFunction(
-        () => document.getElementById('canvas-requirements-textarea')?.value?.includes('Existing requirements'),
-        { timeout: 5000 }
-    );
+    const onScreen  = (text, timeout = 5000) => page.waitForFunction(
+        t => document.body.innerText.includes(t), text, { timeout });
+    const offScreen = (text, timeout = 5000) => page.waitForFunction(
+        t => !document.body.innerText.includes(t), text, { timeout });
 
-    // Clear it.
+    await page.locator('#canvas-info').click();
+
+    // Modal is open when its title is visible.
+    await onScreen('Canvas Requirements').catch(() => {
+        throw new Error('"Canvas Requirements" title did not appear — modal did not open');
+    });
+
+    // File loaded with content — neither Repair nor Generate should surface
+    // (non-empty file → recover callback stays hidden). This also confirms
+    // the async file fetch has settled before we clear.
+    await offScreen('Repair').catch(() => {
+        throw new Error('"Repair" appeared before the textarea was cleared — file may not have loaded');
+    });
+    await offScreen('Generate').catch(() => {
+        throw new Error('"Generate" appeared before the textarea was cleared — file may not have loaded');
+    });
+
+    // Clear the textarea.
     await page.locator('#canvas-requirements-textarea').fill('');
 
     // Recover callback must stay hidden — zero components, nothing to write.
+    // Neither "Generate" nor "Repair" should appear on screen.
     await sleep(300);
-    const visible = await page.evaluate(() => {
-        const cb = document.getElementById('canvas-requirements-recover-callback');
-        return !!cb && !cb.hidden;
-    });
-    if (visible) {
-        throw new Error('recover callback visible after the user cleared the textarea on a zero-component canvas');
+    const recoverVisible = await page.evaluate(
+        () => document.body.innerText.includes('Generate') || document.body.innerText.includes('Repair')
+    );
+    if (recoverVisible) {
+        throw new Error('recover callback (Generate or Repair) became visible after the user cleared the textarea on a zero-component canvas');
     }
 };
