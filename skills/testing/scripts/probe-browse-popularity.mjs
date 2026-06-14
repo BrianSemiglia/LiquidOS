@@ -68,9 +68,8 @@ const normalizeBullet = s => s
     .toLowerCase();
 
 // Lay down a component in new shape: component.html at the folder root
-// (referenced from input.json), view.json and feature-requirements.txt
-// alongside. The publisher's UI mounts the component the same way a real
-// canvas would.
+// (referenced from input.json), feature-requirements.txt alongside.
+// The publisher's UI mounts the component the same way a real canvas would.
 const writeComponent = (workspace, name, bullets, lookup) => {
     const compDir = path.join(workspace, 'home', 'components', name);
     fs.mkdirSync(compDir, { recursive: true });
@@ -79,13 +78,9 @@ const writeComponent = (workspace, name, bullets, lookup) => {
         bullets.map(id => '- ' + lookup[id]).join('\n') + '\n'
     );
     fs.writeFileSync(
-        path.join(compDir, 'view.json'),
-        JSON.stringify({ html: '<div></div>' }) + '\n'
-    );
-    fs.writeFileSync(
         path.join(compDir, 'component.html'),
         '<liquidos-component path="components/' + name + '">\n' +
-        '    <liquidos-file path="components/' + name + '/view.json"></liquidos-file>\n' +
+        '    <div></div>\n' +
         '</liquidos-component>\n'
     );
     const inputPath = path.join(workspace, 'home', 'input.json');

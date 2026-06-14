@@ -1,3 +1,3 @@
 Fixture for the service-driven view update probe. A run-mode service
-writes view.json on a timer; the test asserts each write reaches the
-rendered DOM.
+writes component.html on a timer; the test asserts each write reaches
+the rendered DOM.

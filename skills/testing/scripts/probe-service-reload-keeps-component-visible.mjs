@@ -10,7 +10,7 @@
 // cycle, is the content still visible on screen?
 //
 // Flow under test:
-//   1. Render the target component — view.json's marker AND #target-status
+//   1. Render the target component — component.html's marker AND #target-status
 //      are visible on screen (non-zero size, not display:none / hidden /
 //      opacity:0).
 //   2. Drive the service-rewrite stub agent, which emits an op="writeFile"
@@ -63,7 +63,7 @@ export default async ({ url, workspace, page }) => {
         };
     });
 
-    // Wait for the view.json content to hydrate before checking baseline.
+    // Wait for the component.html content to hydrate before checking baseline.
     await page.waitForFunction(() =>
         document.querySelector('[data-marker]')?.textContent?.includes('MARKER_BEFORE'),
         undefined, { timeout: 10000 });
@@ -72,7 +72,7 @@ export default async ({ url, workspace, page }) => {
     expect('baseline: #target-status visible with INITIAL',
         before.statusVisible && before.statusText.includes('INITIAL'),
         'before: ' + JSON.stringify(before));
-    expect('baseline: view.json marker visible with MARKER_BEFORE',
+    expect('baseline: component.html marker visible with MARKER_BEFORE',
         before.markerVisible && before.markerText.includes('MARKER_BEFORE'),
         'before: ' + JSON.stringify(before));
 
@@ -109,7 +109,7 @@ export default async ({ url, workspace, page }) => {
     expect('after service reload: #target-status STILL visible with INITIAL',
         after.statusVisible && after.statusText.includes('INITIAL'),
         'status disappeared — after: ' + JSON.stringify(after));
-    expect('after service reload: view.json marker STILL visible with MARKER_BEFORE',
+    expect('after service reload: component.html marker STILL visible with MARKER_BEFORE',
         after.markerVisible && after.markerText.includes('MARKER_BEFORE'),
         'marker disappeared — after: ' + JSON.stringify(after));
 };

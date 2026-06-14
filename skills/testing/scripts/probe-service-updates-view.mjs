@@ -2,7 +2,7 @@
 // probe-service-updates-view.mjs
 //
 // A run-mode <liquidos-file> spawns service.js, which writes successive
-// view.json values on a timer. The probe watches the rendered DOM and
+// component.html values on a timer. The probe watches the rendered DOM and
 // asserts it observes multiple SERVICE_STEP_<n> markers — that the
 // service's writes reach the live view on screen.
 //

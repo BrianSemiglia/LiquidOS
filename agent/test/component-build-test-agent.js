@@ -3,7 +3,7 @@
 // Simulates the Build dispatch (user edited requirements, clicked Build,
 // the harness dispatched the agent to update the implementation). The
 // agent's "update" is just writing a known marker into the component's
-// view.json so the probe can observe the user-visible result through
+// component.html so the probe can observe the user-visible result through
 // the DOM, not by reading internal files.
 
 const fs = require('fs');
@@ -44,7 +44,7 @@ const ComponentBuildTestAgent = () => {
             // Contract check: the Build dispatch must hand the agent
             // every part of the documented prompt — scope, component,
             // before/after requirements, the guidance lines. On any
-            // mismatch, write a failure view.json that carries the
+            // mismatch, write a failure component.html that carries the
             // actual prompt into the DOM, so the probe sees what the
             // agent received without ever reading internal files.
             //
@@ -69,7 +69,8 @@ const ComponentBuildTestAgent = () => {
                 { name: 'guidance: no unrelated capabilities',ok: /Do not add unrelated capabilities/.test(prompt) }
             ];
             const failed = expectations.filter(e => !e.ok);
-            const viewPath = path.join(scope, 'view.json');
+            const rel = scope.slice(scope.indexOf('components/')).replace(/\/+$/, '');
+            const compHtmlPath = path.join(scope, 'component.html');
 
             try {
                 if (failed.length > 0) {
@@ -79,9 +80,11 @@ const ComponentBuildTestAgent = () => {
                         '<p>contract failed: ' + escape(failed.map(f => f.name).join(', ')) + '</p>' +
                         '<pre data-prompt-received>' + escape(prompt) + '</pre>' +
                         '</div>';
-                    fs.writeFileSync(viewPath, JSON.stringify({ title: 'Build failed', html }, null, 2) + '\n');
+                    fs.writeFileSync(compHtmlPath,
+                        `<liquidos-component path="${rel}">\n    ${html}\n</liquidos-component>\n`);
                 } else {
-                    fs.writeFileSync(viewPath, JSON.stringify({ title: 'Built', html: MARKER_HTML }, null, 2) + '\n');
+                    fs.writeFileSync(compHtmlPath,
+                        `<liquidos-component path="${rel}">\n    ${MARKER_HTML}\n</liquidos-component>\n`);
                 }
                 setStatus({ status: 'waiting' });
                 resolve('ok');

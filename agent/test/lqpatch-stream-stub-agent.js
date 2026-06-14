@@ -12,7 +12,7 @@
 //     so the sniffer's structural-op path is exercised,
 //   - streams a known token into #lqpatch-sink via op="stream" so the
 //     streaming-op path is exercised (probe observes chunked arrival),
-//   - writes a new view.json via op="writeFile" carrying the token,
+//   - writes a new component.html via op="writeFile" carrying the token,
 //   - narrates a closing line so the probe's end-flush regression
 //     assertion still applies.
 //
@@ -83,15 +83,12 @@ const LqpatchStreamStubAgent = () => {
             // The script the stub emits — same shape as the experiment's
             // stub stream, but using #lqpatch-sink (which exists in the
             // live index.html) and adding an op="writeFile" against the
-            // fixture's view.json. The writeFile path is hardcoded to
+            // fixture's component.html. The writeFile path is hardcoded to
             // match the agent-edit-stub fixture; the prompt's REPLACE_WITH
             // token is what threads through to disk so the probe can
             // prove the prompt-to-stream-to-disk wire.
-            const filePath = 'home/components/target/view.json';
-            const fileBody = JSON.stringify({
-                title: 'Target',
-                html: '<p data-marker>' + token + '</p>'
-            });
+            const filePath = 'home/components/target/component.html';
+            const fileBody = '<liquidos-component path="components/target">\n    <p data-marker>' + token + '</p>\n    <div id="target-status">INITIAL</div>\n</liquidos-component>\n';
             const STREAM_TEXT = 'The quick brown fox jumps over ' + token + '.';
 
             // INVENTED_TAG goes inside #lqpatch-marker (which the first

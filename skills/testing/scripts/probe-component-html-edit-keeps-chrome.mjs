@@ -75,7 +75,7 @@ export default async ({ url, workspace, page }) => {
     expect('baseline: #target-status is visible on screen with INITIAL',
         before.statusVisible && before.statusText.includes('INITIAL'),
         'before: ' + JSON.stringify(before));
-    expect('baseline: view.json marker is visible on screen with MARKER_BEFORE',
+    expect('baseline: component marker is visible on screen with MARKER_BEFORE',
         before.markerVisible && before.markerText.includes('MARKER_BEFORE'),
         'before: ' + JSON.stringify(before));
 
@@ -121,7 +121,7 @@ export default async ({ url, workspace, page }) => {
     expect('after edit: #target-status is STILL visible on screen with INITIAL',
         after.statusVisible && after.statusText.includes('INITIAL'),
         'the user lost the component\'s status text — after: ' + JSON.stringify(after));
-    expect('after edit: view.json marker is STILL visible on screen with MARKER_BEFORE',
+    expect('after edit: component marker is STILL visible on screen with MARKER_BEFORE',
         after.markerVisible && after.markerText.includes('MARKER_BEFORE'),
-        'the user lost the component\'s rendered view content — after: ' + JSON.stringify(after));
+        'the user lost the component\'s rendered content — after: ' + JSON.stringify(after));
 };

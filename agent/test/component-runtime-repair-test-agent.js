@@ -3,7 +3,7 @@
 // Receives the dispatch fired when the user clicks the runtime Repair
 // button on a component whose functions.js has been throwing. The
 // agent's "repair" is to rewrite functions.js to a clean, non-throwing
-// mount and rewrite view.json to a known marker so the probe can
+// mount and rewrite component.html to a known marker so the probe can
 // observe the user-visible recovery.
 
 const fs = require('fs');
@@ -54,7 +54,8 @@ const ComponentRuntimeRepairTestAgent = () => {
             ];
             const failed = expectations.filter(e => !e.ok);
             const functionsPath = path.join(scope, 'presented', 'functions.js');
-            const viewPath = path.join(scope, 'presented', 'view.json');
+            const rel = scope.slice(scope.indexOf('components/')).replace(/\/+$/, '');
+            const compHtmlPath = path.join(scope, 'component.html');
 
             try {
                 if (failed.length > 0) {
@@ -69,13 +70,12 @@ const ComponentRuntimeRepairTestAgent = () => {
                     // clears, masking the contract failure with a fresh
                     // dispatch loop).
                     fs.writeFileSync(functionsPath, 'export const mount = () => () => {};\n');
-                    fs.writeFileSync(viewPath, JSON.stringify({ title: 'Repair contract failed', html }, null, 2) + '\n');
+                    fs.writeFileSync(compHtmlPath,
+                        `<liquidos-component path="${rel}">\n    ${html}\n</liquidos-component>\n`);
                 } else {
                     fs.writeFileSync(functionsPath, 'export const mount = () => () => {};\n');
-                    fs.writeFileSync(viewPath, JSON.stringify({
-                        title: 'Runtime Repaired',
-                        html: '<p data-runtime-repair-marker>runtime repaired</p>'
-                    }, null, 2) + '\n');
+                    fs.writeFileSync(compHtmlPath,
+                        `<liquidos-component path="${rel}">\n    <p data-runtime-repair-marker>runtime repaired</p>\n</liquidos-component>\n`);
                 }
                 setStatus({ status: 'waiting' });
                 resolve('ok');

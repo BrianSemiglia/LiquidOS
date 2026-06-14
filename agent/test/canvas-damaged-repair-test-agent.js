@@ -4,8 +4,9 @@
 // is damaged" card. The fixture has a broken input.json (entries point
 // at components without a component.html file) and a pre-staged
 // "canvas-repaired" component carrying [data-canvas-repair-marker].
-// The agent's "repair" is just rewriting input.json to reference the
-// repaired component so the canvas can render again.
+// The agent's "repair" is rewriting the component's component.html and
+// input.json to reference the repaired component so the canvas can
+// render again.
 
 const fs = require('fs');
 const path = require('path');
@@ -50,7 +51,7 @@ const CanvasDamagedRepairTestAgent = () => {
                 { name: 'prompt names the error',             ok: /Repair required due to error:/.test(prompt) }
             ];
             const failed = expectations.filter(e => !e.ok);
-            const repairedViewPath = path.join(workingDirectory, 'home', 'components', 'canvas-repaired', 'view.json');
+            const repairedCompHtmlPath = path.join(workingDirectory, 'home', 'components', 'canvas-repaired', 'component.html');
 
             try {
                 if (failed.length > 0) {
@@ -61,16 +62,13 @@ const CanvasDamagedRepairTestAgent = () => {
                         '<pre data-prompt-received>' + escape(prompt) + '</pre>' +
                         '</div>';
                     // Surface the failure: rewrite input.json to point at the
-                    // pre-staged component AND replace its view.json with
+                    // pre-staged component AND replace its component.html with
                     // the failure HTML, so the probe sees the diagnostic.
-                    fs.writeFileSync(repairedViewPath, JSON.stringify({ title: 'Repair contract failed', html }, null, 2) + '\n');
+                    fs.writeFileSync(repairedCompHtmlPath, `<liquidos-component path="components/canvas-repaired">\n    ${html}\n</liquidos-component>\n`);
                 } else {
                     // Reset the repaired component's view back to its success
                     // marker (in case a prior run left a failure HTML).
-                    fs.writeFileSync(repairedViewPath, JSON.stringify({
-                        title: 'Canvas Repaired',
-                        html: '<p data-canvas-repair-marker>canvas repaired</p>'
-                    }, null, 2) + '\n');
+                    fs.writeFileSync(repairedCompHtmlPath, `<liquidos-component path="components/canvas-repaired">\n    <p data-canvas-repair-marker>canvas repaired</p>\n</liquidos-component>\n`);
                 }
                 const inputPath = path.join(scope, 'input.json');
                 fs.writeFileSync(inputPath, JSON.stringify({

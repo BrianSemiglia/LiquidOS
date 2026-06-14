@@ -15,10 +15,10 @@
 // This probe:
 //   1. Renders a component whose component.html declares
 //      <liquidos-file run path="service-a.js">
-//      <liquidos-file path="view.json">  → "SURVIVED_THE_SWAP"
+//      <p data-marker>SURVIVED_THE_SWAP</p>
 //   2. Confirms SURVIVED_THE_SWAP is visible.
 //   3. PUTs a new component.html with the run path swapped to
-//      service-b.js — same view.json, no other change.
+//      service-b.js — same marker content, no other change.
 //   4. Asserts SURVIVED_THE_SWAP is STILL visible after the swap.
 //
 // Run it:  node run-probe.mjs probe-component-html-edit-swaps-service.mjs

@@ -10,7 +10,7 @@
 //      the harness lets the canvas's cached lastItems still reference the
 //      real item, the canvas yanks it back into its tree and strands the
 //      overlay on body with no .item inside (the user-reported bug).
-//   3. Survives a view.json change on the modal'd component (the file-edit
+//   3. Survives a component.html change on the modal'd component (the file-edit
 //      race that triggers mountComponentFunctions during render).
 //   4. ESC closes — overlay gone, placeholder gone, item returned to #app.
 //
@@ -135,19 +135,18 @@ export default async ({ url, workspace, page }) => {
   if (!afterState.overlayHasItem) throw new Error('STATE-UPDATE BUG: item escaped the overlay during canvas re-place');
   if (!afterState.placeholderInApp) throw new Error('placeholder lost during canvas re-place');
 
-  // --- 3. view.json change on the modal'd component ---
+  // --- 3. component.html change on the modal'd component ---
   //     Triggers updateComponentItem → mountComponentFunctions →
   //     destroyComponentFunctions in the render path. The fix moved the
   //     modal-close out of destroyComponentFunctions so a benign re-mount
   //     no longer closes the modal.
-  const viewJson = path.join(workspace, 'home/components/widget/presented/view.json');
-  const json = JSON.parse(fs.readFileSync(viewJson, 'utf8'));
-  json.html = (json.html || '') + '<!-- race ' + Date.now() + ' -->';
-  fs.writeFileSync(viewJson, JSON.stringify(json, null, 2) + '\n');
+  const componentHtml = path.join(workspace, 'home/components/widget/component.html');
+  const html = fs.readFileSync(componentHtml, 'utf8');
+  fs.writeFileSync(componentHtml, html.replace('</liquidos-component>', '<!-- race ' + Date.now() + ' -->\n</liquidos-component>'));
   await sleep(1500);
   const afterEdit = await snapshot(page);
-  console.log('after view.json edit:', afterEdit);
-  if (!afterEdit.overlayHasItem) throw new Error('VIEW-EDIT BUG: item escaped the overlay during component re-mount');
+  console.log('after component.html edit:', afterEdit);
+  if (!afterEdit.overlayHasItem) throw new Error('COMPONENT-EDIT BUG: item escaped the overlay during component re-mount');
   if (!afterEdit.placeholderInApp) throw new Error('placeholder lost during component re-mount');
 
   // --- 4. ESC closes cleanly ---

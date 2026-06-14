@@ -54,13 +54,11 @@ export default async ({ url, workspace, page }) => {
     }
 
     // 2c) Repair persists across incidental re-mounts (state lives on disk,
-    // not in JS memory). Touch view.json to flip htmlChanged → re-mount;
+    // not in JS memory). Touch component.html to flip htmlChanged → re-mount;
     // assert the button stays visible.
-    const viewJsonPath = path.join(workspace, 'home', 'components', 'runtime-error', 'presented', 'view.json');
-    const originalView = fs.readFileSync(viewJsonPath, 'utf8');
-    const parsed = JSON.parse(originalView);
-    parsed.html = String(parsed.html || '') + '<!-- regenerated -->';
-    fs.writeFileSync(viewJsonPath, JSON.stringify(parsed, null, 2) + '\n');
+    const compHtmlPath = path.join(workspace, 'home', 'components', 'runtime-error', 'component.html');
+    const originalHtml = fs.readFileSync(compHtmlPath, 'utf8');
+    fs.writeFileSync(compHtmlPath, originalHtml.replace('</liquidos-component>', '<!-- regenerated -->\n</liquidos-component>'));
     let flickerDetected = false;
     for (let t = 0; t < 10; t++) {
         await sleep(25);
@@ -68,7 +66,7 @@ export default async ({ url, workspace, page }) => {
         const stillVisible = await page.locator('[data-runtime-repair-callback] button').isVisible();
         if (!stillVisible) {
             flickerDetected = true;
-            throw new Error(`Repair button disappeared at t=${(t * 25 + 25)}ms after view.json regeneration`);
+            throw new Error(`Repair button disappeared at t=${(t * 25 + 25)}ms after component.html regeneration`);
         }
     }
     if (!flickerDetected) {

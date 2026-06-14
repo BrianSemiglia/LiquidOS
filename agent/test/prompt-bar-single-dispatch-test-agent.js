@@ -38,20 +38,14 @@ const PromptBarSingleDispatchTestAgent = () => {
             invocations += 1;
             setStatus({ status: 'running', cwd: workingDirectory });
             try {
-                // The fixture's counter component renders its view.json.
+                // The fixture's counter component renders its component.html.
                 // Write a marker into it so the probe observes the
                 // dispatch count via the DOM.
-                const viewPath = path.join(workingDirectory, 'home', 'components', 'counter', 'view.json');
+                const compHtmlPath = path.join(workingDirectory, 'home', 'components', 'counter', 'component.html');
                 if (invocations === 1) {
-                    fs.writeFileSync(viewPath, JSON.stringify({
-                        title: 'Counter',
-                        html: '<p data-dispatched-once>dispatched once</p>'
-                    }, null, 2) + '\n');
+                    fs.writeFileSync(compHtmlPath, `<liquidos-component path="components/counter">\n    <p data-dispatched-once>dispatched once</p>\n</liquidos-component>\n`);
                 } else {
-                    fs.writeFileSync(viewPath, JSON.stringify({
-                        title: 'Counter',
-                        html: '<p data-dispatched-twice>dispatched ' + invocations + ' times — prompt-bar double-fired</p>'
-                    }, null, 2) + '\n');
+                    fs.writeFileSync(compHtmlPath, `<liquidos-component path="components/counter">\n    <p data-dispatched-twice>dispatched ${invocations} times — prompt-bar double-fired</p>\n</liquidos-component>\n`);
                 }
                 setStatus({ status: 'waiting' });
                 resolve('ok');

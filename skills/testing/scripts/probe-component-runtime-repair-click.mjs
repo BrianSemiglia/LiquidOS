@@ -3,7 +3,7 @@
 //
 // Clicking the runtime Repair button on a component whose functions.js
 // has thrown dispatches the agent scoped to that component. The stub
-// agent rewrites functions.js to a clean mount and rewrites view.json
+// agent rewrites functions.js to a clean mount and rewrites component.html
 // with a known DOM marker. The probe asserts the marker appears AND
 // the runtime Repair button disappears — proof that clicking it drove
 // the component back to a healthy state.
