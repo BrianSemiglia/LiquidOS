@@ -3,21 +3,22 @@
 //
 // When the server dies on an uncaught exception, something in the workspace
 // the agent built took the whole process down. The harness does NOT try to
-// guess or fix that itself — it can't know what the real problem is. It only
-// does two things: on the way down it records what crashed, and on the way
-// back up it hands that to the agent and lets the agent decide what to do —
-// fix the offending code, or disable whatever it judges unsafe.
+// guess or fix that itself — it can't know what the real problem is. Recovery
+// happens in two phases, each one a dispatch to the agent on a normal boot
+// (there is no special server mode):
 //
-// The recovery is not component-specific: the harness names no culprit. It
-// hands the agent the crash and points it at the git log, where every prior
-// recovery attempt left its reasoning (the commit message and diff are the
-// notes). The agent reads that history to see what has already been tried and
-// what still needs handling, then acts.
+//   Phase 1 — make it bootable. A crash leaves a marker; the next boot hands
+//     the agent the crash and asks for the smallest, most transitory change
+//     that stops it. The committed attempt (RECOVER_EVENT) is what owes Phase 2.
+//   Phase 2 — make it permanent. Once Phase 1 has committed, a fresh agent is
+//     asked to fix the underlying cause for real (proving it in a sandbox) and
+//     undo the transitory change.
 //
-// The loop is the safety net: the app restarts the server (it owns the
-// server's lifecycle), boots it in --recovery mode to let the agent repair,
-// and if the agent's change didn't actually stop the crash the whole thing
-// happens again — the agent reading its own previous commits each time.
+// Neither phase is component-specific: the harness names no culprit. It records
+// the crash and points the agent at the git log, where every prior attempt left
+// its reasoning (the commit message and diff are the notes). Phase 2 is owed
+// whenever the latest "recover from crash" has not yet been followed by a
+// permanent-fix attempt — read straight off that same timeline, no extra state.
 //
 // The marker is a dotfile so the canvas file walkers (which skip dotted names)
 // never treat it as a canvas or surface it in the UI.
@@ -29,6 +30,11 @@ const path = require('path');
 const MARKER = '.crash-report.json';
 
 const markerPath = workspacePath => path.join(workspacePath, MARKER);
+
+// The events committed for each phase. They are the contract between the two
+// phases and the test, and what permanentFixOwed scans the timeline for.
+const RECOVER_EVENT = 'LiquidOS did recover from crash';
+const FIX_EVENT = 'LiquidOS did attempt a permanent fix';
 
 // Synchronous on purpose: this runs inside the uncaughtException handler with
 // the process about to exit, so it must land before the event loop stops.
@@ -52,25 +58,34 @@ const consumeCrashReport = workspacePath => {
     }
 };
 
-// Constant instructions first, then the variable arguments as labeled sections
-// at the end — so the arguments (here the error and stack) are trivial to parse
-// off the end and the instructions are one fixed block to check against.
+// Walking the timeline newest-first: a permanent fix is owed when the most
+// recent crash recovery has not yet been followed by a permanent-fix attempt.
+const permanentFixOwed = events => {
+    for (const event of (events || [])) {
+        if (event === FIX_EVENT) return false;
+        if (event === RECOVER_EVENT) return true;
+    }
+    return false;
+};
+
+// Phase 1. Constant instructions first, then the variable arguments (the error
+// and stack) as labeled sections at the end — so the arguments are trivial to
+// parse off the end and the instructions are one fixed block to check against.
 const crashRepairPrompt = ({ reason, stack }) => [
     'The LiquidOS server just crashed and was restarted. Something in this',
     'workspace took the whole server down.',
     '',
-    'Minimal, transitory changes were made to allow the server to boot again —',
-    'just enough to keep the rest of the workspace running, not a real fix. Now',
-    'try to fix the underlying issues that caused the crash, if you can. If you',
-    'fix one, undo the transitory change that worked around it; if you cannot',
-    'fix it safely, leave the transitory change in place so the workspace keeps',
-    'booting.',
+    'Right now your only job is to get the server booting again. Make the',
+    'smallest, most transitory change that stops the crash — disable or stub',
+    'whatever is taking the server down so the rest of the workspace can run.',
+    'This is not the real fix: once the server is back up a follow-up will try',
+    'to fix it properly. Keep your change minimal and easy to undo.',
     '',
     'This may not be your first attempt. Check `git log` for previous',
     '"LiquidOS did recover from crash" commits and the diffs they made — that',
     "is where earlier attempts left their reasoning. Read it so you don't",
-    'repeat a fix that did not work and so you can see what still needs',
-    'handling. If the crash continues the server will restart and ask again.',
+    'repeat a fix that did not work. If the crash continues the server will',
+    'restart and ask you again.',
     '',
     'Error:',
     reason || '(no message)',
@@ -79,8 +94,32 @@ const crashRepairPrompt = ({ reason, stack }) => [
     (stack || '').trim() || '(none)'
 ].join('\n');
 
+// Phase 2. No arguments — the agent reads the timeline for what the transitory
+// change was and why, and for any earlier permanent-fix attempts.
+const permanentFixPrompt = () => [
+    'The LiquidOS server crashed earlier and was made bootable with a minimal,',
+    'transitory change — it is running now. Make a permanent fix for the',
+    'underlying cause, then undo the transitory change so the workspace is whole',
+    'again.',
+    '',
+    'You must do this in a sandbox: a bad fix would crash the live server again,',
+    'so reproduce the crash and prove the fix in a sandbox before you touch the',
+    'live workspace. See the `testing` skill for how to boot a workspace sandbox.',
+    'Only once the fix holds in the sandbox: apply it to the live workspace and',
+    'undo the transitory change. If you cannot make it safe, leave the transitory',
+    'change in place.',
+    '',
+    'Check `git log` for the "LiquidOS did recover from crash" commit and its',
+    'diff to see what was changed and why, and for any earlier permanent-fix',
+    'attempts so you do not repeat one that did not work.'
+].join('\n');
+
 module.exports = {
+    RECOVER_EVENT,
+    FIX_EVENT,
     writeCrashReport,
     consumeCrashReport,
-    crashRepairPrompt
+    permanentFixOwed,
+    crashRepairPrompt,
+    permanentFixPrompt
 };

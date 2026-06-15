@@ -8,7 +8,6 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     private var window: NSWindow?
     private var webView: WKWebView?
     private var server: Process?
-    private var repairProcess: Process?
     private var port: Int = 0
     private var canvasesRootURL: URL?
     private var pendingWorkspaceURL: URL?
@@ -23,6 +22,10 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     private static let crashWindowSeconds: TimeInterval = 60
     private static let maxCrashesInWindow = 3
     private static let restartDelaySeconds: TimeInterval = 1.0
+    // True from when the server crashes until it reports the workspace is
+    // bootable again ('ready'). While set, the app shows the recovery screen
+    // (streaming the agent's repair) instead of the canvas.
+    private var crashRecovering = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -308,10 +311,11 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
                 guard self.server?.processIdentifier == process.processIdentifier else { return }
 
                 // The server died on its own — almost always one component the
-                // agent wrote taking it down. This is one turn of the recovery
-                // loop: run a headless repair attempt (the agent fixes or
-                // disables the offender), then start the server again. If it
-                // crashes again we land right back here — that recursion is what
+                // agent wrote taking it down. The app's only job is to restart
+                // it: the fresh boot is where the server hands the crash to the
+                // agent (Phase 1, make it bootable) and then the permanent fix
+                // (Phase 2) — see dispatchCrashRecovery in server.js. If it
+                // crashes again we land right back here; that recursion is what
                 // runs until the workspace boots clean. Give up only if it keeps
                 // crashing faster than the repairs can help.
                 let now = Date()
@@ -335,13 +339,21 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
 
                 NSLog("LiquidOS server exited (code \(process.terminationStatus)); recovering (\(self.serverCrashTimestamps.count)/\(Self.maxCrashesInWindow)).")
                 self.server = nil
+                // Show the recovery screen now (it streams the agent's repair as
+                // soon as the server is back). Only on the first crash of a
+                // sequence — keep it up across restarts so its activity log
+                // accumulates rather than flickering.
+                if !self.crashRecovering {
+                    self.crashRecovering = true
+                    self.showRecoveryScreen()
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.restartDelaySeconds) {
                     guard !self.intentionallyStoppingServer else { return }
-                    self.runCrashRepair {
-                        guard !self.intentionallyStoppingServer else { return }
-                        self.startServer()
-                        self.loadWhenReady(attempt: 0)
-                    }
+                    // Bring the server back, then swap the gap screen for the
+                    // server's /recovery page (live agent activity). The canvas
+                    // loads later, when the server reports 'ready' (Phase 1 done).
+                    self.startServer()
+                    self.loadRecoveryWhenReady(attempt: 0)
                 }
             }
         }
@@ -350,60 +362,6 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
             try server?.run()
         } catch {
             showError("Could not start Node. Install Node.js, then reopen LiquidOS.\n\n" + error.localizedDescription)
-        }
-    }
-
-    // One iteration of the crash-recovery loop: run the server headless in
-    // --recovery mode so the agent can fix or disable whatever brought
-    // it down, with no HTTP server up and no webview attached to re-trigger the
-    // crash mid-repair. Calls completion when the attempt exits, after which
-    // the caller restarts the real server.
-    private func runCrashRepair(_ completion: @escaping () -> Void) {
-        guard let canvasesRootURL,
-              let appRoot = Bundle.main.resourceURL,
-              FileManager.default.fileExists(atPath: appRoot.appendingPathComponent("server.js").path) else {
-            completion()
-            return
-        }
-
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        proc.currentDirectoryURL = appRoot
-        proc.arguments = [
-            "-lc",
-            Self.shellCommand(
-                "node", "server.js",
-                "--workspace", canvasesRootURL.path,
-                "--agent", Self.agentKind(),
-                "--port", String(port),
-                "--recovery"
-            )
-        ]
-        proc.environment = ProcessInfo.processInfo.environment.merging(Self.serverEnvironment()) { _, new in new }
-
-        let errorPipe = Pipe()
-        proc.standardError = errorPipe
-        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
-                FileHandle.standardError.write(Data(text.utf8))
-                DispatchQueue.main.async { self?.serverErrorBuffer += text }
-            }
-        }
-        proc.terminationHandler = { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.repairProcess = nil
-                completion()
-            }
-        }
-
-        do {
-            try proc.run()
-            repairProcess = proc
-            NSLog("LiquidOS running a crash-repair attempt before restart.")
-        } catch {
-            NSLog("LiquidOS could not launch crash-repair attempt: \(error.localizedDescription)")
-            completion()
         }
     }
 
@@ -671,6 +629,22 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     }
 
     private func handleServerOutputLine(_ line: String) {
+        let recoveryPrefix = "LIQUIDOS_RECOVERY "
+        if line.hasPrefix(recoveryPrefix) {
+            let payload = String(line.dropFirst(recoveryPrefix.count))
+            guard
+                let data = payload.data(using: .utf8),
+                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return }
+            // The workspace is bootable again — leave the recovery screen for
+            // the canvas. (Phase 2, the permanent fix, runs in the background.)
+            if (object["state"] as? String) == "ready", crashRecovering {
+                crashRecovering = false
+                loadWhenReady(attempt: 0)
+            }
+            return
+        }
+
         let prefix = "LIQUIDOS_NATIVE_NOTIFICATION "
         guard line.hasPrefix(prefix) else { return }
 
@@ -686,6 +660,57 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
             title: object["title"] as? String ?? "LiquidOS",
             body: object["body"] as? String ?? ""
         )
+    }
+
+    // The gap screen: shown the instant the server crashes, while it restarts.
+    // It's a static app-owned page (no network) — the server is down right now,
+    // so it can't load anything. As soon as the server answers, loadRecoveryWhenReady
+    // swaps to the server's /recovery page, which streams the live agent activity.
+    private func showRecoveryScreen() {
+        webView?.loadHTMLString("""
+        <!doctype html>
+        <html>
+        <head><meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            :root { color-scheme: dark; }
+            html, body { width: 100%; height: 100%; margin: 0; background: #111827; }
+            body {
+              display: flex; flex-direction: column; box-sizing: border-box;
+              height: 100%; padding: 0 48px; gap: 14px;
+              align-items: flex-start; justify-content: center;
+              color: rgba(255,255,255,0.88); font: -apple-system-body;
+              -webkit-font-smoothing: antialiased;
+            }
+            h1 { font-size: 17px; font-weight: 600; margin: 0; }
+            .sub { color: rgba(255,255,255,0.55); font-size: 13px; margin: 0; max-width: 46ch; }
+          </style>
+        </head>
+        <body>
+          <h1>Recovering from a crash…</h1>
+          <p class="sub">Something took the workspace down. The agent is repairing it — your workspace will return when it's safe to load.</p>
+        </body>
+        </html>
+        """, baseURL: nil)
+    }
+
+    // Once the restarted server answers, load its /recovery page (served
+    // same-origin so its EventSource('/agent/stream') connects cleanly and
+    // streams the live agent activity). Connecting there is also what releases
+    // Phase 1. Bails if recovery already finished (the canvas is loading).
+    private func loadRecoveryWhenReady(attempt: Int) {
+        guard crashRecovering, attempt < 120 else { return }
+        URLSession.shared.dataTask(with: URL(string: "http://127.0.0.1:\(port)/")!) { _, response, _ in
+            DispatchQueue.main.async {
+                guard self.crashRecovering else { return }
+                if (response as? HTTPURLResponse)?.statusCode == 200 {
+                    self.webView?.load(URLRequest(url: URL(string: "http://127.0.0.1:\(self.port)/recovery")!))
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        self.loadRecoveryWhenReady(attempt: attempt + 1)
+                    }
+                }
+            }
+        }.resume()
     }
 
     private func sendLocalNotification(title: String, body: String) {

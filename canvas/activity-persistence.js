@@ -81,7 +81,8 @@ const createActivityPersistence = ({ workspacePath, currentCanvasPath, logServer
 
     return {
         ensureActivityPersistenceRepo: timeline.ensureCanvasesGitRepo,
-        persistActivity
+        persistActivity,
+        recentEvents: timeline.recentEvents
     };
 };
 

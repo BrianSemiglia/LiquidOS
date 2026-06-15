@@ -46,14 +46,6 @@ const argumentPairs = () => {
             failStartup('Unexpected positional argument: ' + arg);
         }
 
-        // Boolean flags carry no value. --recovery runs one headless crash
-        // recovery attempt (the agent fixes or disables the offender) and
-        // exits, so the app's loop can try to boot the server again.
-        if (arg === '--recovery') {
-            values.set('--recovery', 'true');
-            continue;
-        }
-
         const equalsIndex = arg.indexOf('=');
         const name = equalsIndex === -1 ? arg : arg.slice(0, equalsIndex);
         const value = equalsIndex === -1 ? args[index + 1] : arg.slice(equalsIndex + 1);
@@ -85,8 +77,6 @@ const requiredArg = name => {
 
     return REQUIRED_ARGUMENTS.get(name);
 };
-
-const RECOVERY_MODE = REQUIRED_ARGUMENTS.get('--recovery') === 'true';
 
 const expandUserPath = value => {
     const stringValue = String(value || '');
@@ -678,6 +668,94 @@ const emitNativeNotification = ({ title, body }) => {
     }) + '\n');
 };
 
+// Tell the app whether the workspace is mid crash-recovery. The app shows a
+// recovery screen (streaming the agent's repair activity from /agent/stream)
+// while we're 'recovering', and loads the canvas once we're 'ready'. Same
+// stdout-line channel as native notifications, only meaningful under the app.
+const emitRecoveryState = state => {
+    if (process.env.LIQUIDOS_RUNTIME_KIND !== 'mac-app') return;
+    process.stdout.write('LIQUIDOS_RECOVERY ' + JSON.stringify({ state: String(state) }) + '\n');
+};
+
+// The crash-recovery screen (served at GET /recovery). Shows a single, evolving,
+// human-friendly status of what the agent is doing — not the raw tool transcript.
+// During recovery the agent rarely curates the #agent-activity badge, so we derive
+// the status from the tool steps it DOES reliably emit (the "> Tool arg" debug
+// lines): "Reading server.js…", "Running a command…", etc. If the agent does post
+// to #agent-activity, that wins (it's its own words). Tool RESULTS ("< …", the
+// bulky dumps the user didn't want) are ignored.
+const RECOVERY_PAGE_HTML = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { color-scheme: dark; }
+    html, body { width: 100%; height: 100%; margin: 0; background: #111827; }
+    body {
+      display: flex; flex-direction: column; box-sizing: border-box;
+      height: 100%; padding: 0 48px; gap: 14px;
+      align-items: flex-start; justify-content: center;
+      color: rgba(255,255,255,0.88);
+      font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+    }
+    h1 { font-size: 17px; font-weight: 600; margin: 0; }
+    .sub { color: rgba(255,255,255,0.55); font-size: 13px; margin: 0; max-width: 46ch; }
+    #status { margin-top: 6px; font-size: 14px; line-height: 1.5; color: rgba(255,255,255,0.92); min-height: 1.5em; }
+  </style>
+</head>
+<body>
+  <h1>Recovering from a crash…</h1>
+  <p class="sub">Something took the workspace down. The agent is repairing it — your workspace will return when it's safe to load.</p>
+  <div id="status" role="status" aria-live="polite">Starting…</div>
+  <script>
+    const el = document.getElementById('status');
+    const setStatus = (t) => { if (t && t.trim()) el.textContent = t.trim(); };
+
+    // A "> Tool arg" debug line → a plain-language phase, no file names or
+    // commands. Returns null for non-tool lines (results, reasoning) so the
+    // status holds steady between steps.
+    const friendly = (text) => {
+      const m = String(text).match(/^> (\\w+)/);
+      if (!m) return null;
+      switch (m[1]) {
+        case 'Read': case 'Grep': case 'Glob': return 'Looking into the problem…';
+        case 'Edit': case 'Write': case 'NotebookEdit': return 'Making a change…';
+        case 'WebFetch': case 'WebSearch': return 'Looking something up…';
+        case 'Bash': case 'Skill': case 'Task': case 'Agent': return 'Working on the fix…';
+        default: return null;
+      }
+    };
+
+    const es = new EventSource('/agent/stream');
+
+    // The agent's own curated status, when it bothers to set one — that wins.
+    const streams = new Map();
+    es.addEventListener('slice', (e) => {
+      let p; try { p = JSON.parse(e.data); } catch { return; }
+      const a = p.attrs || {};
+      if (a.target !== '#agent-activity') return;
+      if (p.kind === 'atomic') { if (a.op === 'replace') setStatus(stripTags(p.inner)); return; }
+      if (p.kind === 'open' && a.op === 'replace') { streams.set(p.seq, ''); return; }
+      if (p.kind === 'chunk' && streams.has(p.seq)) { streams.set(p.seq, streams.get(p.seq) + (p.text || '')); setStatus(stripTags(streams.get(p.seq))); return; }
+      if (p.kind === 'close') { streams.delete(p.seq); return; }
+    });
+    const stripTags = (s) => String(s || '').replace(/<[^>]*>/g, '');
+
+    // Otherwise, derive the status from the tool steps the agent reliably emits.
+    es.addEventListener('debug-line', (e) => {
+      let d; try { d = JSON.parse(e.data); } catch { return; }
+      const f = friendly(d.line && d.line.text);
+      if (f) setStatus(f);
+    });
+
+    es.onerror = () => {}; // EventSource auto-retries
+  </script>
+</body>
+</html>`;
+
 const buildAgentPrompt = job => {
     const prompt = promptBuilder.buildJobPrompt(job);
 
@@ -690,6 +768,21 @@ const runQueuedAgentJob = (prompt, context = {}) => {
 
 let activeOutputJob = null;
 let shutdownCommitAttempted = false;
+// True while Phase 1 of a crash recovery is making the workspace bootable. The
+// client auto-starts run-mode services (on mount and on every workspace-file
+// change), so without this the offender would be re-spawned — and re-crash the
+// server — the moment the agent touches a file. We hold ALL service spawns until
+// Phase 1 commits, since the harness names no culprit. See dispatchCrashRecovery.
+let recovering = false;
+// Phase 1 waits in here until the recovery screen connects to /agent/stream, so
+// the screen sees the agent's activity live (no replay needed). Fired by the
+// /agent/stream handler, or by a fallback timer if no screen ever connects.
+let pendingCrashDispatch = null;
+const firePendingCrashDispatch = () => {
+    const fire = pendingCrashDispatch;
+    pendingCrashDispatch = null;
+    if (fire) fire();
+};
 
 const processOutputJob = async job => {
     const jobId = job.id || 'job-' + Date.now();
@@ -816,7 +909,24 @@ const processOutputJob = async job => {
     }
 };
 
-outputQueue.setProcessJob(processOutputJob);
+// Run every queued job through processOutputJob, and chain crash recovery:
+// once a Phase 1 (make-bootable) job commits, the workspace is bootable, so
+// continue to Phase 2 (the permanent fix) without waiting for another boot.
+outputQueue.setProcessJob(async job => {
+    try {
+        await processOutputJob(job);
+    } finally {
+        if (job && job.event === crashRecovery.RECOVER_EVENT) {
+            // The workspace is bootable again — let services spawn (the
+            // re-render that follows starts the survivors), tell the app to
+            // leave the recovery screen for the canvas, and continue to the
+            // permanent fix.
+            recovering = false;
+            emitRecoveryState('ready');
+            dispatchPermanentFixIfOwed();
+        }
+    }
+});
 
 const canvasName = canvasNameFromPath;
 
@@ -1127,42 +1237,73 @@ const writeComponentFeatureText = (componentPath, text) => {
     fs.writeFileSync(componentFeatureFile(componentPath), String(text || ''), 'utf8');
 };
 
-const appendInternalOutputJob = async ({ scope, prompt }) => {
+const appendInternalOutputJob = async ({ scope, prompt, event }) => {
     await outputQueue.appendOutputJob({
         id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
         scope,
         status: 'pending',
         createdAt: new Date().toISOString(),
         componentKey: scope,
-        prompt
+        prompt,
+        ...(event ? { event } : {})
     });
     outputQueue.feedHermesOutput();
     broadcastQueueState();
 };
 
-// One crash-recovery attempt, run headless and then exit (the --recovery
-// mode). The app's recovery loop owns the lifecycle: when the server crashes
-// it runs this to let the agent fix or disable whatever brought the server
-// down, then tries to boot the server again. The harness does NOT decide the
-// fix and names no culprit — it hands the agent the crash and points it at the
-// git log, where prior attempts left their reasoning. The scope is the
-// workspace root: recovery is a workspace-level concern, not a single canvas's.
-// Each attempt is committed by the job machinery, so the next attempt can read
-// what this one tried (see crash-recovery.js).
-const runCrashRecovery = async () => {
+// Crash recovery is two phases, both dispatched on a normal boot — there is no
+// special server mode. The harness does NOT decide the fix and names no culprit;
+// it hands the agent the crash and points it at the git log, where every prior
+// attempt left its reasoning. The scope is the workspace root: recovery is a
+// workspace-level concern, not a single canvas's. Each phase is committed by the
+// job machinery (RECOVER_EVENT, then FIX_EVENT), and that timeline is the only
+// state used to decide what is still owed (see crash-recovery.js).
+//
+// Phase 1 — make it bootable. A crash leaves a marker; on the next boot we hand
+// the agent the crash and ask for the minimal transitory change that stops it.
+// When that job commits RECOVER_EVENT, the queue chains into Phase 2 (see the
+// setProcessJob wrapper below), so the permanent fix follows without a restart.
+const dispatchCrashRecovery = () => {
     const report = crashRecovery.consumeCrashReport(WORKSPACE_PATH);
-    if (!report) {
-        logServer('crash', 'recover: no crash marker, nothing to do');
+    if (report) {
+        // Hold service spawns until Phase 1 commits, so the offender can't be
+        // re-spawned and re-crash the server while the agent is repairing.
+        recovering = true;
+        // Run Phase 1 only once the recovery screen is watching /agent/stream,
+        // so it sees the agent's activity live — simpler than replaying it. The
+        // app shows the screen the instant it detects the crash, so it connects
+        // within a beat of the server coming up. A fallback runs Phase 1 anyway
+        // if no screen ever connects, so recovery is never stuck.
+        pendingCrashDispatch = () => {
+            logServer('crash', 'phase 1: dispatching make-bootable', { reason: report.reason || null });
+            appendInternalOutputJob({
+                scope: WORKSPACE_PATH,
+                event: crashRecovery.RECOVER_EVENT,
+                prompt: crashRecovery.crashRepairPrompt({ reason: report.reason, stack: report.stack })
+            }).catch(error => logHermesError('crash', error, { message: 'phase 1 dispatch failed' }));
+        };
+        if (agentStreamClients.size > 0) firePendingCrashDispatch();
+        else setTimeout(firePendingCrashDispatch, 8000);
         return;
     }
-    logServer('crash', 'recover: dispatching repair', { reason: report.reason || null });
+    dispatchPermanentFixIfOwed();
+};
 
-    await processOutputJob({
-        id: 'crash-repair-' + Date.now(),
+// Phase 2 — make it permanent. If the latest crash recovery has not yet been
+// followed by a permanent-fix attempt (read off the git timeline, no extra
+// state), hand a fresh agent the job of fixing the cause for real and undoing
+// the transitory change. One attempt per recovery: the job commits FIX_EVENT,
+// which closes the cycle so it won't re-dispatch. If the fix doesn't hold and
+// the workspace crashes again, that is a new recovery and a new Phase 2. The
+// server only dispatches; the agent does the work, proving it in a sandbox.
+const dispatchPermanentFixIfOwed = () => {
+    if (!crashRecovery.permanentFixOwed(activityPersistence.recentEvents())) return;
+    logServer('crash', 'phase 2: dispatching permanent fix');
+    appendInternalOutputJob({
         scope: WORKSPACE_PATH,
-        event: 'LiquidOS did recover from crash',
-        prompt: crashRecovery.crashRepairPrompt({ reason: report.reason, stack: report.stack })
-    });
+        event: crashRecovery.FIX_EVENT,
+        prompt: crashRecovery.permanentFixPrompt()
+    }).catch(error => logHermesError('crash', error, { message: 'phase 2 dispatch failed' }));
 };
 
 const componentFeaturePrompt = ({ componentScope, before, after }) => [
@@ -1369,6 +1510,13 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'POST' && url.pathname === '/spawn') {
+            // While Phase 1 of a crash recovery is making the workspace bootable,
+            // hold off spawning any service: we don't know which one took the
+            // server down (the harness names no culprit), so spawning the
+            // offender now would just crash the server again mid-repair. Phase 1
+            // disables or fixes it; the re-render that follows starts the
+            // survivors. Reply 200 so the client treats it as a no-op, not an error.
+            if (recovering) { newShapeSendJson(res, 200, { deferred: true }); return; }
             const body = JSON.parse(await newShapeReadBody(req) || '{}');
             const abs = newShapeGuardAbs(body.script);
             if (!abs || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
@@ -1433,6 +1581,18 @@ const server = http.createServer(async (req, res) => {
         }
 
 
+        // The crash-recovery screen. Served same-origin (the app loads it by URL,
+        // not as an HTML string) so its EventSource('/agent/stream') connects
+        // cleanly. It shows the agent's human-friendly #agent-activity — the same
+        // status the prompt bar shows — by applying only the slices targeting
+        // #agent-activity, mirroring the canvas's page-chrome renderer. Connecting
+        // here is also what releases Phase 1 (see dispatchCrashRecovery), so the
+        // screen is watching from the agent's first slice.
+        if (req.method === 'GET' && url.pathname === '/recovery') {
+            send(res, 200, RECOVERY_PAGE_HTML, 'text/html; charset=utf-8');
+            return;
+        }
+
         // Unified agent SSE stream. Carries:
         //   debug-ready / debug-snapshot / debug-line / debug-status
         //     — the line-buffered, ANSI-stripped per-line events the
@@ -1453,6 +1613,9 @@ const server = http.createServer(async (req, res) => {
             res.write('event: debug-snapshot\n');
             res.write('data: ' + JSON.stringify({ type: 'debug-snapshot', snapshot: currentAgentDebugSnapshot() }) + '\n\n');
             req.on('close', () => agentStreamClients.delete(res));
+            // The recovery screen just tuned in — now run Phase 1, so it sees the
+            // agent's activity from the first slice.
+            if (pendingCrashDispatch) firePendingCrashDispatch();
             return;
         }
 
@@ -2190,8 +2353,8 @@ process.on('SIGTERM', () => {
     process.exit(143);
 });
 // On the way down from a crash, leave a marker (the error and stack) for the
-// next boot. The app's recovery loop then boots in --recovery mode and hands it
-// to the agent, which decides what to fix or disable. See canvas/crash-recovery.js.
+// next boot. The app restarts the server, and that boot hands the marker to the
+// agent (Phase 1, make it bootable). See canvas/crash-recovery.js.
 const recordCrash = (kind, error) => {
     crashRecovery.writeCrashReport(WORKSPACE_PATH, {
         reason: kind + ': ' + (error && error.message ? error.message : String(error)),
@@ -2244,30 +2407,28 @@ const startNetwork = async () => {
     }
 };
 
-if (RECOVERY_MODE) {
-    // Headless one-shot: the app's recovery loop runs this after a crash to let
-    // the agent fix or disable the offender, then exits so the app can try to
-    // boot the server again. No HTTP server, no network — do the one job, exit.
-    runCrashRecovery()
-        .then(() => { shutdownCanvasRuntime('recovery attempt complete'); process.exit(0); })
-        .catch(error => {
-            logHermesError('crash', error, { message: 'recovery attempt failed' });
-            shutdownCanvasRuntime('recovery attempt failed');
-            process.exit(1);
-        });
-} else {
-    server.listen(PORT, '127.0.0.1', () => {
-        const address = server.address();
-        const resolvedPort = address && typeof address === 'object' ? address.port : PORT;
+server.listen(PORT, '127.0.0.1', () => {
+    const address = server.address();
+    const resolvedPort = address && typeof address === 'object' ? address.port : PORT;
 
-        console.log('Build: ' + SERVER_BUILD);
-        console.log('Server at http://127.0.0.1:' + resolvedPort);
-        console.log('Canvas: ' + CANVAS_PATH);
-        console.log('Input: ' + INPUT_PATH);
+    console.log('Build: ' + SERVER_BUILD);
+    console.log('Server at http://127.0.0.1:' + resolvedPort);
+    console.log('Canvas: ' + CANVAS_PATH);
+    console.log('Input: ' + INPUT_PATH);
 
-        // Kick off the libp2p node in the background. Don't await — the
-        // harness should serve HTTP immediately even if bootstrap to the
-        // DHT takes seconds (which it usually does).
-        startNetwork();
-    });
-}
+    // The workspace booted. If a crash left work owed, dispatch it: Phase 1
+    // (make it bootable) when a crash marker is present, otherwise Phase 2 (the
+    // permanent fix) when a recovery still owes one. The agent does the work;
+    // the server just dispatches.
+    dispatchCrashRecovery();
+
+    // Tell the app where we stand: hold the recovery screen while Phase 1 makes
+    // the workspace bootable, otherwise it's ready for the canvas. (Phase 2, if
+    // owed, runs in the background and doesn't hold the canvas back.)
+    emitRecoveryState(recovering ? 'recovering' : 'ready');
+
+    // Kick off the libp2p node in the background. Don't await — the
+    // harness should serve HTTP immediately even if bootstrap to the
+    // DHT takes seconds (which it usually does).
+    startNetwork();
+});

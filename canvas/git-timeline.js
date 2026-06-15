@@ -182,11 +182,27 @@ const createGitTimeline = ({ workspacePath, currentCanvasPath, logServer }) => {
         return true;
     };
 
+    // The timeline's events, newest first — the `Event:` line of each recent
+    // commit. This is the durable record callers read to decide what still
+    // needs handling (e.g. whether a crash recovery still owes a permanent fix).
+    const recentEvents = (limit = 50) => {
+        const result = git(workspacePath, ['log', '-n', String(limit), '--format=%B%x00']);
+        if (result.status !== 0) return [];
+        return (result.stdout || '')
+            .split(/\x00/)
+            .map(block => {
+                const match = block.match(/(?:^|\n)Event:\n(.+)/);
+                return match ? match[1].trim() : null;
+            })
+            .filter(Boolean);
+    };
+
     return {
         ensureCanvasesGitRepo,
         commitCanvases,
         commitFailedCanvases,
-        commitShutdownCanvases
+        commitShutdownCanvases,
+        recentEvents
     };
 };
 
