@@ -10,7 +10,7 @@ When something is already on the canvas, edits land *on* it — you don't rewrit
 
 Keep every `feature-requirements.txt` in sync with what it describes — components, canvases, the workspace, anywhere one lives. Any change to behavior belongs in the file too. If the file and the source drift apart, trust the source and rewrite the file to match — never the other way. The file tells the user what's actually there, so it must describe what's actually there.
 
-Restore context if you need to using the history-and-undo skill.
+All user/agent activity is committed to the workspace git history. Restore context if you need to using the history-and-undo skill.
 
 Do not read files outside the workspace unless the user asks.
 Do not write files outside the workspace, instead copy to workspace and write to the copy.
