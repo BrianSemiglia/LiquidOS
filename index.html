@@ -2156,6 +2156,17 @@
         let currentCanvas = null;
         let currentCanvasCacheKey = null;
         let currentCanvasLoad = null;
+        // Set when loadCanvas swaps in a freshly-imported canvas.js module.
+        // The old canvas's teardown runs root.innerHTML = '', which wipes ALL
+        // canvas-owned DOM — including anything a component injected outside
+        // its own card surface (e.g. the forest's full-screen WebGL backdrop
+        // mounted into the room stage). Re-placing reused items rebuilds the
+        // cards but not those injections, so the next render consumes this
+        // flag and recreates each component's entry <liquidos-file>, re-running
+        // its scripts against the rebuilt canvas (which also re-wires I/O — see
+        // loadAndRunScript). Normal state/layout renders leave it false and
+        // preserve component mount state (audio contexts, timers, etc.).
+        let pendingCanvasRemount = false;
 
         const loadCanvas = async (version, context) => {
             const cacheKey = '/canvas.js@' + (version || '');
@@ -2177,6 +2188,10 @@
 
             if (currentCanvas) {
                 try { currentCanvas.teardown(); } catch (error) { /* tolerate */ }
+                // A genuine module swap: the teardown above wiped the
+                // canvas-owned DOM, so components must re-mount on the next
+                // render to rebuild anything they painted into it.
+                pendingCanvasRemount = true;
             }
             // Pass the new-shape context too — canvas.js variants that own
             // their own components (foo7's gadgets, etc.) read these fields.
@@ -2544,12 +2559,42 @@
         // missing-peer status is written once per change, not per resolve.
         const ioWaitingSig = new Map();
 
+        // A relationship's connect() binds DIRECT references to its peers'
+        // __io (e.g. `off = src.on('press', ...)`). If a peer later re-mounts
+        // — a canvas reload, an html/functions edit — it gets a brand-new __io
+        // and the relationship's subscription points at the dead one. We record
+        // the peer __io objects a relationship connected to so wireIO can tell
+        // when they've been replaced and re-wire.
+        const relationshipPeerIos = (io, peers) =>
+            (ioRequiredPeers(io) || []).map(name => peers[name]);
+        const relationshipPeersStale = (io, peers) => {
+            const prev = io.__peerIos;
+            if (!prev) return false;
+            const cur = relationshipPeerIos(io, peers);
+            return cur.length !== prev.length || cur.some((p, i) => p !== prev[i]);
+        };
+
         const wireIO = () => {
             const { peers, scopeOfIo } = collectIoPeers();
             Object.values(peers).forEach(io => {
-                if (typeof io.connect !== 'function' || io.__connected) return;
+                if (typeof io.connect !== 'function') return;
                 const scope = scopeOfIo.get(io) || '';
                 const isRelationship = relationshipNodesByPath.has(scope);
+                if (io.__connected) {
+                    // __connected is otherwise a permanent latch. A relationship
+                    // whose peers have been replaced is still subscribed to the
+                    // dead __io — re-mount it so it re-runs connect() against the
+                    // live peers (a clean re-mount avoids double-subscribing a
+                    // peer that didn't change).
+                    if (isRelationship && relationshipPeersStale(io, peers)) {
+                        const entry = relationshipNodesByPath.get(scope);
+                        if (entry && entry.relationship) {
+                            destroyRelationship(scope);
+                            mountRelationship(entry.relationship);
+                        }
+                    }
+                    return;
+                }
                 if (isRelationship) {
                     const required = ioRequiredPeers(io);
                     if (!required) {
@@ -2576,7 +2621,12 @@
                 }
                 try {
                     io.connect(peers);
-                    if (isRelationship) writeRelationshipDiagnostic(scope, 'connect', { ok: true, peers: Object.keys(peers) });
+                    if (isRelationship) {
+                        // Remember which peer __io we bound to, so a later
+                        // re-mount of any of them triggers a re-wire.
+                        io.__peerIos = relationshipPeerIos(io, peers);
+                        writeRelationshipDiagnostic(scope, 'connect', { ok: true, peers: Object.keys(peers) });
+                    }
                 } catch (error) {
                     console.error('relationship connect threw:', scope, error.message);
                     if (isRelationship) writeRelationshipDiagnostic(scope, 'connect', { ok: false, error: error.message, peers: Object.keys(peers) });
@@ -2626,7 +2676,7 @@
             surface.innerHTML = relationship.html || '';
             host.appendChild(surface);
 
-            const entry = { surface, cleanup: null, sig };
+            const entry = { surface, cleanup: null, sig, relationship };
             relationshipNodesByPath.set(scope, entry);
 
             const functionsUrl = relationship?.resources?.functions?.url;
@@ -3271,7 +3321,7 @@
             morphChildren(target, tpl.content);
         };
 
-        const updateComponentItem = (item, component) => {
+        const updateComponentItem = (item, component, forceRemount = false) => {
             const prev = item.__component;
             item.__component = component;
             item.dataset.componentPath = component.scope || '';
@@ -3294,7 +3344,16 @@
             // (chrome, view.json render, runtime scripts) follows from that.
             const newShape = (component.entryPath || '').endsWith('.html');
             if (newShape) {
-                if (entryChanged) {
+                // forceRemount recreates the entry <liquidos-file> even when
+                // the path is unchanged. A reconnected <liquidos-file> is a
+                // no-op (it guards on _initialized), so after a canvas.js
+                // reload — which wiped the canvas-owned DOM — the component's
+                // scripts would never re-run and anything they injected into
+                // the canvas (e.g. the forest's WebGL backdrop in the stage)
+                // stays gone until a canvas switch. Recreating disconnects
+                // the old mount (its cleanup runs) and re-runs mount() fresh
+                // against the rebuilt canvas.
+                if (entryChanged || forceRemount) {
                     surface.innerHTML = '';
                     const file = document.createElement('liquidos-file');
                     file.setAttribute('path', component.entryPath);
@@ -3316,6 +3375,12 @@
 
         const renderCanvas = (items, layout) => {
             const commit = () => {
+                // Consume the canvas-reload flag exactly once. Clearing it
+                // here (not after the render) guarantees a single re-mount
+                // pass even if a later render runs before control returns to
+                // load(), so the flag can never get stuck forcing re-mounts.
+                const remountAll = pendingCanvasRemount;
+                pendingCanvasRemount = false;
                 const nextItems = [];
 
                 items.forEach(item => {
@@ -3324,7 +3389,7 @@
                     const component = latestComponentByPath.get(path);
 
                     if (existing && component) {
-                        updateComponentItem(existing, component);
+                        updateComponentItem(existing, component, remountAll);
                         nextItems.push(existing);
                         return;
                     }
@@ -3332,7 +3397,7 @@
                     nextItems.push(item);
                     renderedItemsByPath.set(path, item);
                     if (component) {
-                        updateComponentItem(item, component);
+                        updateComponentItem(item, component, remountAll);
                     }
                 });
 
@@ -3557,6 +3622,10 @@
                         renderedItemsByPath.delete(path);
                     }
                 }
+                // New-shape canvases own their own component painting, so
+                // there's no commit() to consume the flag — clear it here so
+                // it can't leak into a later render.
+                pendingCanvasRemount = false;
                 lastCanvasSnapshot = snapshot;
                 return;
             }

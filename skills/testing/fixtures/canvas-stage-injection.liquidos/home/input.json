@@ -1,0 +1,6 @@
+{
+  "components": [
+    "components/backdrop/component.html",
+    "components/card/component.html"
+  ]
+}
