@@ -21,6 +21,13 @@ export default (root) => {
     const world = document.createElement('div');
     world.className = 'probe-room-world';
     stage.appendChild(world);
+    // Visible build label. Editing its text below bumps canvas.js (triggering
+    // a reload) AND gives the probe an on-screen signal that the new canvas
+    // mounted — no private attribute needed.
+    const build = document.createElement('div');
+    build.textContent = 'canvas build alpha';
+    build.style.cssText = 'position:absolute;top:8px;left:8px;color:#6ee7a1;font:600 13px system-ui;z-index:2;';
+    stage.appendChild(build);
     root.appendChild(stage);
 
     return {

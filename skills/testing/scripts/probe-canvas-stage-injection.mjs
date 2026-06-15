@@ -51,34 +51,28 @@ export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[pageerror]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    await page.waitForSelector('.probe-room-stage', { timeout: 20000 });
-
     // The card paints inside its own surface; the backdrop paints into the
-    // canvas-owned stage. Both must be on screen before we touch canvas.js.
+    // canvas-owned stage; the canvas shows its build label. All on screen
+    // before we touch canvas.js.
+    await waitForVisibleText(page, 'canvas build alpha', 20000);
     await waitForVisibleText(page, 'CARD', 15000);
     await waitForVisibleText(page, 'BACKDROP LIVE', 15000);
-    console.log('before edit: CARD + BACKDROP LIVE both on screen');
+    console.log('before edit: build alpha + CARD + BACKDROP LIVE on screen');
 
-    // Tag the live stage. The reload replaces it with a brand-new element, so
-    // an untagged stage is the signal the teardown + re-mount has actually
-    // processed — without this we'd race the /input poll and assert against
-    // the OLD stage's still-present backdrop (a false pass).
-    await page.evaluate(() => document.querySelector('.probe-room-stage').setAttribute('data-probe-gen', 'pre-edit'));
-
-    // Edit canvas.js — appending a trivial comment bumps mtime, which changes
-    // canvasJsVersion in /input. The client re-imports canvas.js, tears the
-    // old instance down (wiping the stage + injected backdrop), instantiates
-    // the new one, and re-places the same card items.
+    // Edit canvas.js by changing its visible build label (alpha → bravo). This
+    // bumps canvasJsVersion (the client re-imports canvas.js, tears the old
+    // instance down — wiping the stage + injected backdrop — and mounts the
+    // new one) AND gives an on-screen signal that the new canvas has mounted,
+    // so we don't race the /input poll and assert against the old stage's
+    // still-present backdrop.
     const canvasJsPath = path.join(workspace, 'home', 'canvas.js');
-    fs.writeFileSync(canvasJsPath, fs.readFileSync(canvasJsPath, 'utf8') + '\n// probe bump ' + Date.now() + '\n');
-    console.log('--- edited canvas.js ---');
+    fs.writeFileSync(canvasJsPath, fs.readFileSync(canvasJsPath, 'utf8').replace('canvas build alpha', 'canvas build bravo'));
+    console.log('--- edited canvas.js (build bravo) ---');
 
-    // Wait until the reload has produced a fresh (untagged) stage.
-    await page.waitForFunction(() => {
-        const stage = document.querySelector('.probe-room-stage');
-        return stage && stage.getAttribute('data-probe-gen') !== 'pre-edit';
-    }, { timeout: 15000 });
-    console.log('--- canvas.js reloaded (new stage mounted) ---');
+    // Wait until the new canvas is on screen (its bravo label).
+    await waitForVisibleText(page, 'canvas build bravo', 15000)
+        .catch(() => { throw new Error('canvas.js did not reload (build bravo never appeared)'); });
+    console.log('--- canvas.js reloaded (build bravo on screen) ---');
 
     // The card is re-placed into the new stage by the canvas itself; assert it
     // survived so a regression here can't be mistaken for the backdrop bug.
