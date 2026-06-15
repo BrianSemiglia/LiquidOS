@@ -10,6 +10,7 @@ const { createActiveRuntime } = require('./agent/(runtimes+selection)->active-ru
 const { createCanvasFiles } = require('./canvas/files');
 const { createCanvasGraph } = require('./canvas/graph');
 const { createOutputQueue } = require('./canvas/output-queue');
+const crashRecovery = require('./canvas/crash-recovery');
 const { createPromptBuilder } = require('./canvas/prompt-builder');
 const { bootstrapWorkspace } = require('./workspace/bootstrap');
 
@@ -27,7 +28,7 @@ const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none
     'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'component-build-test', 'canvas-repair-test',
     'canvas-damaged-repair-test', 'component-runtime-repair-test', 'prompt-bar-single-dispatch-test',
     'prompt-bar-test', 'install-build-test', 'cross-canvas-persistence-test', 'lqpatch-stream-stub',
-    'service-rewrite-stub']);
+    'service-rewrite-stub', 'crash-repair-stub']);
 
 const failStartup = message => {
     console.error(message);
@@ -43,6 +44,14 @@ const argumentPairs = () => {
 
         if (!arg.startsWith('--')) {
             failStartup('Unexpected positional argument: ' + arg);
+        }
+
+        // Boolean flags carry no value. --recovery runs one headless crash
+        // recovery attempt (the agent fixes or disables the offender) and
+        // exits, so the app's loop can try to boot the server again.
+        if (arg === '--recovery') {
+            values.set('--recovery', 'true');
+            continue;
         }
 
         const equalsIndex = arg.indexOf('=');
@@ -76,6 +85,8 @@ const requiredArg = name => {
 
     return REQUIRED_ARGUMENTS.get(name);
 };
+
+const RECOVERY_MODE = REQUIRED_ARGUMENTS.get('--recovery') === 'true';
 
 const expandUserPath = value => {
     const stringValue = String(value || '');
@@ -1129,6 +1140,31 @@ const appendInternalOutputJob = async ({ scope, prompt }) => {
     broadcastQueueState();
 };
 
+// One crash-recovery attempt, run headless and then exit (the --recovery
+// mode). The app's recovery loop owns the lifecycle: when the server crashes
+// it runs this to let the agent fix or disable whatever brought the server
+// down, then tries to boot the server again. The harness does NOT decide the
+// fix and names no culprit — it hands the agent the crash and points it at the
+// git log, where prior attempts left their reasoning. The scope is the
+// workspace root: recovery is a workspace-level concern, not a single canvas's.
+// Each attempt is committed by the job machinery, so the next attempt can read
+// what this one tried (see crash-recovery.js).
+const runCrashRecovery = async () => {
+    const report = crashRecovery.consumeCrashReport(WORKSPACE_PATH);
+    if (!report) {
+        logServer('crash', 'recover: no crash marker, nothing to do');
+        return;
+    }
+    logServer('crash', 'recover: dispatching repair', { reason: report.reason || null });
+
+    await processOutputJob({
+        id: 'crash-repair-' + Date.now(),
+        scope: WORKSPACE_PATH,
+        event: 'LiquidOS did recover from crash',
+        prompt: crashRecovery.crashRepairPrompt({ reason: report.reason, stack: report.stack })
+    });
+};
+
 const componentFeaturePrompt = ({ componentScope, before, after }) => [
     'The user edited the feature requirements for this component.',
     '',
@@ -1344,6 +1380,7 @@ const server = http.createServer(async (req, res) => {
                 if (svc.abs === abs) newShapeKillService(id);
             }
             const dispatchId = body.dispatchId || newShapeNewDispatchId(body.label);
+
             const child = childProcess.spawn(abs, [dispatchId, ...(Array.isArray(body.args) ? body.args : [])], {
                 cwd: path.dirname(abs),
                 stdio: ['ignore', 'pipe', 'pipe'],
@@ -1365,7 +1402,13 @@ const server = http.createServer(async (req, res) => {
                 process.stdout.write('[' + id + '] ' + text.replace(/\n$/, '') + '\n');
             });
             child.stderr.on('data', d => process.stderr.write('[' + id + '] ' + d.toString().replace(/\n$/, '') + '\n'));
-            child.on('exit', () => newShapeServices.delete(id));
+            // A service that can't even launch (a non-executable script, a
+            // missing interpreter, anything spawn rejects) is treated like any
+            // other service that takes the server down: we do NOT catch the
+            // 'error' event, so it becomes an uncaught exception and recovery
+            // handles it. One general rule — a service the server can't run is
+            // a crash to recover from.
+            child.on('exit', () => { newShapeServices.delete(id); });
             newShapeSendJson(res, 200, { id, pid: child.pid, dispatchId });
             return;
         }
@@ -2146,14 +2189,25 @@ process.on('SIGTERM', () => {
     shutdownCanvasRuntime('SIGTERM');
     process.exit(143);
 });
+// On the way down from a crash, leave a marker (the error and stack) for the
+// next boot. The app's recovery loop then boots in --recovery mode and hands it
+// to the agent, which decides what to fix or disable. See canvas/crash-recovery.js.
+const recordCrash = (kind, error) => {
+    crashRecovery.writeCrashReport(WORKSPACE_PATH, {
+        reason: kind + ': ' + (error && error.message ? error.message : String(error)),
+        stack: error && error.stack ? error.stack : ''
+    });
+};
 process.on('uncaughtException', error => {
     logHermesError('crash', error, { message: 'uncaught exception' });
+    recordCrash('uncaught exception', error);
     shutdownCanvasRuntime('uncaught exception: ' + error.message);
     process.exit(1);
 });
 process.on('unhandledRejection', reason => {
     const error = reason instanceof Error ? reason : new Error(String(reason));
     logHermesError('crash', error, { message: 'unhandled rejection' });
+    recordCrash('unhandled rejection', error);
     shutdownCanvasRuntime('unhandled rejection: ' + error.message);
     process.exit(1);
 });
@@ -2190,17 +2244,30 @@ const startNetwork = async () => {
     }
 };
 
-server.listen(PORT, '127.0.0.1', () => {
-    const address = server.address();
-    const resolvedPort = address && typeof address === 'object' ? address.port : PORT;
+if (RECOVERY_MODE) {
+    // Headless one-shot: the app's recovery loop runs this after a crash to let
+    // the agent fix or disable the offender, then exits so the app can try to
+    // boot the server again. No HTTP server, no network — do the one job, exit.
+    runCrashRecovery()
+        .then(() => { shutdownCanvasRuntime('recovery attempt complete'); process.exit(0); })
+        .catch(error => {
+            logHermesError('crash', error, { message: 'recovery attempt failed' });
+            shutdownCanvasRuntime('recovery attempt failed');
+            process.exit(1);
+        });
+} else {
+    server.listen(PORT, '127.0.0.1', () => {
+        const address = server.address();
+        const resolvedPort = address && typeof address === 'object' ? address.port : PORT;
 
-    console.log('Build: ' + SERVER_BUILD);
-    console.log('Server at http://127.0.0.1:' + resolvedPort);
-    console.log('Canvas: ' + CANVAS_PATH);
-    console.log('Input: ' + INPUT_PATH);
+        console.log('Build: ' + SERVER_BUILD);
+        console.log('Server at http://127.0.0.1:' + resolvedPort);
+        console.log('Canvas: ' + CANVAS_PATH);
+        console.log('Input: ' + INPUT_PATH);
 
-    // Kick off the libp2p node in the background. Don't await — the
-    // harness should serve HTTP immediately even if bootstrap to the
-    // DHT takes seconds (which it usually does).
-    startNetwork();
-});
+        // Kick off the libp2p node in the background. Don't await — the
+        // harness should serve HTTP immediately even if bootstrap to the
+        // DHT takes seconds (which it usually does).
+        startNetwork();
+    });
+}

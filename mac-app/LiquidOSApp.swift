@@ -8,6 +8,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     private var window: NSWindow?
     private var webView: WKWebView?
     private var server: Process?
+    private var repairProcess: Process?
     private var port: Int = 0
     private var canvasesRootURL: URL?
     private var pendingWorkspaceURL: URL?
@@ -15,7 +16,14 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     private var serverOutputBuffer = ""
     private var serverErrorBuffer = ""
     private var intentionallyStoppingServer = false
-    
+    // The app owns the server's lifecycle, so when the server dies on its own
+    // the app brings it back. Recent crash times bound the restart rate so a
+    // server that dies the instant it boots can't spin forever.
+    private var serverCrashTimestamps: [Date] = []
+    private static let crashWindowSeconds: TimeInterval = 60
+    private static let maxCrashesInWindow = 3
+    private static let restartDelaySeconds: TimeInterval = 1.0
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         requestNotificationPermission()
@@ -261,7 +269,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
                 "--workspace",
                 canvasesRootURL.path,
                 "--agent",
-                "hermes",
+                Self.agentKind(),
                 "--port",
                 String(port)
             )
@@ -299,15 +307,42 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
                 guard !self.intentionallyStoppingServer else { return }
                 guard self.server?.processIdentifier == process.processIdentifier else { return }
 
-                self.showError([
-                    "LiquidOS server stopped before the workspace loaded.",
-                    "",
-                    "Exit code: \(process.terminationStatus)",
-                    "",
-                    self.serverErrorBuffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? "No server error output was captured."
-                        : self.serverErrorBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
-                ].joined(separator: "\n"))
+                // The server died on its own — almost always one component the
+                // agent wrote taking it down. This is one turn of the recovery
+                // loop: run a headless repair attempt (the agent fixes or
+                // disables the offender), then start the server again. If it
+                // crashes again we land right back here — that recursion is what
+                // runs until the workspace boots clean. Give up only if it keeps
+                // crashing faster than the repairs can help.
+                let now = Date()
+                self.serverCrashTimestamps = self.serverCrashTimestamps.filter {
+                    now.timeIntervalSince($0) < Self.crashWindowSeconds
+                }
+                self.serverCrashTimestamps.append(now)
+
+                guard self.serverCrashTimestamps.count <= Self.maxCrashesInWindow else {
+                    self.showError([
+                        "LiquidOS server keeps crashing and could not be recovered.",
+                        "",
+                        "Exit code: \(process.terminationStatus)",
+                        "",
+                        self.serverErrorBuffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? "No server error output was captured."
+                            : self.serverErrorBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                    ].joined(separator: "\n"))
+                    return
+                }
+
+                NSLog("LiquidOS server exited (code \(process.terminationStatus)); recovering (\(self.serverCrashTimestamps.count)/\(Self.maxCrashesInWindow)).")
+                self.server = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.restartDelaySeconds) {
+                    guard !self.intentionallyStoppingServer else { return }
+                    self.runCrashRepair {
+                        guard !self.intentionallyStoppingServer else { return }
+                        self.startServer()
+                        self.loadWhenReady(attempt: 0)
+                    }
+                }
             }
         }
         
@@ -317,7 +352,61 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
             showError("Could not start Node. Install Node.js, then reopen LiquidOS.\n\n" + error.localizedDescription)
         }
     }
-    
+
+    // One iteration of the crash-recovery loop: run the server headless in
+    // --recovery mode so the agent can fix or disable whatever brought
+    // it down, with no HTTP server up and no webview attached to re-trigger the
+    // crash mid-repair. Calls completion when the attempt exits, after which
+    // the caller restarts the real server.
+    private func runCrashRepair(_ completion: @escaping () -> Void) {
+        guard let canvasesRootURL,
+              let appRoot = Bundle.main.resourceURL,
+              FileManager.default.fileExists(atPath: appRoot.appendingPathComponent("server.js").path) else {
+            completion()
+            return
+        }
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        proc.currentDirectoryURL = appRoot
+        proc.arguments = [
+            "-lc",
+            Self.shellCommand(
+                "node", "server.js",
+                "--workspace", canvasesRootURL.path,
+                "--agent", Self.agentKind(),
+                "--port", String(port),
+                "--recovery"
+            )
+        ]
+        proc.environment = ProcessInfo.processInfo.environment.merging(Self.serverEnvironment()) { _, new in new }
+
+        let errorPipe = Pipe()
+        proc.standardError = errorPipe
+        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if !data.isEmpty, let text = String(data: data, encoding: .utf8) {
+                FileHandle.standardError.write(Data(text.utf8))
+                DispatchQueue.main.async { self?.serverErrorBuffer += text }
+            }
+        }
+        proc.terminationHandler = { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.repairProcess = nil
+                completion()
+            }
+        }
+
+        do {
+            try proc.run()
+            repairProcess = proc
+            NSLog("LiquidOS running a crash-repair attempt before restart.")
+        } catch {
+            NSLog("LiquidOS could not launch crash-repair attempt: \(error.localizedDescription)")
+            completion()
+        }
+    }
+
     private static func getPIDForPort(_ port: Int) -> pid_t? {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
@@ -707,6 +796,15 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
             "LIQUIDOS_RUNTIME_KIND": "mac-app",
             "PATH": launchPath()
         ]
+    }
+
+    // The agent runtime the server (and a crash repair) runs with. Normally the
+    // real agent; a UI test overrides it via LIQUIDOS_AGENT to force the
+    // deterministic crash-repair stub so the recovery loop is reproducible.
+    private static func agentKind() -> String {
+        let value = ProcessInfo.processInfo.environment["LIQUIDOS_AGENT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (value?.isEmpty == false) ? value! : "hermes"
     }
 
     private static func shellQuote(_ value: String) -> String {
