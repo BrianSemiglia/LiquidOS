@@ -22,6 +22,7 @@ const { CrossCanvasPersistenceTestAgent } = require('./test/cross-canvas-persist
 const { LqpatchStreamStubAgent } = require('./test/lqpatch-stream-stub-agent');
 const { ServiceRewriteStubAgent } = require('./test/service-rewrite-stub-agent');
 const { CrashRepairStubAgent } = require('./test/crash-repair-stub-agent');
+const { ChatStubAgent } = require('./test/chat-stub-agent');
 
 // NoneAgent is for runs that should not have a working agent — sandbox boots
 // for smoke tests, recursion guards, anything where callbacks should fail
@@ -75,7 +76,8 @@ const createRuntimes = ({
         CrossCanvasPersistenceTestAgent(),
         LqpatchStreamStubAgent(),
         ServiceRewriteStubAgent(),
-        CrashRepairStubAgent()
+        CrashRepairStubAgent(),
+        ChatStubAgent()
     ];
 
     const ownedRuntimePaths = () =>

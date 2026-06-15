@@ -1,0 +1,90 @@
+//
+// probe-chat.mjs
+//
+// The chat skill: scaffold a chat with skills/chat/scripts/create-chat.sh, then
+// prove it works the way a user would use it — the chat shows up, you type a
+// message, hit Send, and your message plus a reply land in the log.
+//
+// A deterministic chat-stub agent stands in for the real one: it reads the
+// message out of the composer's dispatch and appends the two bubbles. The probe
+// asserts only what's on screen (the rendered text), never the DOM shape, the
+// wire protocol, or files on disk.
+//
+// Run it:  node run-probe.mjs probe-chat.mjs
+//
+// Self-managed sandbox (fixture = null): the probe lays down its own workspace,
+// runs the scaffolder, and boots the sandbox itself.
+//
+
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { bootSandbox } from './sandbox.mjs';
+import { CHAT_STUB_REPLY } from '../../../agent/test/chat-stub-agent.js';
+
+export const fixture = null;
+
+const onScreen = (page, text) => page.evaluate(t => document.body.innerText.includes(t), text);
+const waitForOnScreen = async (page, text, ms = 15000) => {
+    try {
+        await page.waitForFunction(t => document.body.innerText.includes(t), text, { timeout: ms });
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+export default async ({ browser }) => {
+    const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
+    const appRoot = path.resolve(scriptsDir, '../../..');
+    const createChat = path.join(appRoot, 'skills/chat/scripts/create-chat.sh');
+
+    // A temp workspace with one empty canvas for the scaffolder to operate on.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-chat-'));
+    const ws = path.join(tmp, 'probe-chat.liquidos');
+    const canvasDir = path.join(ws, 'home');
+    fs.mkdirSync(canvasDir, { recursive: true });
+    fs.writeFileSync(path.join(canvasDir, 'input.json'), '{ "components": [] }\n');
+    fs.writeFileSync(path.join(canvasDir, 'canvas.js'), "import { cssLayout } from '/lib/css-layout.js';\nexport default cssLayout('');\n");
+
+    const scaffold = spawnSync('bash', [createChat, canvasDir], { encoding: 'utf8' });
+    if (scaffold.status !== 0) {
+        fs.rmSync(tmp, { recursive: true, force: true });
+        throw new Error('create-chat.sh exited ' + scaffold.status + '\nstderr: ' + scaffold.stderr);
+    }
+
+    const sandbox = await bootSandbox(ws, { agent: 'chat-stub' });
+    try {
+        const page = await browser.newPage();
+        page.on('pageerror', err => console.log('[page error]', err.message));
+        await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        // 1. The scaffolded chat shows up.
+        if (!await waitForOnScreen(page, 'Chat with LiquidOS')) {
+            throw new Error('the chat never rendered on screen');
+        }
+        if (!await onScreen(page, 'Send')) {
+            throw new Error('the chat composer (Send) is not on screen');
+        }
+        console.log('  ok  create-chat.sh puts a working chat on screen');
+
+        // 2. Drive it like a user: type a message and send it.
+        const message = 'hello from the probe';
+        await page.fill('input[name="message"]', message);
+        await page.click('button[type="submit"]');
+
+        // 3. The user's message and a reply land in the log.
+        if (!await waitForOnScreen(page, message)) {
+            throw new Error('the sent message never appeared in the chat log');
+        }
+        if (!await waitForOnScreen(page, CHAT_STUB_REPLY)) {
+            throw new Error('the reply never appeared in the chat log');
+        }
+        console.log('  ok  sending a message shows the message and a reply in the log');
+    } finally {
+        try { sandbox.teardown(); } catch {}
+        try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+    }
+};
