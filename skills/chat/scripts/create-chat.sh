@@ -180,7 +180,7 @@ cat > "$component_dir/component.html" <<HTML
     <div class="chat">
         <div class="chat__header"><span class="chat__dot"></span>Chat with LiquidOS</div>
         <div class="chat__log" id="chat-log"></div>
-        <liquidos-callback on="submit" scope="components/${safe_name}" values="message" prompt="The user sent this message in the chat: {{message}}. The whole conversation is already in #chat-log — read it there for context (including any 'this/that' references) before you reply. Append their message as a .msg--user bubble and your reply as a .msg--bot bubble to #chat-log. If the message asks to change the canvas or workspace, do that first, then append a short .msg--bot bubble saying what changed.">
+        <liquidos-callback on="submit" scope="components/${safe_name}" values="message" prompt="The user sent this message in the chat: {{message}}. FIRST, before doing anything else, append two bubbles to #chat-log: their message as a .msg--user bubble, then a placeholder .msg--bot bubble containing only '…' to show you're working on a reply. THEN read the whole conversation in #chat-log for context (including any 'this/that' references) and, if the message asks to change the canvas or workspace, make that change. FINALLY, replace the '…' in the placeholder .msg--bot bubble with your actual reply (for a change, a short note saying what changed).">
             <form class="chat__composer" autocomplete="off">
                 <input name="message" placeholder="Type a message…" required>
                 <button type="submit">Send</button>
