@@ -1,0 +1,6 @@
+{
+  "components": [
+    "components/trigger/component.html",
+    "components/phase/component.html"
+  ]
+}

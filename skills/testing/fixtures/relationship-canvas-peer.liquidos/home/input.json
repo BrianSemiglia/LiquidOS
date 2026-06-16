@@ -1,0 +1,5 @@
+{
+  "components": [
+    "components/control/component.html"
+  ]
+}

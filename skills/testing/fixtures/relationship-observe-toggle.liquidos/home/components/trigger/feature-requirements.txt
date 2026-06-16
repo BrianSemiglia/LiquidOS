@@ -1,0 +1,1 @@
+- A button that emits a pulse each time it's pressed.

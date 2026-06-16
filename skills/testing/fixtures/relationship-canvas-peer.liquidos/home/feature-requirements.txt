@@ -1,0 +1,5 @@
+- A control drives canvas-owned behavior that has no card of its own.
+
+## Relationships
+
+- Pressing the control sets the canvas's readout.

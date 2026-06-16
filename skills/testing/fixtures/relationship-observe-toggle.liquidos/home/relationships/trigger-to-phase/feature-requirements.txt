@@ -1,0 +1,1 @@
+- Flips the phase between A and B on each trigger pulse.

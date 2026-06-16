@@ -2209,7 +2209,16 @@
                 killService: window.liquidos?.killService,
                 onWorkspaceEvent: window.liquidos?.onWorkspaceEvent
             };
+            // Drop any io the prior canvas attached; the new factory re-attaches
+            // its own (or none). Without this a canvas that exposes no io would
+            // inherit the old one as a stale `canvas` peer.
+            try { delete app.__io; } catch (error) { /* tolerate */ }
             currentCanvas = mod.default(app, newShapeContext);
+            // canvas.js may have attached root.__io (app.__io) to join the I/O
+            // graph as the `canvas` peer. Re-resolve so any relationship wiring
+            // the canvas connects now — and re-wires after a canvas swap, since
+            // the swap replaces the io object the relationship was bound to.
+            window.liquidos?.scheduleWireIO?.();
             currentCanvasCacheKey = cacheKey;
             updatePromptChromeSpace();
             return currentCanvas;
@@ -2552,6 +2561,13 @@
                 add(scope, componentIo(el));
             });
             relationshipNodesByPath.forEach((entry, scope) => add(scope, entry.surface.__io));
+            // The canvas itself is a peer. canvas.js may attach root.__io (the
+            // same { on, send } endpoint shape components put on surface.__io)
+            // to join the I/O graph under the reserved name `canvas`. This lets
+            // a component wire to canvas-owned behavior that has no card of its
+            // own — the camera, ambient environment, rain — through a normal
+            // relationship instead of an out-of-band shared file.
+            add('canvas', app.__io);
             return { peers, scopeOfIo };
         };
 

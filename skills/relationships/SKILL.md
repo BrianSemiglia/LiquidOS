@@ -42,6 +42,11 @@ surface.__io = {
 - **Publishers** (a keyboard, a slider, a clock) implement `on(channel, fn)` so others can subscribe.
 - **Acceptors** (a swatch, a display, an LED strip) implement `send(channel, payload)` so others can drive them.
 - **Relationships** implement `connect(peers)` and declare `peers: [...]` — the local names (folder basenames) they wire. The `peers` passed to `connect()` is `{ '<local-name>': <io>, ... }` for every component and relationship in the canvas.
+- **The canvas** is a peer too, under the reserved name **`canvas`**. Canvas-owned behavior with no card of its own — camera, ambient environment, a full-viewport rain effect — joins the graph when `canvas.js` attaches `root.__io` (see Canvas Skill). Wire a component to it like any other peer: `peers['canvas']?.send('rain-intensity', v)`. Don't name a component folder `canvas`.
+
+A relationship is **pure wiring**: it connects, then forwards events as they happen. It never persists anything. If an endpoint wants the last value to survive a reload, that endpoint caches it — the wire doesn't.
+
+An **endpoint declares its complete interface once** — every channel it publishes via `on` and every channel it accepts via `send`, with their meanings — independent of any wire. Declare the emit hooks even when nothing is subscribed yet; don't leave `on` a no-op stub to flesh out when a relationship finally needs it. An endpoint never names a peer or relationship, never branches on where a value came from, and never changes because a wire was added or removed. The relationship is the only piece that knows both ends. This holds for every peer — a component on its card, or the canvas on `root`; same protocol, no special cases.
 
 Wiring is **reactive, not timed**. The harness connects a relationship the instant the peers it declared are present — no polling, no timeout. A peer that mounts later wires it then; a peer that's missing shows as a derived `waiting` status in the relationship's `diagnostics/status.json` (`connect.missing`), and connects if/when it appears. A relationship that declares no `peers` falls back to the `<from>-to-<to>` folder name; with neither, it connects best-effort against whatever is present. Re-mounting a relationship (a live edit) re-runs `connect()`.
 
@@ -113,7 +118,7 @@ Editing `functions.js` re-mounts the relationship live — the next user interac
 
 ## Stateful relationships
 
-`connect()` runs inside the `mount()` closure, so any state you declare there — counters, buffers, debounce timers, latches, small state machines — lives for the relationship's lifetime and is available to every event flowing through.
+`connect()` runs inside the `mount()` closure, so any state you declare there — counters, buffers, debounce timers, small state machines — lives for the relationship's lifetime and is available to every event flowing through. This is **in-flight transform state**, scoped to forwarding the event in front of it — not storage. A relationship still persists nothing; the moment a value needs to outlive the event or the wire, it belongs to an endpoint, not here.
 
 ```js
 export const mount = (surface) => {
@@ -142,9 +147,10 @@ Other patterns this enables:
 - **Rate limit / throttle:** keep `lastSent` and only forward if enough time has passed.
 - **Debounce:** hold a `setTimeout` handle; reset on each incoming event; fire after a quiet window.
 - **Accumulator:** buffer N payloads, then flush as one.
-- **Latch:** remember the most recent value so a late-subscribing acceptor can be hydrated.
 
-Mount-closure state resets on every re-mount (live edits, app restart). If the wire needs state that survives re-mount, write to a file under the relationship's `data/` and reload in `mount()` — the same pattern components and canvas.js use for their own persistence.
+Each of these shapes *how* an event forwards; none of them remembers a value past the work of forwarding it.
+
+Mount-closure state resets on every re-mount (live edits, app restart), and that's correct — the wire is meant to be stateless across re-mounts. Anything that must survive a reload (the last value an acceptor should rehydrate to, a setting, a running total the user expects to persist) lives in the endpoint that owns it — a publisher or acceptor caching to its own `data/` — never in the relationship. If an acceptor needs to come up showing the last value, the acceptor stores and reloads it; the wire just delivers new ones.
 
 ## One-to-many and many-to-one
 

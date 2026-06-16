@@ -1,0 +1,5 @@
+- A trigger button and a phase display that reads A or B.
+
+## Relationships
+
+- Each press of the trigger flips the phase between A and B.

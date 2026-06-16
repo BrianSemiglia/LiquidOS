@@ -87,6 +87,39 @@ Components are black boxes. The canvas may wrap them with behaviors and presenta
 
 The harness clears each item's inline styles before every `place()` call, so each call starts clean.
 
+### Canvas as an I/O peer
+
+Some canvas behavior has no card of its own — the camera, the ambient environment, a full-viewport rain or snow effect. It lives in `canvas.js`, not in any component, so a component can't reach it through a normal component-to-component relationship. To let one, attach an I/O endpoint to `root`:
+
+```js
+export default (root, context) => {
+    let intensity = 0;
+    const listeners = new Set();
+    const setRain = (v) => { intensity = v; /* apply live */ listeners.forEach(fn => fn(v)); };
+    root.__io = {
+        // Accepts: channels this canvas consumes, and what each does.
+        send(channel, payload) {
+            if (channel === 'rain-intensity') setRain(payload); // 0..1, applies live
+        },
+        // Emits: channels this canvas publishes. Declare them whether or not
+        // anything is wired to them yet — a relationship subscribes via on().
+        on(channel, fn) {
+            if (channel !== 'rain-intensity') return () => {};
+            listeners.add(fn);
+            fn(intensity);                 // replay current value to a new subscriber
+            return () => listeners.delete(fn);
+        },
+    };
+    return { place(items, components) { /* … */ }, teardown() { /* … */ } };
+};
+```
+
+This is the **same `surface.__io` protocol components use** — `root` is the canvas's own surface, and the harness registers it in the relationship peer map under the reserved name **`canvas`** (so don't name a component folder `canvas`). A relationship wires a component to it like any other peer: `peers['rain-control'].on('intensity', v => peers['canvas'].send('rain-intensity', v))`. See the Relationships Skill.
+
+Conforming to the protocol means declaring your **complete** interface once — every channel you accept via `send` and every channel you emit via `on`, with their meanings — and then leaving it alone. Declare the emit hooks even when nothing is wired to them yet; don't leave `on` a no-op stub to be fleshed out later when a wire finally needs it. An endpoint never names a peer or relationship, never branches on where a value came from, and never changes because a wire was added or removed — the relationship is the only piece that knows both ends and maps one onto the other. This is exactly how a component behaves; the canvas is not a special case, only a peer that lives on `root` instead of a card.
+
+The endpoint is re-registered every time `canvas.js` re-mounts, so relationships bound to it re-wire automatically across canvas swaps. It is pure wiring: the relationship forwards events and nothing else. If the canvas wants the last value to survive a reload, it caches it itself (a state file it owns) — persistence is never the relationship's job.
+
 ### Stay inside root
 
 Everything `canvas.js` paints — scene structure, scroll containers, full-viewport effects like rain, snow, scrims, or ambient particles — lives inside `root`. Attach overlay elements to `root`, position them relative to it, and use modest z-indices. The prompt bar, debug rail, and requirements editor sit on top via their own stacking context; if `canvas.js` reaches outside `root` (e.g. `document.body.appendChild`) or uses an out-of-context z-index (e.g. `9999`), its painting will cover them and break interactivity.

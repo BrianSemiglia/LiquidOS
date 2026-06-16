@@ -11,8 +11,12 @@ set -euo pipefail
 # A relationship wires <from>'s output into <to>'s input. By default the
 # folder is named <from>-to-<to>; pass --name to override.
 #
+# Either endpoint may be the reserved name `canvas`, which wires the canvas
+# itself (canvas.js's root.__io) instead of a component in components/.
+#
 # What it does:
-#   - Verifies <from> and <to> exist under the canvas's components/.
+#   - Verifies <from> and <to> exist under the canvas's components/. The
+#     reserved name `canvas` wires the canvas itself and needs no such folder.
 #   - Errors if the relationship folder already exists.
 #   - Writes functions.js, feature-requirements.txt, and a test.js stub
 #     at the relationship folder root. No view.json — relationships
@@ -31,6 +35,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --help|-h)
             echo "Usage: $0 <canvas-path> <from> <to> [--name <custom>]"
+            echo "  <from>/<to> are component folder names, or 'canvas' to wire the canvas itself."
             exit 0
             ;;
         --name)
@@ -82,12 +87,23 @@ if [ -z "$from_name" ] || [ -z "$to_name" ]; then
     exit 1
 fi
 
-if [ ! -d "$canvas_dir/components/$from_name" ]; then
-    echo "Error: <from> component not found: components/$from_name" >&2
+# The canvas itself is a valid endpoint under the reserved peer name `canvas`
+# (canvas.js exposes root.__io). It has no components/<name> folder, so skip
+# the component-existence check for that side — but still validate real
+# component names so a typo'd endpoint is caught.
+reserved_canvas="canvas"
+
+if [ "$from_name" = "$reserved_canvas" ] && [ "$to_name" = "$reserved_canvas" ]; then
+    echo "Error: both endpoints are 'canvas' — a relationship needs two distinct endpoints" >&2
     exit 1
 fi
-if [ ! -d "$canvas_dir/components/$to_name" ]; then
-    echo "Error: <to> component not found: components/$to_name" >&2
+
+if [ "$from_name" != "$reserved_canvas" ] && [ ! -d "$canvas_dir/components/$from_name" ]; then
+    echo "Error: <from> component not found: components/$from_name (use 'canvas' to wire the canvas itself)" >&2
+    exit 1
+fi
+if [ "$to_name" != "$reserved_canvas" ] && [ ! -d "$canvas_dir/components/$to_name" ]; then
+    echo "Error: <to> component not found: components/$to_name (use 'canvas' to wire the canvas itself)" >&2
     exit 1
 fi
 
