@@ -90,7 +90,8 @@ cat > "$component_dir/component.html" <<HTML
             display: flex;
             flex-direction: column;
             min-width: 280px;
-            max-width: 100%;
+            max-width: 380px;
+            width: 100%;
             height: 440px;
             background: #0f1117;
             border-radius: 14px;
@@ -192,16 +193,27 @@ HTML
 
 # scroll.js -----------------------------------------------------------------
 cat > "$component_dir/scroll.js" <<'JS'
-// Keeps #chat-log pinned to the newest message: scrolls to the bottom on
-// mount and whenever bubbles are appended or bot text streams in.
+// Auto-follows new messages, but only when the user is already at the bottom:
+// scrolls to the newest bubble (and tracks streaming text) as long as they
+// haven't scrolled up to read history. Starts pinned on mount.
 export function mount(surface) {
     const log = surface.querySelector('#chat-log');
     if (!log) return;
 
+    // "Within a few px of the bottom" still counts as pinned, so streaming
+    // text and rounding don't unpin the view.
+    const THRESHOLD = 24;
+    const atBottom = () =>
+        log.scrollHeight - log.scrollTop - log.clientHeight <= THRESHOLD;
+
+    let pinned = true;
     const toBottom = () => { log.scrollTop = log.scrollHeight; };
     toBottom();
 
-    const observer = new MutationObserver(toBottom);
+    // The user scrolling up unpins; scrolling back to the bottom re-pins.
+    log.addEventListener('scroll', () => { pinned = atBottom(); });
+
+    const observer = new MutationObserver(() => { if (pinned) toBottom(); });
     observer.observe(log, { childList: true, subtree: true, characterData: true });
 
     return () => observer.disconnect();
