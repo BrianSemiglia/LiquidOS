@@ -15,7 +15,9 @@ For coding agents editing this repo (the LiquidOS harness). The runtime agent's 
 ## Practices
 
 - UI test driven — hit an issue, write the failing UI test first, then pass it.
-- Tests use no private internals — so private details can change without refactoring tests.
+- Tests assert on rendered output — drive the UI, check on-screen text/state a user can see; never read private internals (`__io`, diagnostics, disk, structure). Present a unique string to the screen to prove the thing you're proving.
+- Tests are the source of truth — private details change, tests don't; when a test and the code disagree, the test wins.
+- Tests must discriminate — assert the real behavior, not a happy path a wrong implementation would also pass (e.g. change state by another path, then prove the code read it).
 - No legacy — one way to do a thing; migrate old workspaces forward, prove code is dead before removing it.
 - State is events, not polling — no timeouts, deadlines, or retries to wait for readiness.
 - Skill docs say what and when, not how.
