@@ -1404,6 +1404,40 @@ const newShapeDescendantsOf = pid => {
     return all;
 };
 
+// Kill everything THIS server spawned — component services, the agent, and
+// anything they spawned in turn (sandbox servers, the agent's own children) —
+// by walking our own descendant tree. Broader than newShapeServices, which
+// only tracks component services and so left the agent to stray on shutdown.
+const newShapeKillOwnSubtree = () => {
+    for (const pid of newShapeDescendantsOf(process.pid)) {
+        try { process.kill(pid, 'SIGKILL'); } catch {}
+    }
+};
+
+// A prior server for this workspace that died by crash / SIGKILL / the app
+// being force-quit can leave detached workers (services, sandbox servers, a
+// stray agent) re-parented to launchd — nothing the dying server runs is
+// guaranteed, so the NEXT server cleans the slate before spawning fresh.
+// Scoped to worker-looking commands under WORKSPACE_PATH; never the GUI app
+// or our own process tree.
+const newShapeReapStrayWorkspaceProcesses = () => {
+    let out;
+    try { out = childProcess.execFileSync('pgrep', ['-f', WORKSPACE_PATH], { encoding: 'utf8' }); }
+    catch { return; } // no matches
+    const ours = new Set([process.pid, process.ppid, ...newShapeDescendantsOf(process.pid)]);
+    for (const line of out.split('\n')) {
+        const pid = Number(line.trim());
+        if (!pid || ours.has(pid)) continue;
+        let cmd = '';
+        try { cmd = childProcess.execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).trim(); }
+        catch { continue; }
+        if (cmd.includes('LiquidOS.app/Contents/MacOS')) continue; // never the app itself
+        const looksLikeWorker = /\bnode\b/.test(cmd) || /\.sh(\s|$)/.test(cmd) || /\b(claude|codex|hermes|pi)\b/.test(cmd);
+        if (!looksLikeWorker) continue;
+        try { process.kill(pid, 'SIGKILL'); } catch {}
+    }
+};
+
 const newShapeKillService = (id) => {
     const svc = newShapeServices.get(id);
     if (!svc) return false;
@@ -1423,16 +1457,15 @@ const newShapeKillService = (id) => {
 };
 
 const newShapeShutdown = code => {
-    const allPids = [];
-    for (const svc of newShapeServices.values()) {
-        const root = svc.child.pid;
-        allPids.push(root, ...newShapeDescendantsOf(root));
-    }
-    for (const pid of allPids) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    newShapeKillOwnSubtree();
     process.exit(code);
 };
 process.on('SIGINT', () => newShapeShutdown(0));
 process.on('SIGTERM', () => newShapeShutdown(0));
+// Backstop for any exit that doesn't go through newShapeShutdown (an explicit
+// process.exit elsewhere, normal end). Synchronous-only, which the tree walk
+// is. Can't help on SIGKILL/force-quit — startup reap covers those.
+process.on('exit', () => newShapeKillOwnSubtree());
 
 const newShapeGuardAbs = rel => {
     const cleaned = String(rel || '').replace(/^\/+/, '');
@@ -2056,6 +2089,19 @@ const server = http.createServer(async (req, res) => {
                 }
 
                 const absolute = resolveCanvasReference(componentPath);
+
+                // No subject, no diagnostic. A deleted component/relationship
+                // writing a late diagnostic during teardown would make
+                // componentFolderPath dirname up into the collection root
+                // (components/ or relationships/) and create a stray
+                // `diagnostics/` folder there — which the relationship scanner
+                // then mis-loads as a phantom relationship. Skip when the
+                // subject is gone.
+                if (!fs.existsSync(absolute)) {
+                    send(res, 200, JSON.stringify({ skipped: 'no such component' }));
+                    return;
+                }
+
                 const componentDir = canvasGraph.componentFolderPath(absolute);
 
                 if (!pathIsInside(componentDir, CANVAS_PATH)) {
@@ -2406,6 +2452,10 @@ const startNetwork = async () => {
         console.error('Network: failed to start', error?.message || error);
     }
 };
+
+// Clean up any workers a prior server for this workspace left behind (crash /
+// SIGKILL / force-quit) before we start spawning our own.
+newShapeReapStrayWorkspaceProcesses();
 
 server.listen(PORT, '127.0.0.1', () => {
     const address = server.address();

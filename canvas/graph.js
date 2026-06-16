@@ -242,6 +242,14 @@ const createCanvasGraph = ({
         if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
         return fs.readdirSync(dir, { withFileTypes: true })
             .filter(entry => entry.isDirectory())
+            // A relationship IS a functions.js-bearing folder (see below).
+            // Enforce that here: otherwise any stray folder under
+            // relationships/ — e.g. a misplaced `diagnostics/` left by a
+            // removed relationship — gets mounted as a phantom relationship
+            // whose missing functions.js "fails to import," and the harness
+            // then writes its own diagnostics back under relationships/,
+            // compounding the mess. Real relationships always have it.
+            .filter(entry => fs.existsSync(path.join(dir, entry.name, 'functions.js')))
             .map((entry, index) => ({
                 index,
                 componentPath: path.join(dir, entry.name)
