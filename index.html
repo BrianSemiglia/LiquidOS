@@ -2121,7 +2121,15 @@
                 '--prompt-chrome-space',
                 Math.ceil(window.innerHeight - globalPromptBar.getBoundingClientRect().top + 16) + 'px'
             );
-            canvasShell.style.paddingBottom = 'var(--prompt-chrome-space)';
+            // Reserve bottom clearance for the floating prompt bar only for
+            // canvases whose content flows and scrolls (a stack/feed), so the
+            // last item can scroll clear of the bar. A full-viewport canvas owns
+            // the screen and lets the prompt float over it — it positions its own
+            // items via place(). Padding that kind pushes canvas-shell past 100vh
+            // and shows a phantom page scrollbar over a canvas that already fills
+            // and clips the viewport.
+            const ownsViewport = typeof currentCanvas?.place === 'function';
+            canvasShell.style.paddingBottom = ownsViewport ? '0px' : 'var(--prompt-chrome-space)';
         };
 
 
