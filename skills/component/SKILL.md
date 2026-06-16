@@ -98,7 +98,7 @@ A service may only patch **its own component** — its selectors resolve within 
 `feature-requirements.txt` is user-facing.
 
 - Plain text. No title, no markdown headings.
-- Each line is one requirement, written in plain language.
+- One requirement per line, each line a bullet beginning with `- `, written in plain language.
 - Requirements must be faithful to the component — no claims about behavior, resources, or limits the component does not actually provide.
 - When requirements and implementation disagree, resolve the mismatch instead of preserving inaccurate text.
 

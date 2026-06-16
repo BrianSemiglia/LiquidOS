@@ -1319,7 +1319,7 @@ const componentFeaturePrompt = ({ componentScope, before, after }) => [
     after || '(none)',
     '',
     'Review the actual component before changing anything.',
-    'Keep feature-requirements.txt user-facing, concise, plain-language, and faithful to what the component does or is meant to do. It is a plain text file with no title — the title comes from view.json.',
+    'Keep feature-requirements.txt user-facing, concise, plain-language, and faithful to what the component does or is meant to do. It is a plain text file with no title — the title comes from view.json. One requirement per line, each line a bullet beginning with "- ".',
     "If the requirements and implementation disagree, resolve the mismatch by updating the implementation, the requirements, or both, based on the user's intent.",
     'Do not add unrelated capabilities or preserve inaccurate requirements.'
 ].join('\n');
@@ -1340,7 +1340,7 @@ const canvasRequirementsPrompt = ({ canvasName, canvasScope, before, after }) =>
     '- Add, remove, or modify components in input.json as the prose dictates.',
     '- Add, remove, or modify relationships under ' + canvasScope + '/relationships/ (see skills/relationships).',
     '- Update individual components\' feature-requirements.txt files when canvas-level intent changes their roles.',
-    'Keep feature-requirements.txt user-facing, plain-language, and faithful to what the canvas is for.',
+    'Keep feature-requirements.txt user-facing, plain-language, and faithful to what the canvas is for. Write the requirements as bullets, each line beginning with "- ".',
     "If the requirements and the actual canvas disagree, resolve the mismatch based on the user's intent."
 ].join('\n');
 

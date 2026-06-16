@@ -32,7 +32,7 @@ Add or remove components by editing `input.json`. Change arrangement, navigation
 
 ## feature-requirements.txt
 
-Plain-text, user-facing description of what this canvas is for — what it should let the user do, how it should feel. Read it first when working on a canvas; update it when intent changes. Keep implementation details out — `canvas.js` is for those.
+Plain-text, user-facing description of what this canvas is for — what it should let the user do, how it should feel. Read it first when working on a canvas; update it when intent changes. Keep implementation details out — `canvas.js` is for those. Write the requirements as bullets, each line beginning with `- `.
 
 ### Relationships
 
@@ -41,9 +41,10 @@ Describes wires between components in prose. The agent reconciles the `relations
 ### Example
 
 ```text
-A diorama of small tools and ambient widgets. Components float in 3D
-space and gently bob; the user pans by dragging and zooms by scrolling.
-Each one is a tactile object — small, soft lighting, no chrome.
+- A diorama of small tools and ambient widgets.
+- Components float in 3D space and gently bob.
+- The user pans by dragging and zooms by scrolling.
+- Each one is a tactile object — small, soft lighting, no chrome.
 
 ## Relationships
 
