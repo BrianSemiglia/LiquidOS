@@ -127,16 +127,18 @@ const createGitTimeline = ({ workspacePath, currentCanvasPath, logServer }) => {
             return false;
         }
 
-        if (git(workspacePath, ['diff', '--cached', '--quiet']).status === 0) {
-            logServer('git', 'no shutdown canvases changes to commit', { jobId: job && job.id ? job.id : null });
-            return false;
-        }
-
-        if (git(workspacePath, ['commit', '-m', commitMessage({
+        // Always record the quit, even with nothing on disk to commit — a quit
+        // is a real timeline event worth capturing (same reason DOM-only turns
+        // commit empty in commitCanvases below).
+        const hasChanges = git(workspacePath, ['diff', '--cached', '--quiet']).status !== 0;
+        const commitArgs = ['commit', '-m', commitMessage({
             event: shutdownEvent(reason),
             scope: scopeText(job && job.scope ? job.scope : '', currentCanvasPath),
             agentResponse: job && job.agentResponse ? job.agentResponse : 'none'
-        })], { stdio: 'inherit' }).status !== 0) {
+        })];
+        if (!hasChanges) commitArgs.push('--allow-empty');
+
+        if (git(workspacePath, commitArgs, { stdio: 'inherit' }).status !== 0) {
             logServer('git', 'failed to commit shutdown canvases changes', {
                 jobId: job && job.id ? job.id : null,
                 prompt: callbackPromptText(job || {}) || null
@@ -144,7 +146,7 @@ const createGitTimeline = ({ workspacePath, currentCanvasPath, logServer }) => {
             return false;
         }
 
-        logServer('git', 'committed shutdown canvases changes', { jobId: job && job.id ? job.id : null });
+        logServer('git', hasChanges ? 'committed shutdown canvases changes' : 'committed empty shutdown turn', { jobId: job && job.id ? job.id : null });
         return true;
     };
 
