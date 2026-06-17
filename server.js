@@ -2407,16 +2407,22 @@ const recordCrash = (kind, error) => {
         stack: error && error.stack ? error.stack : ''
     });
 };
+// EPIPE means a write failed because the reader of our stdout/stderr went away —
+// in practice the app being force-quit, which gets an uncatchable SIGKILL and so
+// never stops us cleanly. The orphaned server's next write (a service forwarding
+// output, a log line) then throws EPIPE. That is not a workspace crash, so don't
+// leave a marker, or the next launch boots into a phantom recovery.
+const isBrokenOutputPipe = error => error && error.code === 'EPIPE';
 process.on('uncaughtException', error => {
     logHermesError('crash', error, { message: 'uncaught exception' });
-    recordCrash('uncaught exception', error);
+    if (!isBrokenOutputPipe(error)) recordCrash('uncaught exception', error);
     shutdownCanvasRuntime('uncaught exception: ' + error.message);
     process.exit(1);
 });
 process.on('unhandledRejection', reason => {
     const error = reason instanceof Error ? reason : new Error(String(reason));
     logHermesError('crash', error, { message: 'unhandled rejection' });
-    recordCrash('unhandled rejection', error);
+    if (!isBrokenOutputPipe(error)) recordCrash('unhandled rejection', error);
     shutdownCanvasRuntime('unhandled rejection: ' + error.message);
     process.exit(1);
 });
