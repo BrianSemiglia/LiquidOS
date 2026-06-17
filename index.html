@@ -1329,14 +1329,6 @@
             align-items: center;
             width: min(calc(100vw - var(--debug-rail-space) - 2rem), 58rem);
             padding: 0.55rem;
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            border-radius: 22px;
-            background: rgba(34, 34, 35, 0.72);
-            box-shadow:
-                0 24px 70px rgba(0, 0, 0, 0.44),
-                inset 0 1px 0 rgba(255, 255, 255, 0.08);
-            backdrop-filter: blur(32px) saturate(1.35);
-            -webkit-backdrop-filter: blur(32px) saturate(1.35);
             transform: translateX(-50%);
             -webkit-font-smoothing: antialiased;
             visibility: visible;
@@ -1399,20 +1391,16 @@
             height: 0;
             margin-bottom: 0;
             padding: 0 0.7rem;
-            border: 0 solid rgba(255, 255, 255, 0.08);
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.04);
             opacity: 0;
             overflow: hidden;
             transition: height 200ms ease, margin-bottom 200ms ease,
-                        border-width 200ms ease, opacity 180ms ease;
+                        opacity 180ms ease;
         }
         /* Shown when the label has text OR the waveform is rendering output. */
         .agent-activity-row[data-active="true"],
         .global-prompt:has(.agent-activity:not([data-empty="true"])) .agent-activity-row {
             height: 2rem;
             margin-bottom: 0.55rem;
-            border-width: 1px;
             opacity: 1;
         }
         /* Live pulse so the user knows the agent is working. */
