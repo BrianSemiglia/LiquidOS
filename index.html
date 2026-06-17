@@ -1088,6 +1088,25 @@
             -webkit-backdrop-filter: blur(32px) saturate(1.35);
             transform: translateX(-50%);
             -webkit-font-smoothing: antialiased;
+            visibility: visible;
+            transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.28s ease;
+        }
+
+        /* Escape hides the prompt bar so the canvas gets the full viewport;
+           Escape again brings it back. window.liquidos.handleEscape flips the
+           data-prompt-hidden flag on <body> (mirrors the debug-panel toggle),
+           and updatePromptChromeSpace zeroes the reserved bottom clearance when
+           it's set so the canvas reclaims the space. The bar is position:fixed,
+           so this slides the chrome out without reflowing the canvas.
+           visibility flips to hidden only after the slide-out finishes (the 0.28s
+           delay), so the animation still plays but the hidden bar leaves the
+           rendered/accessibility tree entirely — not just fades. */
+        body[data-prompt-hidden="true"] .global-prompt {
+            transform: translateX(-50%) translateY(calc(100% + 2rem));
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.28s ease, visibility 0s 0.28s;
         }
 
         .prompt-send {
@@ -2276,9 +2295,14 @@
         };
 
         const updatePromptChromeSpace = () => {
+            // When the prompt bar is hidden (Escape), it reserves no clearance —
+            // the canvas reclaims the full viewport.
+            const promptHidden = document.body.getAttribute('data-prompt-hidden') === 'true';
             document.documentElement.style.setProperty(
                 '--prompt-chrome-space',
-                Math.ceil(window.innerHeight - globalPromptBar.getBoundingClientRect().top + 16) + 'px'
+                promptHidden
+                    ? '0px'
+                    : Math.ceil(window.innerHeight - globalPromptBar.getBoundingClientRect().top + 16) + 'px'
             );
             // Reserve bottom clearance for the floating prompt bar only for
             // canvases whose content flows and scrolls (a stack/feed), so the
@@ -3206,20 +3230,30 @@
             openRequirementsOverlay(item);
         };
 
-        // ESC closes the open requirements editor. Works on the item if
-        // we can find it, or falls back to removing any stray overlay.
-        document.addEventListener('keydown', event => {
-            if (event.key !== 'Escape') return;
-            const overlay = document.querySelector('.requirements-overlay');
-            if (!overlay) return;
-            const itemInOverlay = overlay.querySelector('.item');
-            if (itemInOverlay) {
-                closeRequirementsOverlay(itemInOverlay);
-            } else {
-                overlay.remove();
-                openRequirementsComponentPath = '';
+        // Escape dismissal for the requirements editor is handled by the
+        // single Escape owner (window.liquidos.handleEscape) near the end of
+        // this script, which dismisses the topmost overlay before falling
+        // through to toggling the prompt bar.
+        //
+        // A requirements editor can be one of two shapes that share the
+        // .requirements-overlay class: a new-shape <liquidos-component>, which
+        // owns its own overlay (it normally closes itself on Escape — but the
+        // owner swallows the key, so we close it here directly), or a legacy
+        // harness-rendered item. Closing the component is a public, idempotent
+        // call (a no-op when it has no overlay open), so it's safe to ask every
+        // component and then mop up any remaining legacy overlay.
+        const dismissRequirementsOverlay = () => {
+            if (!document.querySelector('.requirements-overlay')) return false;
+            document.querySelectorAll('liquidos-component')
+                .forEach(c => { try { c.closeRequirementsOverlay?.(); } catch {} });
+            const stray = document.querySelector('.requirements-overlay');
+            if (stray) {
+                const item = stray.querySelector('.item');
+                if (item) closeRequirementsOverlay(item);
+                else { stray.remove(); openRequirementsComponentPath = ''; }
             }
-        });
+            return true;
+        };
 
         const showComponentSide = (item, side) => {
             if (side === 'back') {
@@ -4197,9 +4231,10 @@
                 console.error('canvas requirements repair failed:', error);
             });
         });
+        // Escape is handled by the single Escape owner; this only keeps the
+        // Cmd/Ctrl+Enter shortcut to save.
         document.addEventListener('keydown', event => {
             if (canvasReqOverlay.hidden) return;
-            if (event.key === 'Escape') closeCanvasRequirements();
             if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) saveCanvasRequirements();
         });
 
@@ -4598,11 +4633,8 @@
             clearTimeout(browseQueryDebounce);
             browseQueryDebounce = setTimeout(() => runBrowseSearch(browseInput.value), 200);
         });
-        document.addEventListener('keydown', (event) => {
-            if (browseOverlay.hidden) return;
-            if (event.key === 'Escape') closeBrowseOverlay();
-        });
-
+        // Escape dismissal for the browse overlay is handled by the single
+        // Escape owner (window.liquidos.handleEscape).
 
         canvasSelect.addEventListener('change', () => {
             switchCanvas(canvasSelect.value)
@@ -4648,12 +4680,8 @@
             }
         });
 
-        newCanvasModal.addEventListener('keydown', event => {
-            if (event.key === 'Escape') {
-                event.preventDefault();
-                hideNewCanvasModal();
-            }
-        });
+        // Escape dismissal for the new-canvas modal is handled by the single
+        // Escape owner (window.liquidos.handleEscape).
 
         newCanvasModal.addEventListener('submit', event => {
             event.preventDefault();
@@ -4784,6 +4812,67 @@
                 debugOutput.textContent = 'Error: ' + error.message;
             }
         });
+
+        // --- Escape: the single owner -------------------------------------
+        //
+        // Escape is reserved for the harness. It dismisses the topmost open
+        // overlay if there is one; otherwise it toggles the prompt bar so the
+        // canvas can have the full viewport. Every overlay's own Escape handling
+        // funnels through here so there is exactly one owner of the key (the
+        // game/console "menu button" model) instead of four racing listeners.
+        //
+        // Two callers drive it:
+        //   - The Mac app intercepts Escape natively (NSEvent monitor, before
+        //     WKWebView dispatches it) and calls window.liquidos.handleEscape
+        //     directly — so no canvas content, iframe, or fullscreen keyboard
+        //     lock inside the web view can swallow it first.
+        //   - The browser build has no native layer, so the capture-phase
+        //     listener below is the equivalent: it runs before any canvas
+        //     content and routes the key through the same owner. In the Mac app
+        //     the native monitor swallows Escape, so this listener never fires —
+        //     no double handling.
+        // Session-only: the bar always starts shown on load (it's the primary
+        // control, and launch focuses it), so the hidden state isn't persisted.
+        const applyPromptHidden = (hidden) => {
+            if (hidden) document.body.setAttribute('data-prompt-hidden', 'true');
+            else        document.body.removeAttribute('data-prompt-hidden');
+            globalPromptBar.inert = hidden;
+            updatePromptChromeSpace();
+        };
+        const togglePromptBar = () => {
+            const next = document.body.getAttribute('data-prompt-hidden') !== 'true';
+            applyPromptHidden(next);
+            if (!next) globalText.focus();   // revealing → ready to type
+            return !next;                    // returns whether the bar is now shown
+        };
+
+        // Dismiss the topmost open overlay, most-recently-stacked first. Returns
+        // true if it closed something (so Escape stops there and doesn't also
+        // toggle the prompt bar).
+        const dismissTopmostOverlay = () => {
+            if (!newCanvasBackdrop.hidden) { hideNewCanvasModal(); return true; }
+            if (!browseOverlay.hidden)     { closeBrowseOverlay();  return true; }
+            if (!canvasReqOverlay.hidden)  { closeCanvasRequirements(); return true; }
+            return dismissRequirementsOverlay();
+        };
+
+        window.liquidos.handleEscape = () => {
+            if (dismissTopmostOverlay()) return;
+            togglePromptBar();
+        };
+        window.liquidos.setPromptHidden = (hidden) => applyPromptHidden(!!hidden);
+        window.liquidos.isPromptHidden = () =>
+            document.body.getAttribute('data-prompt-hidden') === 'true';
+
+        window.addEventListener('keydown', event => {
+            if (event.key !== 'Escape') return;
+            // Own the key: handleEscape closes any open overlay (harness or
+            // component) itself, so stopping here can't strand one. We don't
+            // preventDefault — browser-native Escape (e.g. exiting an element
+            // fullscreen) should still happen.
+            event.stopImmediatePropagation();
+            window.liquidos.handleEscape();
+        }, true);
 
         // Focus the prompt bar on launch so the user can type immediately.
         globalText.focus();

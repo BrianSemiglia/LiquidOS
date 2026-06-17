@@ -7,6 +7,7 @@ import UserNotifications
 final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDelegate, WKDownloadDelegate, WKScriptMessageHandler {
     private var window: NSWindow?
     private var webView: WKWebView?
+    private var escapeKeyMonitor: Any?
     private var server: Process?
     private var port: Int = 0
     private var canvasesRootURL: URL?
@@ -33,6 +34,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         Self.installMainMenu()
         port = Self.freePort()
         showWindow()
+        installEscapeMonitor()
 
         if let workspaceURL = pendingWorkspaceURL ?? Self.startupWorkspaceURL() {
             pendingWorkspaceURL = nil
@@ -117,7 +119,26 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
-    
+
+    // Escape is reserved for the harness: it toggles the prompt bar (and, when
+    // an overlay is open, dismisses that first). We intercept it natively —
+    // before WKWebView dispatches the key — so no canvas content, iframe, or
+    // fullscreen keyboard-lock inside the web view can swallow it first. This
+    // is the resilient path the browser build can't have; there a capture-phase
+    // listener does the same job. Swallowing here (returning nil) means the web
+    // listener never sees the key in the Mac app, so there's no double handling.
+    private func installEscapeMonitor() {
+        guard escapeKeyMonitor == nil else { return }
+        escapeKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self, event.keyCode == 53 else { return event }   // 53 = Escape
+            // Only claim Escape for the main canvas window. Sheets, save panels,
+            // and WKWebView's own HTML-fullscreen window get their own window,
+            // so Escape still cancels them / exits video fullscreen natively.
+            guard event.window === self.window else { return event }
+            self.webView?.evaluateJavaScript("window.liquidos?.handleEscape?.()")
+            return nil   // swallow: the web view (and the canvas) never see it
+        }
+    }
 
     func webView(
         _ webView: WKWebView,
