@@ -756,19 +756,25 @@
             cursor: pointer;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
             visibility: visible;
-            transition: opacity 0.28s ease, background 120ms ease;
+            transition: opacity 0.28s ease,
+                        transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        background 120ms ease;
         }
         .canvas-reqs-toggle:hover { background: rgba(56, 56, 58, 0.97); }
         /* Hidden when the prompt bar is hidden (mirrors .global-prompt's hide),
            and also while the requirements panel is open — opening it is a
-           focused mode with every meta control out of the way. */
+           focused mode with every meta control out of the way. It slides up off
+           the top, mirroring the prompt bar sliding down off the bottom. */
         body[data-prompt-hidden="true"] .canvas-reqs-toggle,
         body[data-canvas-reqs-open="true"] .canvas-reqs-toggle,
         body[data-canvas-grid-open="true"] .canvas-reqs-toggle {
             opacity: 0;
             visibility: hidden;
             pointer-events: none;
-            transition: opacity 0.28s ease, visibility 0s 0.28s;
+            transform: translateY(calc(-100% - 2rem));
+            transition: opacity 0.28s ease,
+                        transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        visibility 0s 0.28s;
         }
 
         /* Top-left "zoom out" button (a meta control): minimizes the canvas to a
@@ -790,7 +796,9 @@
             cursor: pointer;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
             visibility: visible;
-            transition: opacity 0.28s ease, background 120ms ease;
+            transition: opacity 0.28s ease,
+                        transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        background 120ms ease;
         }
         .canvas-overview-toggle:hover { background: rgba(56, 56, 58, 0.97); }
         body[data-prompt-hidden="true"] .canvas-overview-toggle,
@@ -798,7 +806,10 @@
             opacity: 0;
             visibility: hidden;
             pointer-events: none;
-            transition: opacity 0.28s ease, visibility 0s 0.28s;
+            transform: translateY(calc(-100% - 2rem));
+            transition: opacity 0.28s ease,
+                        transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        visibility 0s 0.28s;
         }
 
         /* --- Canvas overview grid -------------------------------------------
