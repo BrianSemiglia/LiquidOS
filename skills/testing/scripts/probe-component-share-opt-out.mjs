@@ -44,7 +44,7 @@ export default async ({ url, page, browser }) => {
         await pubPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await pubPage.waitForSelector('liquidos-component[path="components/gizmo"]', { timeout: 20000 });
         await pubPage.waitForSelector('liquidos-component[path="components/widget"]', { timeout: 20000 });
-        await pubPage.locator('#canvas-info').click();
+        await pubPage.locator('#canvas-reqs-toggle').click();
         await pubPage.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
         await pubPage.locator('#canvas-share-switch').click();
         await pubPage.waitForFunction(

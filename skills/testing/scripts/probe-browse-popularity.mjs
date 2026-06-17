@@ -123,8 +123,8 @@ export default async ({ url, page, browser }) => {
             const tab = await browser.newPage();
             tab.on('pageerror', err => console.warn(`[${pub.label} pageerror]`, err.message));
             await tab.goto(pub.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await tab.waitForSelector('#canvas-info', { timeout: 20000 });
-            await tab.locator('#canvas-info').click();
+            await tab.waitForSelector('#canvas-reqs-toggle', { timeout: 20000 });
+            await tab.locator('#canvas-reqs-toggle').click();
             await tab.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
             await tab.locator('#canvas-share-switch').click();
             await tab.waitForFunction(

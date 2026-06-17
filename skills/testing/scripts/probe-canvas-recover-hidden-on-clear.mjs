@@ -25,7 +25,7 @@ export default async ({ url, page }) => {
     const offScreen = (text, timeout = 5000) => page.waitForFunction(
         t => !document.body.innerText.includes(t), text, { timeout });
 
-    await page.locator('#canvas-info').click();
+    await page.locator('#canvas-reqs-toggle').click();
 
     // Modal is open when its title is visible.
     await onScreen('Canvas Requirements').catch(() => {

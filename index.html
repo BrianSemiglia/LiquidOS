@@ -524,6 +524,7 @@
             --debug-rail-width: 0px;
             --debug-rail-gap: 0px;
             --debug-rail-space: 0px;
+            --canvas-reqs-width: min(30rem, 34vw);
         }
         body[data-debug-open="true"] {
             --debug-rail-width: var(--debug-rail-width-stored, 22rem);
@@ -679,6 +680,86 @@
         .canvas-requirements-actions button.is-secondary:hover:not(:disabled) {
             background: rgba(255, 255, 255, 0.06);
             color: rgba(232, 232, 234, 0.95);
+        }
+
+        /* Top-right canvas requirements button (a meta control). Rides with
+           the prompt bar: visible when the bar is up, hidden when Escape hides
+           it — mirroring the per-component Requirements buttons. */
+        .canvas-reqs-toggle {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 21;
+            font: inherit;
+            font-size: 0.86rem;
+            font-weight: 650;
+            color: rgba(255, 255, 255, 0.88);
+            /* Near-solid fill instead of a backdrop-filter blur: this button sits
+               fixed over the canvas, and on an animated 3D canvas (the gadgets
+               room) a blur here forces the moving scene behind it to be
+               re-blurred every frame, which tanks the frame rate. */
+            background: rgba(40, 40, 42, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            padding: 0.45rem 0.9rem;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+            visibility: visible;
+            transition: opacity 0.28s ease, background 120ms ease;
+        }
+        .canvas-reqs-toggle:hover { background: rgba(56, 56, 58, 0.97); }
+        /* Hidden when the prompt bar is hidden (mirrors .global-prompt's hide),
+           and also while the requirements panel is open — opening it is a
+           focused mode with every meta control out of the way. */
+        body[data-prompt-hidden="true"] .canvas-reqs-toggle,
+        body[data-canvas-reqs-open="true"] .canvas-reqs-toggle {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.28s ease, visibility 0s 0.28s;
+        }
+
+        /* --- Docked canvas requirements --------------------------------------
+           Opening canvas requirements adds a right-hand column and shrinks the
+           canvas to make room, so the editor sits beside the canvas like a
+           component's requirements view rather than floating over it. The card
+           keeps all its existing ids/markup — only its placement changes. */
+        body[data-canvas-reqs-open="true"] {
+            grid-template-columns: var(--debug-rail-width) minmax(0, 1fr) var(--canvas-reqs-width);
+        }
+        body[data-canvas-reqs-open="true"] .canvas-requirements-overlay {
+            position: relative;
+            inset: auto;
+            grid-column: 3;
+            grid-row: 1;
+            z-index: 19;
+            display: block;
+            background: transparent;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+            height: 100vh;
+        }
+        body[data-canvas-reqs-open="true"] .canvas-requirements-card {
+            width: 100%;
+            height: 100vh;
+            box-sizing: border-box;
+            border-radius: 0;
+            border: none;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: -24px 0 60px rgba(0, 0, 0, 0.35);
+            overflow: auto;
+        }
+        /* Let the editor fill the docked card's height: the region grows into
+           the column and the textarea fills the region (it's wrapped, so
+           growing the textarea alone wouldn't reach the card). */
+        body[data-canvas-reqs-open="true"] .requirements-region {
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+        body[data-canvas-reqs-open="true"] .canvas-requirements-textarea {
+            height: 100%;
+            min-height: 0;
+            resize: none;
         }
 
         /* Browse overlay — discovery + install of shared apps. Centered
@@ -1092,16 +1173,17 @@
             transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.28s ease;
         }
 
-        /* Escape hides the prompt bar so the canvas gets the full viewport;
-           Escape again brings it back. window.liquidos.handleEscape flips the
-           data-prompt-hidden flag on <body> (mirrors the debug-panel toggle),
-           and updatePromptChromeSpace zeroes the reserved bottom clearance when
-           it's set so the canvas reclaims the space. The bar is position:fixed,
-           so this slides the chrome out without reflowing the canvas.
-           visibility flips to hidden only after the slide-out finishes (the 0.28s
-           delay), so the animation still plays but the hidden bar leaves the
-           rendered/accessibility tree entirely — not just fades. */
-        body[data-prompt-hidden="true"] .global-prompt {
+        /* The prompt bar slides out and leaves the tree in two cases:
+           - Escape hides it for a clean canvas (data-prompt-hidden), and
+           - the canvas requirements panel is open (data-canvas-reqs-open), a
+             focused mode that hides every meta control so only the canvas and
+             the requirements editor show.
+           updatePromptChromeSpace zeroes the reserved bottom clearance for both,
+           so the canvas reclaims the space. visibility flips to hidden only after
+           the slide-out finishes (the 0.28s delay) so the bar fully leaves the
+           rendered/accessibility tree rather than just fading. */
+        body[data-prompt-hidden="true"] .global-prompt,
+        body[data-canvas-reqs-open="true"] .global-prompt {
             transform: translateX(-50%) translateY(calc(100% + 2rem));
             opacity: 0;
             visibility: hidden;
@@ -1906,7 +1988,6 @@
         <div class="canvas-nav" aria-label="Canvas selection">
             <select id="canvas-select" aria-label="Canvas"></select>
             <button type="button" id="new-canvas" aria-label="Browse apps or start a new canvas from scratch">New</button>
-            <button type="button" id="canvas-info" aria-label="Edit canvas requirements">Info</button>
         </div>
         <!-- Always-available activity target. The agent updates this at
              the start of every turn (and at every meaningful step) so
@@ -1927,6 +2008,12 @@
             </form>
         </liquidos-callback>
     </div>
+
+    <!-- Canvas-level meta control: opens the canvas requirements editor as a
+         docked side panel (shrinking the canvas), mirroring a component's
+         requirements view. Rides with the prompt bar like the component
+         buttons — hidden when the prompt bar is hidden. -->
+    <button type="button" class="canvas-reqs-toggle" id="canvas-reqs-toggle" aria-label="Edit canvas requirements">Requirements</button>
 
     <div class="browse-overlay" id="browse-overlay" hidden>
         <div class="browse-card" role="dialog" aria-labelledby="browse-query">
@@ -2295,9 +2382,11 @@
         };
 
         const updatePromptChromeSpace = () => {
-            // When the prompt bar is hidden (Escape), it reserves no clearance —
-            // the canvas reclaims the full viewport.
-            const promptHidden = document.body.getAttribute('data-prompt-hidden') === 'true';
+            // When the prompt bar isn't showing — hidden via Escape, or the
+            // canvas requirements panel is open (a focused mode) — it reserves
+            // no clearance and the canvas reclaims the space.
+            const promptHidden = document.body.getAttribute('data-prompt-hidden') === 'true'
+                || document.body.getAttribute('data-canvas-reqs-open') === 'true';
             document.documentElement.style.setProperty(
                 '--prompt-chrome-space',
                 promptHidden
@@ -3997,7 +4086,7 @@
 
         // --- Canvas requirements editor ------------------------------------
 
-        const canvasInfoButton = document.getElementById('canvas-info');
+        const canvasReqToggle = document.getElementById('canvas-reqs-toggle');
         const canvasReqOverlay = document.getElementById('canvas-requirements-overlay');
         const canvasReqSubtitle = document.getElementById('canvas-requirements-subtitle');
         const canvasReqTextarea = document.getElementById('canvas-requirements-textarea');
@@ -4011,6 +4100,8 @@
 
         const closeCanvasRequirements = () => {
             canvasReqOverlay.hidden = true;
+            document.body.removeAttribute('data-canvas-reqs-open');
+            updatePromptChromeSpace();
             canvasReqEditingCanvas = '';
             canvasReqTextarea.value = '';
             canvasReqSave.disabled = false;
@@ -4129,6 +4220,10 @@
             canvasReqTextarea.disabled = true;
             canvasReqSave.disabled = true;
             canvasReqOverlay.hidden = false;
+            // Dock the editor beside the canvas (shrinks the canvas column) and
+            // enter the focused mode that hides the prompt bar + meta controls.
+            document.body.setAttribute('data-canvas-reqs-open', 'true');
+            updatePromptChromeSpace();
             // Mirror the component flip-back: hide Generate, show Loading,
             // centered over the textarea. Same overlay markup + CSS.
             const loading = document.getElementById('canvas-requirements-loading');
@@ -4210,7 +4305,10 @@
             }
         };
 
-        canvasInfoButton.addEventListener('click', () => { openCanvasRequirements(); });
+        canvasReqToggle.addEventListener('click', () => {
+            if (canvasReqOverlay.hidden) openCanvasRequirements();
+            else closeCanvasRequirements();
+        });
         canvasReqSave.addEventListener('click', () => { saveCanvasRequirements(); });
         canvasReqCancel.addEventListener('click', () => { closeCanvasRequirements(); });
         canvasReqOverlay.addEventListener('click', event => {

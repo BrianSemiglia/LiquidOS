@@ -30,7 +30,7 @@ export default async ({ url, page }) => {
     await onScreen('Gizmo', 20000);
 
     // --- share ON via Canvas Info → Shared toggle -------------------------
-    await page.locator('#canvas-info').click();
+    await page.locator('#canvas-reqs-toggle').click();
     await onScreen('Canvas Requirements').catch(() => {
         throw new Error('"Canvas Requirements" modal did not open');
     });
@@ -66,7 +66,7 @@ export default async ({ url, page }) => {
     // Close Browse, reopen Canvas Info.
     await page.keyboard.press('Escape');
     await sleep(200);
-    await page.locator('#canvas-info').click();
+    await page.locator('#canvas-reqs-toggle').click();
     await onScreen('Canvas Requirements').catch(() => {
         throw new Error('"Canvas Requirements" modal did not reopen');
     });

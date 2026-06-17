@@ -52,7 +52,7 @@ export default async ({ url, workspace, page }) => {
 
     // 4. Verify the canvas content actually swapped — the canvas-info
     //    modal should show OTHER's feature-requirements.
-    await page.locator('#canvas-info').dispatchEvent('click');
+    await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
     await page.waitForFunction(
         () => {
             const ta = document.getElementById('canvas-requirements-textarea');

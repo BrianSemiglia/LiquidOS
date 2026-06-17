@@ -26,7 +26,7 @@ export default async ({ url, page }) => {
         t => !document.body.innerText.includes(t), text, { timeout });
 
     // Open the canvas requirements modal.
-    await page.locator('#canvas-info').dispatchEvent('click');
+    await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
     await onScreen('Canvas Requirements').catch(() => {
         throw new Error('"Canvas Requirements" title did not appear — modal did not open');
     });
@@ -43,7 +43,7 @@ export default async ({ url, page }) => {
     // Close and reopen; openCanvasRequirements always re-fetches.
     await page.locator('#canvas-requirements-cancel').dispatchEvent('click');
     await sleep(300);
-    await page.locator('#canvas-info').dispatchEvent('click');
+    await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
     await onScreen('Canvas Requirements').catch(() => {
         throw new Error('"Canvas Requirements" title did not appear on reopen');
     });

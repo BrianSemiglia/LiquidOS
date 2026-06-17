@@ -22,7 +22,7 @@ export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    await page.locator('#canvas-info').click();
+    await page.locator('#canvas-reqs-toggle').click();
     // Give openCanvasRequirements time to fetch + decide.
     await sleep(500);
 

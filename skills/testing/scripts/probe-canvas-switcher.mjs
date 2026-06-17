@@ -21,7 +21,7 @@ export default async ({ url, page }) => {
     await sleep(1500);
 
     // 1. Open canvas-info on home; assert HOME marker.
-    await page.locator('#canvas-info').dispatchEvent('click');
+    await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
     await page.waitForFunction(
         () => {
             const ta = document.getElementById('canvas-requirements-textarea');
@@ -43,7 +43,7 @@ export default async ({ url, page }) => {
     await sleep(500);
 
     // 3. Open canvas-info; assert OTHER marker, NOT HOME's content.
-    await page.locator('#canvas-info').dispatchEvent('click');
+    await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
     await page.waitForFunction(
         () => {
             const ta = document.getElementById('canvas-requirements-textarea');

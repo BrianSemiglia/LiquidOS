@@ -54,7 +54,7 @@ export default async ({ url, page, browser }) => {
 
     // The canvas-level Share toggle lives inside the Canvas Requirements modal
     // — open it via the Info button.
-    await pubPage.locator('#canvas-info').click();
+    await pubPage.locator('#canvas-reqs-toggle').click();
     await pubPage.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
     await pubPage.locator('#canvas-share-switch').click();
     // Wait for the server to actually accept the toggle, not just the
