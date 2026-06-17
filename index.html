@@ -2276,8 +2276,8 @@
         <div class="canvas-requirements-card" role="dialog" aria-labelledby="canvas-requirements-title">
             <div class="canvas-requirements-header">
                 <div>
-                    <div class="canvas-requirements-title" id="canvas-requirements-title">Canvas Requirements</div>
-                    <div class="canvas-requirements-subtitle" id="canvas-requirements-subtitle"></div>
+                    <div class="canvas-requirements-title" id="canvas-requirements-title"></div>
+                    <div class="canvas-requirements-subtitle" id="canvas-requirements-subtitle">Requirements</div>
                 </div>
                 <div class="share-toggle">
                     <label for="canvas-share-switch" class="share-toggle-label">Shared</label>
@@ -4495,7 +4495,7 @@
 
         const canvasReqToggle = document.getElementById('canvas-reqs-toggle');
         const canvasReqOverlay = document.getElementById('canvas-requirements-overlay');
-        const canvasReqSubtitle = document.getElementById('canvas-requirements-subtitle');
+        const canvasReqTitle = document.getElementById('canvas-requirements-title');
         const canvasReqTextarea = document.getElementById('canvas-requirements-textarea');
         const canvasReqSave = document.getElementById('canvas-requirements-save');
         const canvasReqCancel = document.getElementById('canvas-requirements-cancel');
@@ -4621,7 +4621,7 @@
             const canvasName = currentCanvasName;
             if (!canvasName) return;
             canvasReqEditingCanvas = canvasName;
-            canvasReqSubtitle.textContent = canvasName;
+            canvasReqTitle.textContent = canvasName;
             canvasReqTextarea.value = '';
             canvasReqTextarea.disabled = true;
             canvasReqSave.disabled = true;
