@@ -134,6 +134,10 @@
         // agent has put anything in it. The CSS hides the badge when
         // empty so the prompt bar collapses cleanly between turns.
         const agentActivity = document.getElementById('agent-activity');
+        const activityViz = createActivityVisualizer(document.getElementById('agent-activity-viz'));
+        // Exposed so the main script's busy-state handler can hold the waveform
+        // up for the duration of a turn (it lives in a separate module scope).
+        window.__agentActivityViz = activityViz;
         if (agentActivity) {
             const syncEmpty = () => {
                 const empty = agentActivity.textContent.trim().length === 0;
@@ -142,6 +146,107 @@
             new MutationObserver(syncEmpty).observe(agentActivity, {
                 childList: true, characterData: true, subtree: true
             });
+        }
+
+        // A scrolling waveform of the agent's output stream. Each agent slice
+        // (narration/chunk/atomic text) adds to an influx counter; every frame
+        // that influx becomes one new sample at the right edge and the readout
+        // scrolls left, so bursts of output show up as spikes and quiet
+        // stretches as a flat centre line — like watching audio record. It
+        // runs only while output is actually flowing, then idles out and
+        // clears (hiding the waveform) to keep it cheap between bursts.
+        function createActivityVisualizer(canvas) {
+            if (!canvas || !canvas.getContext) return { bump() {} };
+            const ctx = canvas.getContext('2d');
+            const row = canvas.closest('.agent-activity-row');
+            const ACCENT = '#7c5cff';
+            const BAR = 0.1875;     // css px the readout drifts per frame (scroll speed)
+            const TICK_GAP = 48;    // min frames between ticks (≈ TICK_GAP*BAR px apart)
+            const TICK_W = 1.5;     // css px width of a tick
+            const TICK_H = 0.333;   // tick height as a fraction of the canvas height
+            const IDLE_MS = 1200;   // hide this long after output stops
+
+            // ticks: birth-frame numbers, oldest first. pending: output chars
+            // accumulated toward the next tick.
+            let ticks = [], pending = 0;
+            let frameNo = 0, lastTickFrame = -1e9;
+            let lastActive = 0, raf = 0, turnActive = false;
+            let cssW = 0, cssH = 0;
+
+            const resize = () => {
+                const dpr = window.devicePixelRatio || 1;
+                cssW = canvas.clientWidth;
+                cssH = canvas.clientHeight;
+                const w = Math.max(1, Math.round(cssW * dpr));
+                const h = Math.max(1, Math.round(cssH * dpr));
+                // Only resize the backing store when it truly changed — assigning
+                // width/height clears the canvas, so doing it on every layout
+                // nudge (the label growing as text streams) would blank the trace.
+                if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            };
+            new ResizeObserver(resize).observe(canvas);
+
+            const draw = () => {
+                ctx.clearRect(0, 0, cssW, cssH);
+                const mid = cssH / 2;
+                ctx.fillStyle = ACCENT;
+                // Static baseline spanning the full width.
+                ctx.globalAlpha = 0.3;
+                ctx.fillRect(0, mid - 0.5, cssW, 1);
+                // Uniform ticks: same width and height, each marking a unit of
+                // output. Newest sits at the left edge and drifts right.
+                ctx.globalAlpha = 0.8;
+                const th = cssH * TICK_H;
+                for (let i = 0; i < ticks.length; i++) {
+                    const x = (frameNo - ticks[i]) * BAR;
+                    if (x > cssW) continue;
+                    ctx.fillRect(x, mid - th / 2, TICK_W, th);
+                }
+                ctx.globalAlpha = 1;
+            };
+
+            const frame = () => {
+                frameNo++;
+                // Drop a tick when output has arrived and enough frames have
+                // passed since the last one — so steady output gives evenly
+                // spaced ticks and bursts can't clump into a solid block.
+                if (pending > 0 && frameNo - lastTickFrame >= TICK_GAP) {
+                    ticks.push(frameNo);
+                    lastTickFrame = frameNo;
+                    pending = 0;
+                }
+                while (ticks.length && (frameNo - ticks[0]) * BAR > cssW) ticks.shift();
+                draw();
+                // Stay up for the whole turn once shown: only tear down when the
+                // agent is no longer working AND output has gone quiet, so the
+                // within-turn gaps (tool calls, pauses) don't make it flicker.
+                if (!turnActive && performance.now() - lastActive > IDLE_MS) {
+                    raf = 0; ticks = []; pending = 0; ctx.clearRect(0, 0, cssW, cssH);
+                    if (row) row.removeAttribute('data-active');
+                    return;
+                }
+                raf = requestAnimationFrame(frame);
+            };
+            // data-active reveals the waveform (and keeps the shared pill on
+            // screen). Set only by bump(), so the waveform first appears on real
+            // output — never merely because a turn started.
+            const ensure = () => {
+                if (row) row.dataset.active = 'true';
+                if (!raf) { resize(); raf = requestAnimationFrame(frame); }
+            };
+
+            return {
+                bump(chars) {
+                    // Only react to output while a turn is actually running, so a
+                    // stray agent slice arriving at idle can't flash the waveform.
+                    if (chars > 0 && turnActive) { pending += chars; lastActive = performance.now(); ensure(); }
+                },
+                // The turn's busy state — gates output (above) and prevents
+                // tear-down mid-stream so within-turn gaps don't flicker. It
+                // never reveals the waveform on its own; that still takes output.
+                hold(on) { turnActive = on; }
+            };
         }
 
         const ALLOWED_FILE_PATHS = /^[a-z0-9_\-/]+\.(?:json|txt|js|html|css)$/i;
@@ -346,6 +451,12 @@
         // producer separately, so one's tags can't truncate another's).
         const applySlice = (payload) => {
             const source = payload.source || 'agent';
+            // Feed the output waveform: only the global agent's stream counts
+            // (component services have their own scoped source), and the slice's
+            // text length is the spike magnitude for this moment.
+            if (source === 'agent') {
+                activityViz.bump((payload.text || payload.inner || '').length);
+            }
             const h = handlersFor(source);
             switch (payload.kind) {
                 case 'narration':
@@ -962,7 +1073,7 @@
             grid-template-areas:
                 "activity activity"
                 "nav      send";
-            row-gap: 0.55rem;
+            row-gap: 0;
             column-gap: 1rem;
             align-items: center;
             width: min(calc(100vw - var(--debug-rail-space) - 2rem), 58rem);
@@ -1000,40 +1111,42 @@
             min-width: 0;
         }
 
-        /* Agent activity heartbeat, lives inside the prompt bar. The
-           agent owns its content via <lqpatch target="#agent-activity">.
-           Hidden when empty so the prompt bar collapses back to its
-           normal layout. */
-        .agent-activity {
+        /* Activity pill — ONE shared container holding the heartbeat label and
+           the output waveform. The pill chrome (border, fill, pulse dot) lives
+           here, not on the children. Shown while the agent is active (the badge
+           has text) OR while output is streaming (data-active); collapses away
+           otherwise. */
+        .agent-activity-row {
             grid-area: activity;
-            font-size: 0.8rem;
-            color: rgba(232, 232, 234, 0.78);
-            padding: 0.35rem 0.7rem;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.04);
             display: flex;
             align-items: center;
-            gap: 0.4rem;
-            line-height: 1.2;
+            gap: 0.55rem;
             min-width: 0;
+            /* Collapsed by default. Showing it animates the pill open (height +
+               margin grow the prompt bar) and fades its contents in; hiding
+               reverses it. A fixed open height keeps the box from resizing when
+               the waveform comes and goes mid-turn. */
+            height: 0;
+            margin-bottom: 0;
+            padding: 0 0.7rem;
+            border: 0 solid rgba(255, 255, 255, 0.08);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.04);
+            opacity: 0;
             overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            transition: opacity 160ms ease;
+            transition: height 200ms ease, margin-bottom 200ms ease,
+                        border-width 200ms ease, opacity 180ms ease;
         }
-        .agent-activity[data-empty="true"] {
-            display: none;
+        /* Shown when the label has text OR the waveform is rendering output. */
+        .agent-activity-row[data-active="true"],
+        .global-prompt:has(.agent-activity:not([data-empty="true"])) .agent-activity-row {
+            height: 2rem;
+            margin-bottom: 0.55rem;
+            border-width: 1px;
+            opacity: 1;
         }
-        /* When the activity row is empty, collapse the grid back to a
-           single-row layout so the prompt bar doesn't reserve vertical
-           space for a hidden element. */
-        .global-prompt:not(:has(.agent-activity:not([data-empty="true"]))) {
-            grid-template-areas: "nav send";
-            row-gap: 0;
-        }
-        /* Subtle pulse so the user knows it's live. */
-        .agent-activity::before {
+        /* Live pulse so the user knows the agent is working. */
+        .agent-activity-row::before {
             content: "";
             width: 6px;
             height: 6px;
@@ -1046,6 +1159,43 @@
         @keyframes agent-pulse {
             0%, 100% { opacity: 0.45; }
             50% { opacity: 1; }
+        }
+
+        /* The heartbeat label — just text now; the pill chrome is on the row.
+           The agent owns its content via <lqpatch target="#agent-activity">.
+           It takes priority for space: sized to its content, shrinking (with an
+           ellipsis) only past a floor, so the message uses what it needs. */
+        .agent-activity {
+            flex: 0 1 auto;
+            min-width: 3rem;
+            font-size: 0.8rem;
+            color: rgba(232, 232, 234, 0.78);
+            line-height: 1.2;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .agent-activity[data-empty="true"] {
+            display: none;
+        }
+
+        /* Output waveform — a scrolling readout where each moment of the
+           agent's output stream becomes a spike, moving right-to-left like an
+           audio recording. Only present while output is actually streaming, and
+           it yields space to the message: it fills the leftover room and shrinks
+           toward nothing when the message needs the width. */
+        .agent-activity-viz {
+            flex: 1 1 0;
+            min-width: 0;
+            height: 1.4rem;
+            opacity: 0;
+            transition: opacity 180ms ease;
+        }
+        /* Fades in/out as output starts/stops, independent of the pill's own
+           show/hide fade — so it can appear after the label is already up.
+           Capped at 0.75 so the waveform reads as a subtle layer, not solid. */
+        .agent-activity-row[data-active="true"] .agent-activity-viz {
+            opacity: 0.75;
         }
 
         /* When the morph structurally swaps a region's content, the new
@@ -1742,8 +1892,14 @@
         <!-- Always-available activity target. The agent updates this at
              the start of every turn (and at every meaningful step) so
              the user has a heartbeat even before the agent knows what
-             it's doing (reading files, deciding shape, etc.). -->
-        <div id="agent-activity" class="agent-activity" data-empty="true"></div>
+             it's doing (reading files, deciding shape, etc.). The canvas
+             beside it is a waveform of the agent's raw output stream —
+             output volume per moment scrolls right-to-left like an audio
+             recording, giving a wordless sense of how hard it's working. -->
+        <div class="agent-activity-row" id="agent-activity-row">
+            <div id="agent-activity" class="agent-activity" data-empty="true"></div>
+            <canvas id="agent-activity-viz" class="agent-activity-viz" aria-hidden="true"></canvas>
+        </div>
         <liquidos-callback class="prompt-send" id="global-submit-callback" on="submit" scope="" prompt-from="prompt">
             <form id="global-prompt">
                 <select id="agent-select" class="agent-select" aria-label="Agent"></select>
@@ -1908,6 +2064,9 @@
         const syncBusyUI = () => {
             syncCallbackState();
             updatePromptChromeSpace();
+            // Hold the output waveform up while any agent job is running, so it
+            // rides out within-turn output gaps instead of flickering away.
+            if (window.__agentActivityViz) window.__agentActivityViz.hold(activeLanes.size > 0);
         };
 
         const markScopeBusy = scope => {
