@@ -520,7 +520,11 @@
         }
 
         :root {
-            --prompt-chrome-space: 8rem;
+            /* No chrome reservation: the canvas steps back (insets) when the
+               chrome is showing, so the prompt bar and buttons sit in the margin
+               rather than overlapping content. --prompt-chrome-space is kept at 0
+               as a compat token for canvases that still reference it. */
+            --prompt-chrome-space: 0px;
             --debug-rail-width: 0px;
             --debug-rail-gap: 0px;
             --debug-rail-space: 0px;
@@ -545,13 +549,60 @@
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
+        /* The canvas frame. Harness-owned and fixed to the viewport (beside the
+           debug rail) so the step-back inset below works for every canvas —
+           including place()/viewport-owning canvases, which otherwise fell back
+           to a relative grid cell where right/bottom insets are ignored. Flowing
+           canvases re-declare the same fixed frame in their canvas.js (harmless,
+           identical values). */
         .canvas-shell {
-            grid-column: 2;
-            grid-row: 1;
+            position: fixed;
+            inset: 0;
+            left: var(--debug-rail-space);
             min-width: 0;
-            min-height: 100vh;
-            position: relative;
             overflow: auto;
+            /* The frame is the containing block for everything a canvas renders —
+               including position:fixed content (backdrops, scrims, rain). So
+               canvas content is scoped to the frame and steps back WITH it,
+               instead of escaping to the viewport. (Previously this only worked by
+               accident, via a stray transform; contain:layout makes it explicit
+               and reliable, which is what the canvas standard depends on.) */
+            contain: layout;
+            /* Animate the step-back inset below. */
+            transition:
+                top 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                right 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                bottom 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                left 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                border-radius 0.28s ease,
+                box-shadow 0.28s ease;
+        }
+
+        /* "Stepped back": while the chrome is showing (prompt bar up, requirements
+           panel closed) the canvas insets into a framed card and the chrome lives
+           in the margin around it — prompt bar below, Minimize / Requirements
+           above, each component's Requirements button above its item *inside* the
+           card. Escape hides the chrome and the canvas fills the viewport again
+           (immersive). The canvas stays fully interactive while stepped back.
+           Higher specificity than the `inset:0` each canvas.js sets on the shell,
+           so it wins for fixed (flowing) canvases. */
+        body:not([data-prompt-hidden="true"]):not([data-canvas-reqs-open="true"]) .canvas-shell {
+            /* top/bottom are measured by updateStepInset so the gap to the
+               buttons above and the prompt bar below is the same on each side
+               (the prompt bar grows with the waveform, so it's measured live).
+               Sides use that same gap. Fallbacks cover the pre-measure frame. */
+            top: var(--step-top, 4rem);
+            right: var(--step-gap, 1rem);
+            bottom: var(--step-bottom, 6.5rem);
+            left: calc(var(--debug-rail-space) + var(--step-gap, 1rem));
+            /* The default shell sets min-height:100vh; with top+bottom both set
+               that would force the card past the viewport, so let top/bottom
+               govern the height while stepped back. */
+            min-height: 0;
+            border-radius: 16px;
+            box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.10),
+                0 24px 70px rgba(0, 0, 0, 0.5);
         }
 
         #app {
@@ -712,11 +763,119 @@
            and also while the requirements panel is open — opening it is a
            focused mode with every meta control out of the way. */
         body[data-prompt-hidden="true"] .canvas-reqs-toggle,
-        body[data-canvas-reqs-open="true"] .canvas-reqs-toggle {
+        body[data-canvas-reqs-open="true"] .canvas-reqs-toggle,
+        body[data-canvas-grid-open="true"] .canvas-reqs-toggle {
             opacity: 0;
             visibility: hidden;
             pointer-events: none;
             transition: opacity 0.28s ease, visibility 0s 0.28s;
+        }
+
+        /* Top-left "zoom out" button (a meta control): minimizes the canvas to a
+           grid of all canvases. Mirrors the top-right Requirements button — same
+           pill, same ride-with-the-prompt-bar hide — but anchored left. */
+        .canvas-overview-toggle {
+            position: fixed;
+            top: 1rem;
+            left: 1rem;
+            z-index: 21;
+            font: inherit;
+            font-size: 0.86rem;
+            font-weight: 650;
+            color: rgba(255, 255, 255, 0.88);
+            background: rgba(40, 40, 42, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            padding: 0.45rem 0.9rem;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+            visibility: visible;
+            transition: opacity 0.28s ease, background 120ms ease;
+        }
+        .canvas-overview-toggle:hover { background: rgba(56, 56, 58, 0.97); }
+        body[data-prompt-hidden="true"] .canvas-overview-toggle,
+        body[data-canvas-reqs-open="true"] .canvas-overview-toggle {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.28s ease, visibility 0s 0.28s;
+        }
+
+        /* --- Canvas overview grid -------------------------------------------
+           The minimized view: a backdrop over the canvas holding a grid of
+           named cards, one per canvas plus a "+ New" card. Sits ABOVE the
+           canvas but BELOW the prompt bar (z 20) so the bar stays usable while
+           zoomed out. */
+        .canvas-grid-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 15;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4.5rem 2rem 7rem;
+            background: rgba(18, 18, 20, 0.72);
+            backdrop-filter: blur(18px) saturate(1.2);
+            -webkit-backdrop-filter: blur(18px) saturate(1.2);
+            overflow: auto;
+        }
+        .canvas-grid-overlay[hidden] { display: none; }
+        .canvas-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 1.1rem;
+            width: min(100%, 64rem);
+            align-content: start;
+        }
+        .canvas-grid-card {
+            font: inherit;
+            text-align: left;
+            color: rgba(255, 255, 255, 0.9);
+            background: rgba(44, 44, 46, 0.92);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 16px;
+            padding: 1rem 1.1rem;
+            /* Each tile mirrors the app window's shape (set as --app-aspect by
+               openCanvasGrid), so the grid reads like a zoomed-out wall of the
+               actual canvases. */
+            aspect-ratio: var(--app-aspect, 16 / 10);
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            cursor: pointer;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+            transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+        }
+        .canvas-grid-card:hover {
+            transform: translateY(-2px);
+            background: rgba(58, 58, 60, 0.96);
+        }
+        .canvas-grid-card .canvas-grid-name {
+            font-size: 0.95rem;
+            font-weight: 650;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .canvas-grid-card.current {
+            border-color: rgba(120, 170, 255, 0.85);
+            box-shadow: 0 10px 30px rgba(40, 90, 200, 0.35);
+        }
+        .canvas-grid-card.current .canvas-grid-name::before {
+            content: "● ";
+            color: rgba(120, 170, 255, 0.95);
+        }
+        .canvas-grid-card.new {
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.7);
+            background: transparent;
+            border-style: dashed;
+            font-weight: 650;
+        }
+        .canvas-grid-card.new:hover {
+            color: rgba(255, 255, 255, 0.95);
+            background: rgba(255, 255, 255, 0.05);
         }
 
         /* --- Docked canvas requirements --------------------------------------
@@ -1178,10 +1337,9 @@
            - the canvas requirements panel is open (data-canvas-reqs-open), a
              focused mode that hides every meta control so only the canvas and
              the requirements editor show.
-           updatePromptChromeSpace zeroes the reserved bottom clearance for both,
-           so the canvas reclaims the space. visibility flips to hidden only after
-           the slide-out finishes (the 0.28s delay) so the bar fully leaves the
-           rendered/accessibility tree rather than just fading. */
+           visibility flips to hidden only after the slide-out finishes (the
+           0.28s delay) so the bar fully leaves the rendered/accessibility tree
+           rather than just fading. */
         body[data-prompt-hidden="true"] .global-prompt,
         body[data-canvas-reqs-open="true"] .global-prompt {
             transform: translateX(-50%) translateY(calc(100% + 2rem));
@@ -1448,18 +1606,83 @@
         }
 
 
-        /* Harness-owned requirements editor. Not part of canvas presentation. */
+        /* Harness-owned component frame. A reserved "chrome" row sits above the
+           component "stack" so the Requirements button lands just above the
+           card — in the component's own coordinate space, so it rides whatever
+           the canvas does to the card (e.g. the gadgets 3D scene). Mirrors
+           lib/liquidos-elements/component.js (the web-component path). */
         .harness-component-frame-watcher {
             position: relative;
             display: inline-grid;
+            grid-template-rows: auto auto;
+            grid-template-areas: "chrome" "stack";
             width: auto;
             max-width: 100%;
             min-width: 0;
             overflow: visible;
         }
 
+        /* Harness chrome (the Requirements button) is *system*. By default it
+           lives in the component's own frame (the "chrome" row), so it sits
+           just above the card and rides any transform the canvas applies —
+           including the gadgets 3D scene. But if the canvas HIDES the card
+           (woof folding it to a pill: opacity:0 / max-height:0 on an ancestor,
+           which a descendant's z-index can't escape), the harness lifts this
+           element into #component-chrome-layer — a body-level overlay outside
+           the canvas DOM — and pins it just above the card's nearest visible
+           box. Same "above, right-aligned" placement either way; the lift is
+           only about surviving a fold. See updateComponentChrome. */
+        .component-chrome {
+            grid-area: chrome;
+            justify-self: end;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            position: relative;
+            z-index: 2147483647;
+        }
+        #component-chrome-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 21; /* same band as the canvas meta toggles; system, above content */
+            pointer-events: none;
+        }
+        /* When lifted into the overlay the harness owns top/left absolutely;
+           the grid placement above no longer applies. Higher specificity than
+           the bare rule (and than component.js's global mirror) so it wins
+           whatever order the stylesheets land in. */
+        #component-chrome-layer .component-chrome {
+            position: absolute;
+            pointer-events: auto;
+        }
+
+        /* Rides with the prompt bar like .canvas-reqs-toggle: present in the
+           stepped-back state, gone in immersive / requirements / grid modes.
+           The reserved chrome row only takes space when the button is shown:
+           max-height + margin collapse it to nothing when hidden, so an
+           immersive (button-less) canvas has no empty gap above each card. */
+        .component-chrome {
+            max-height: 0;
+            margin-top: 0;
+            margin-bottom: 0;
+            opacity: 0;
+            visibility: hidden;
+            transition: max-height 160ms ease, margin-top 160ms ease,
+                        margin-bottom 160ms ease, opacity 120ms ease,
+                        visibility 0s 160ms;
+        }
+        body:not([data-prompt-hidden="true"]):not([data-canvas-reqs-open="true"]):not([data-canvas-grid-open="true"]) .component-chrome {
+            max-height: 3.5rem;
+            margin-top: 0.7rem;
+            margin-bottom: 0.7rem;
+            opacity: 1;
+            visibility: visible;
+            transition: max-height 160ms ease, margin-top 160ms ease,
+                        margin-bottom 160ms ease, opacity 120ms ease;
+        }
+
         .component-face {
-            grid-area: 1 / 1;
+            grid-area: stack;
             min-width: 0;
         }
 
@@ -1722,7 +1945,9 @@
         .new-canvas-backdrop {
             position: fixed;
             inset: 0;
-            z-index: 60;
+            /* Above the browse overlay (z 100): the name modal is the next step
+               up the new-canvas stack and must stack over it, not under it. */
+            z-index: 110;
             display: grid;
             place-items: center;
             padding: 1.25rem;
@@ -1985,10 +2210,6 @@
         </form>
     </div>
     <div class="global-prompt" id="global-prompt-bar">
-        <div class="canvas-nav" aria-label="Canvas selection">
-            <select id="canvas-select" aria-label="Canvas"></select>
-            <button type="button" id="new-canvas" aria-label="Browse apps or start a new canvas from scratch">New</button>
-        </div>
         <!-- Always-available activity target. The agent updates this at
              the start of every turn (and at every meaningful step) so
              the user has a heartbeat even before the agent knows what
@@ -2009,11 +2230,29 @@
         </liquidos-callback>
     </div>
 
+    <!-- Top-left meta control: minimizes the canvas to a grid of all canvases.
+         Rides with the prompt bar like the top-right Requirements button. -->
+    <button type="button" class="canvas-overview-toggle" id="canvas-overview-toggle" aria-label="Zoom out to all canvases">Minimize</button>
+
+    <!-- The minimized / zoomed-out view: a grid of named canvas cards plus a
+         "+ New" card. Picking a card switches canvases; "+ New" opens the usual
+         browse/new flow. Sits below the prompt bar so the bar stays usable. -->
+    <div class="canvas-grid-overlay" id="canvas-grid-overlay" hidden>
+        <div class="canvas-grid" id="canvas-grid" role="dialog" aria-label="All canvases"></div>
+    </div>
+
     <!-- Canvas-level meta control: opens the canvas requirements editor as a
          docked side panel (shrinking the canvas), mirroring a component's
          requirements view. Rides with the prompt bar like the component
          buttons — hidden when the prompt bar is hidden. -->
     <button type="button" class="canvas-reqs-toggle" id="canvas-reqs-toggle" aria-label="Edit canvas requirements">Requirements</button>
+
+    <!-- Harness-owned layer for per-component system chrome (each component's
+         Requirements / runtime-Repair buttons). It lives OUTSIDE the canvas DOM
+         so a canvas can't hide, clip, fade, or transform it away along with the
+         component it decorates (e.g. woof folding a card to a pill). The harness
+         positions each chrome over its component every frame. -->
+    <div class="component-chrome-layer" id="component-chrome-layer" aria-hidden="false"></div>
 
     <div class="browse-overlay" id="browse-overlay" hidden>
         <div class="browse-card" role="dialog" aria-labelledby="browse-query">
@@ -2067,14 +2306,14 @@
 
     <script>
         const app = document.getElementById('app');
-        const canvasShell = document.getElementById('canvas-shell');
         const globalForm = document.getElementById('global-prompt');
         const globalText = document.getElementById('global-text');
         const globalSubmitCallback = document.getElementById('global-submit-callback');
         const globalPromptBar = document.getElementById('global-prompt-bar');
         const agentSelect = document.getElementById('agent-select');
-        const canvasSelect = document.getElementById('canvas-select');
-        const newCanvas = document.getElementById('new-canvas');
+        const canvasOverviewToggle = document.getElementById('canvas-overview-toggle');
+        const canvasGridOverlay = document.getElementById('canvas-grid-overlay');
+        const canvasGrid = document.getElementById('canvas-grid');
         const newCanvasBackdrop = document.getElementById('new-canvas-backdrop');
         const newCanvasModal = document.getElementById('new-canvas-modal');
         const newCanvasName = document.getElementById('new-canvas-name');
@@ -2084,6 +2323,7 @@
         const debugCopy = document.getElementById('debug-copy');
         const debugResizer = document.getElementById('debug-resizer');
         let latestComponents = [];
+        let canvasList = [];
         let currentCanvasName = '';
         let currentCanvasPath = '';
         let scrollSaveTimer;
@@ -2144,7 +2384,7 @@
             }
         };
 
-        const currentScrollKey = () => scrollKey(canvasSelect.value);
+        const currentScrollKey = () => scrollKey(currentCanvasName);
 
         // A scope's "lane" mirrors the server's outputJobKey: canvas scope -> 'canvas',
         // otherwise the absolute component path. Busy state is then a pure function of
@@ -2169,7 +2409,6 @@
         // render (so redraws can't lose it) and whenever the server's busy signal changes.
         const syncBusyUI = () => {
             syncCallbackState();
-            updatePromptChromeSpace();
             // Hold the output waveform up while any agent job is running, so it
             // rides out within-turn output gaps instead of flickering away.
             if (window.__agentActivityViz) window.__agentActivityViz.hold(activeLanes.size > 0);
@@ -2347,7 +2586,6 @@
 
                 debugResizeFrame = requestAnimationFrame(() => {
                     applyDebugRailWidth(moveEvent.clientX);
-                    updatePromptChromeSpace();
                 });
             };
 
@@ -2380,30 +2618,6 @@
             window.addEventListener('pointercancel', end);
             event.preventDefault();
         };
-
-        const updatePromptChromeSpace = () => {
-            // When the prompt bar isn't showing — hidden via Escape, or the
-            // canvas requirements panel is open (a focused mode) — it reserves
-            // no clearance and the canvas reclaims the space.
-            const promptHidden = document.body.getAttribute('data-prompt-hidden') === 'true'
-                || document.body.getAttribute('data-canvas-reqs-open') === 'true';
-            document.documentElement.style.setProperty(
-                '--prompt-chrome-space',
-                promptHidden
-                    ? '0px'
-                    : Math.ceil(window.innerHeight - globalPromptBar.getBoundingClientRect().top + 16) + 'px'
-            );
-            // Reserve bottom clearance for the floating prompt bar only for
-            // canvases whose content flows and scrolls (a stack/feed), so the
-            // last item can scroll clear of the bar. A full-viewport canvas owns
-            // the screen and lets the prompt float over it — it positions its own
-            // items via place(). Padding that kind pushes canvas-shell past 100vh
-            // and shows a phantom page scrollbar over a canvas that already fills
-            // and clips the viewport.
-            const ownsViewport = typeof currentCanvas?.place === 'function';
-            canvasShell.style.paddingBottom = ownsViewport ? '0px' : 'var(--prompt-chrome-space)';
-        };
-
 
         const escapeHTML = value =>
             String(value || '')
@@ -2500,7 +2714,6 @@
             // the swap replaces the io object the relationship was bound to.
             window.liquidos?.scheduleWireIO?.();
             currentCanvasCacheKey = cacheKey;
-            updatePromptChromeSpace();
             return currentCanvas;
         };
 
@@ -2508,7 +2721,6 @@
         if (debugResizer) {
             debugResizer.addEventListener('pointerdown', startDebugResize);
         }
-        updatePromptChromeSpace();
 
         const absoluteScope = scope => {
             const value = String(scope || '').trim();
@@ -3150,7 +3362,9 @@
         // tracks. The agent reads diagnostics for the error details — the
         // prompt body just names the event.
         const syncRuntimeRepairButton = item => {
-            const callback = item.querySelector('[data-runtime-repair-callback]');
+            // Chrome (and the runtime-repair callback) now lives in the harness
+            // overlay, not inside the item — look it up there.
+            const callback = item.__chrome?.querySelector('[data-runtime-repair-callback]');
             if (!callback) return;
             const component = item.__component;
             if (!component?.needsRepair) {
@@ -3239,8 +3453,7 @@
                 return;
             }
             item.dataset.side = 'front';
-            const flip = item.querySelector('[data-component-flip]');
-            if (flip) flip.textContent = 'Requirements';
+            if (item.__flipButton) item.__flipButton.textContent = 'Requirements';
             if (item.__requirementsPlaceholder.isConnected) {
                 item.__requirementsPlaceholder.replaceWith(item);
             }
@@ -3275,8 +3488,7 @@
             });
 
             item.dataset.side = 'back';
-            const flip = item.querySelector('[data-component-flip]');
-            if (flip) flip.textContent = 'Close';
+            if (item.__flipButton) item.__flipButton.textContent = 'Close';
             openRequirementsComponentPath = item.dataset.componentPath || '';
 
             // Force a harness render so the canvas's cached lastItems is
@@ -3401,6 +3613,111 @@
             }
         };
 
+        // --- Harness component chrome (system, resilient) ----------------
+        // A component's Requirements / runtime-Repair buttons are system
+        // chrome. By default they live in the component's own frame (the
+        // "chrome" grid row), so they sit just above the card and ride any
+        // transform the canvas applies — including the gadgets 3D scene, where
+        // a flat overlay pinned to the projected bounding box would be wrong.
+        // But a canvas can HIDE a card — woof folds it to a pill with opacity:0
+        // / max-height:0 on an ancestor, and a descendant's z-index can't
+        // escape that. So while the frame is hidden the harness LIFTS the chrome
+        // into a body-level overlay (#component-chrome-layer) pinned just above
+        // the card's nearest still-visible box — then lowers it back when the
+        // card returns. Same "above, right-aligned" placement either way.
+        const componentChromeLayer = document.getElementById('component-chrome-layer');
+        const trackedChromeItems = new Set();
+
+        const registerComponentChrome = (item, chrome, frame) => {
+            item.__chrome = chrome;
+            item.__chromeFrame = frame;   // chrome's home: the frame's chrome row
+            frame.insertBefore(chrome, frame.firstChild);
+            trackedChromeItems.add(item);
+        };
+        const detachComponentChrome = item => {
+            // Only a lifted copy is the overlay's to remove; an in-frame chrome
+            // goes when its item does.
+            if (item && item.__chrome && item.__chrome.parentElement === componentChromeLayer) {
+                item.__chrome.remove();
+            }
+            if (item) { item.__chrome = null; item.__chromeFrame = null; }
+            trackedChromeItems.delete(item);
+        };
+
+        // The component's nearest box that still occupies space. When a canvas
+        // folds the card to nothing the frame's rect collapses, so climb to the
+        // first ancestor that still has a real box (the canvas's own pill, say)
+        // so a lifted chrome rides that instead of a zero-size sliver.
+        const visibleAnchorRect = frame => {
+            let el = frame;
+            while (el && el !== document.body) {
+                const r = el.getBoundingClientRect();
+                if (r.width > 4 && r.height > 4) return r;
+                el = el.parentElement;
+            }
+            return null;
+        };
+
+        // Has the canvas FOLDED the chrome's home frame — collapsed it (or an
+        // ancestor) to nothing (max-height:0 + overflow:hidden, or display:none)?
+        // That's the case we must lift out of, because the chrome collapses with
+        // it. The collapse can land on the frame itself (woof) or on an ancestor
+        // that clips it (a card body), so walk up and treat any zero-size box as
+        // a fold. We deliberately test SIZE, not opacity/visibility: a 3D canvas
+        // (gadgets) renders its visual elsewhere and leaves the DOM components
+        // opacity:0 but full-sized — not a fold, and lifting them would pin a
+        // button to a meaningless projected box. A faded component just keeps
+        // its (hidden) in-frame chrome.
+        const frameHiddenByCanvas = frame => {
+            if (!frame || !frame.isConnected) return true;
+            let el = frame;
+            while (el && el !== document.body) {
+                const r = el.getBoundingClientRect();
+                if (r.height < 2 || r.width < 2) {
+                    // A fold collapses a box that CLIPS its content (max-height:0
+                    // + overflow:hidden). A 3D edge-on card also projects to a
+                    // zero-width box, but keeps overflow:visible and still paints
+                    // — that's not a fold, so only a clipping collapse counts.
+                    if (getComputedStyle(el).overflow !== 'visible') return true;
+                }
+                el = el.parentElement;
+            }
+            return false;
+        };
+
+        const CHROME_GAP = 6; // breathing room between the button and the card
+        const updateComponentChrome = () => {
+            // While a requirements editor is open, chrome belongs in-frame
+            // (CSS display:none's it there) — never float it over the backdrop.
+            const modalOpen = !!document.querySelector('.requirements-overlay');
+            for (const item of trackedChromeItems) {
+                const chrome = item.__chrome;
+                if (!chrome) continue;
+                const lifted = chrome.parentElement === componentChromeLayer;
+                const shouldLift = !modalOpen && frameHiddenByCanvas(item.__chromeFrame);
+
+                if (shouldLift && !lifted) {
+                    componentChromeLayer.appendChild(chrome);
+                } else if (!shouldLift && lifted) {
+                    chrome.style.top = chrome.style.left = chrome.style.visibility = '';
+                    const frame = item.__chromeFrame;
+                    if (frame) frame.insertBefore(chrome, frame.firstChild);
+                }
+
+                // Lifted: pin just above the visible box's top edge, right-aligned
+                // — matching the in-frame placement the CSS grid row gives.
+                if (chrome.parentElement === componentChromeLayer) {
+                    const rect = visibleAnchorRect(item.__chromeFrame);
+                    if (!rect) { chrome.style.visibility = 'hidden'; continue; }
+                    chrome.style.visibility = '';
+                    chrome.style.top = (rect.top - chrome.offsetHeight - CHROME_GAP) + 'px';
+                    chrome.style.left = (rect.right - chrome.offsetWidth) + 'px';
+                }
+            }
+            requestAnimationFrame(updateComponentChrome);
+        };
+        requestAnimationFrame(updateComponentChrome);
+
         const renderComponent = component => {
             const item = document.createElement('section');
             item.className = 'item';
@@ -3486,8 +3803,12 @@
             status.hidden = true;
 
             front.append(surface);
-            frame.append(chrome, front, back);
+            frame.append(front, back);
             item.append(frame, status);
+            // Chrome is system: it never lives in the canvas DOM. It rides the
+            // harness overlay, positioned over this component's visible box.
+            item.__flipButton = flipButton;
+            registerComponentChrome(item, chrome, frame);
             flipButton.addEventListener('click', () => {
                 showComponentSide(item, item.dataset.side === 'back' ? 'front' : 'back');
             });
@@ -3517,10 +3838,12 @@
                 toggleComponentShareState(item);
             });
 
-            // Listen on the frame, not just .surface — Repair lives on the
-            // back panel (sibling of front, both inside frame), and its
-            // liquidos:callback event would otherwise never reach a handler.
-            frame.addEventListener('liquidos:callback', event => {
+            // Two sources fire liquidos:callback for this component: the
+            // back-panel "Generate"/Repair (inside the frame) and the runtime
+            // Repair button (now in the harness chrome overlay, outside the
+            // frame). Bind the same handler to both so neither relies on
+            // bubbling through DOM the other no longer shares.
+            const onComponentCallback = event => {
                 const detail = event.detail && typeof event.detail === 'object'
                     ? event.detail
                     : {};
@@ -3546,7 +3869,9 @@
                         status.className = 'status error';
                         status.textContent = 'Error: ' + error.message;
                     });
-            });
+            };
+            frame.addEventListener('liquidos:callback', onComponentCallback);
+            chrome.addEventListener('liquidos:callback', onComponentCallback);
 
             return item;
         };
@@ -3714,6 +4039,7 @@
                             closeRequirementsOverlay(item);
                         }
                         destroyComponentFunctions(item);
+                        detachComponentChrome(item);
                         renderedItemsByPath.delete(path);
                     }
                 });
@@ -3925,6 +4251,7 @@
                 for (const [path, item] of Array.from(renderedItemsByPath.entries())) {
                     if (!latestComponentByPath.has(path)) {
                         item.remove();
+                        detachComponentChrome(item);
                         renderedItemsByPath.delete(path);
                     }
                 }
@@ -3956,24 +4283,105 @@
             currentCanvasPath = typeof data.currentPath === 'string' && data.currentPath
                 ? data.currentPath
                 : (canvases.find(canvas => canvas.current)?.path || currentCanvasPath || '');
-            currentCanvasName = current;
+            currentCanvasName = current || canvases.find(canvas => canvas.current)?.name || (canvases[0]?.name || '');
 
-            canvasSelect.replaceChildren(...canvases.map(canvas => {
-                const option = document.createElement('option');
-                option.value = canvas.name || '';
-                option.textContent = canvas.name || '';
-                option.selected = option.value === current;
-                return option;
-            }));
-
-            if (current && canvasSelect.value !== current) {
-                canvasSelect.value = current;
-            }
-
-            if (!currentCanvasName) {
-                currentCanvasName = canvasSelect.value || '';
-            }
+            canvasList = canvases;
+            document.body.dataset.currentCanvas = currentCanvasName;
+            renderCanvasGrid();
         };
+
+        // The zoomed-out overview: one card per canvas (current one marked) plus
+        // a trailing "+ New" card. Re-rendered whenever the canvas list changes
+        // (loadCanvases), so it's always fresh when the grid is opened.
+        const renderCanvasGrid = () => {
+            const cards = canvasList.map(canvas => {
+                const name = canvas.name || '';
+                const card = document.createElement('button');
+                card.type = 'button';
+                card.className = 'canvas-grid-card' + (name === currentCanvasName ? ' current' : '');
+                card.dataset.canvas = name;
+                const label = document.createElement('span');
+                label.className = 'canvas-grid-name';
+                label.textContent = name;
+                card.append(label);
+                card.addEventListener('click', () => {
+                    closeCanvasGrid();
+                    if (name === currentCanvasName) return;
+                    switchCanvas(name).catch(error => {
+                        loadCanvases().catch(() => {});
+                        showCanvasDamaged(error);
+                    });
+                });
+                return card;
+            });
+
+            // "+ New" card → the usual browse/new-from-scratch flow.
+            const newCard = document.createElement('button');
+            newCard.type = 'button';
+            newCard.className = 'canvas-grid-card new';
+            newCard.id = 'canvas-grid-new';
+            newCard.textContent = '+ New';
+            newCard.setAttribute('aria-label', 'Browse apps or start a new canvas from scratch');
+            newCard.addEventListener('click', () => {
+                // Leave the grid open underneath so Escape from the browse
+                // overlay steps back to the grid (grid → browse → name modal).
+                openBrowseOverlay();
+            });
+            cards.push(newCard);
+
+            canvasGrid.replaceChildren(...cards);
+        };
+
+        // Match each tile to the app window's shape so the grid reads like a
+        // zoomed-out wall of the actual canvases.
+        const applyGridAspect = () => {
+            const ratio = window.innerWidth / Math.max(1, window.innerHeight);
+            canvasGrid.style.setProperty('--app-aspect', String(ratio));
+        };
+        const openCanvasGrid = () => {
+            renderCanvasGrid();
+            applyGridAspect();
+            canvasGridOverlay.hidden = false;
+            // Mark the zoomed-out state so the canvas Requirements button (and
+            // any other "single-canvas" chrome) gets out of the way.
+            document.body.setAttribute('data-canvas-grid-open', 'true');
+        };
+        const closeCanvasGrid = () => {
+            canvasGridOverlay.hidden = true;
+            document.body.removeAttribute('data-canvas-grid-open');
+        };
+        const toggleCanvasGrid = () => {
+            if (canvasGridOverlay.hidden) openCanvasGrid();
+            else closeCanvasGrid();
+        };
+        canvasOverviewToggle.addEventListener('click', toggleCanvasGrid);
+        canvasGridOverlay.addEventListener('click', event => {
+            if (event.target === canvasGridOverlay) closeCanvasGrid();
+        });
+        window.addEventListener('resize', () => {
+            if (!canvasGridOverlay.hidden) applyGridAspect();
+        });
+
+        // Step-back geometry: while stepped back the canvas insets so the gap to
+        // the buttons above and to the prompt bar below is the same (--step-gap),
+        // measured live because the prompt bar grows with the waveform. Only the
+        // chrome-shown state uses these; skip while hidden (the bar's measured
+        // position is meaningless once it has slid out).
+        const STEP_GAP = 16; // px — also the side inset, set as --step-gap below
+        document.documentElement.style.setProperty('--step-gap', STEP_GAP + 'px');
+        const updateStepInset = () => {
+            if (document.body.getAttribute('data-prompt-hidden') === 'true') return;
+            const root = document.documentElement.style;
+            root.setProperty('--step-top',
+                Math.ceil(canvasOverviewToggle.getBoundingClientRect().bottom + STEP_GAP) + 'px');
+            root.setProperty('--step-bottom',
+                Math.ceil(window.innerHeight - globalPromptBar.getBoundingClientRect().top + STEP_GAP) + 'px');
+        };
+        window.addEventListener('resize', updateStepInset);
+        if (window.ResizeObserver) {
+            new ResizeObserver(updateStepInset).observe(globalPromptBar);
+        }
+        updateStepInset();
 
         const loadAgentChoices = async () => {
             const response = await fetch('/agents/probe', { cache: 'no-store' });
@@ -4101,7 +4509,6 @@
         const closeCanvasRequirements = () => {
             canvasReqOverlay.hidden = true;
             document.body.removeAttribute('data-canvas-reqs-open');
-            updatePromptChromeSpace();
             canvasReqEditingCanvas = '';
             canvasReqTextarea.value = '';
             canvasReqSave.disabled = false;
@@ -4212,7 +4619,7 @@
         });
 
         const openCanvasRequirements = async () => {
-            const canvasName = canvasSelect.value;
+            const canvasName = currentCanvasName;
             if (!canvasName) return;
             canvasReqEditingCanvas = canvasName;
             canvasReqSubtitle.textContent = canvasName;
@@ -4223,7 +4630,6 @@
             // Dock the editor beside the canvas (shrinks the canvas column) and
             // enter the focused mode that hides the prompt bar + meta controls.
             document.body.setAttribute('data-canvas-reqs-open', 'true');
-            updatePromptChromeSpace();
             // Mirror the component flip-back: hide Generate, show Loading,
             // centered over the textarea. Same overlay markup + CSS.
             const loading = document.getElementById('canvas-requirements-loading');
@@ -4620,7 +5026,9 @@
                     'Component:\n' + bullets.map(b => '  - ' + b).join('\n')
                 ).join('\n\n');
                 await submitPrompt('./', prompt);
+                // Terminal action → collapse the whole stack onto the new canvas.
                 closeBrowseOverlay();
+                closeCanvasGrid();
             } catch (error) {
                 console.error('build canvas failed:', error);
                 installBtn.disabled = false;
@@ -4652,7 +5060,9 @@
                     throw new Error('install failed: ' + response.status);
                 }
                 const data = await response.json();
+                // Terminal action → collapse the whole stack onto the new canvas.
                 closeBrowseOverlay();
+                closeCanvasGrid();
                 if (data.canvas) {
                     await switchCanvas(data.canvas);
                 }
@@ -4716,10 +5126,9 @@
 
         const browseFromScratch = document.getElementById('browse-from-scratch');
         browseFromScratch.addEventListener('click', () => {
-            // Defer to the existing create-name modal. When that finishes
-            // (either created or cancelled), we close ourselves so the
-            // user lands on the new canvas — or back where they were.
-            closeBrowseOverlay();
+            // Leave the browse overlay open underneath so Escape/Cancel from the
+            // name modal steps back to it. A successful create closes the whole
+            // stack (see the form's submit handler).
             showNewCanvasModal();
         });
 
@@ -4733,16 +5142,6 @@
         });
         // Escape dismissal for the browse overlay is handled by the single
         // Escape owner (window.liquidos.handleEscape).
-
-        canvasSelect.addEventListener('change', () => {
-            switchCanvas(canvasSelect.value)
-                .then(() => {
-                })
-                .catch(error => {
-                    loadCanvases().catch(() => {});
-                    showCanvasDamaged(error);
-                });
-        });
 
         agentSelect.addEventListener('change', () => {
             switchAgentKind(agentSelect.value)
@@ -4762,13 +5161,10 @@
 
         const hideNewCanvasModal = () => {
             newCanvasBackdrop.hidden = true;
-            newCanvas.focus();
+            // Return focus to whatever step is now on top underneath.
+            if (!browseOverlay.hidden) browseInput.focus();
+            else canvasOverviewToggle.focus();
         };
-
-        // "New" is now the single entry point for both directions:
-        // browse the network for an app to install, or start from
-        // scratch via the affordance inside the browse modal.
-        newCanvas.addEventListener('click', () => { openBrowseOverlay(); });
 
         newCanvasCancel.addEventListener('click', hideNewCanvasModal);
 
@@ -4796,7 +5192,11 @@
             newCanvasCreate.disabled = true;
             createCanvas(newCanvasName.value.trim())
                 .then(() => {
+                    // Created → tear down the whole stack (name modal, browse,
+                    // grid) so the user lands on the new canvas.
                     hideNewCanvasModal();
+                    closeBrowseOverlay();
+                    closeCanvasGrid();
                 })
                 .catch(error => {
                     newCanvasCreate.disabled = false;
@@ -4830,17 +5230,6 @@
             clearTimeout(scrollSaveTimer);
             scrollSaveTimer = setTimeout(saveScrollPosition, 120);
         }, { passive: true });
-
-        window.addEventListener('resize', updatePromptChromeSpace);
-
-        if (window.ResizeObserver) {
-            const chromeResizeObserver = new ResizeObserver(updatePromptChromeSpace);
-
-            chromeResizeObserver.observe(globalPromptBar);
-        }
-
-
-        updatePromptChromeSpace();
 
         new EventSource('/events').onmessage = event => {
             let payload = null;
@@ -4935,7 +5324,6 @@
             if (hidden) document.body.setAttribute('data-prompt-hidden', 'true');
             else        document.body.removeAttribute('data-prompt-hidden');
             globalPromptBar.inert = hidden;
-            updatePromptChromeSpace();
         };
         const togglePromptBar = () => {
             const next = document.body.getAttribute('data-prompt-hidden') !== 'true';
@@ -4950,6 +5338,7 @@
         const dismissTopmostOverlay = () => {
             if (!newCanvasBackdrop.hidden) { hideNewCanvasModal(); return true; }
             if (!browseOverlay.hidden)     { closeBrowseOverlay();  return true; }
+            if (!canvasGridOverlay.hidden) { closeCanvasGrid();     return true; }
             if (!canvasReqOverlay.hidden)  { closeCanvasRequirements(); return true; }
             return dismissRequirementsOverlay();
         };

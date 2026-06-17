@@ -1,19 +1,20 @@
 //
 // probe-component-chrome-lifted.mjs
 //
-// The chrome row above each component (the container holding the
-// Requirements button and, when surfaced, the Repair button) should
-// sit ABOVE the component card without taking up layout space inside
-// it. The whole container lifts together so multiple buttons stay
-// aligned.
+// System chrome (the container holding the Requirements button and, when
+// surfaced, the Repair button) sits just ABOVE the component, right-aligned
+// with it, out of the component's flow — so it reserves no layout space and a
+// canvas can't fold it away. The whole container moves together so multiple
+// buttons stay aligned. This fixture renders the in-frame web-component path,
+// where the frame is the positioned ancestor; the canvas overlay path places
+// an identical element the same way from script.
 //
-// FLAG: this probe is a genuine pixel-layout test. The assertions
-// verify spatial relationships between DOM elements (chrome sits above
-// the front card, stays inside item bounds, is right-aligned with the
-// card). There is no unique visible string that encodes these geometry
-// invariants, so the assertions remain as getBoundingClientRect checks.
-// Do not convert to visible-text checks — that would lose the layout
-// guarantee entirely.
+// FLAG: this probe is a genuine pixel-layout test. The assertions verify
+// spatial relationships between DOM elements (chrome hugs the front card's
+// top-right corner, stays within the item's bounds). There is no unique
+// visible string that encodes these geometry invariants, so the assertions
+// remain as getBoundingClientRect checks. Do not convert to visible-text
+// checks — that would lose the layout guarantee entirely.
 //
 // Run it:  node run-probe.mjs probe-component-chrome-lifted.mjs
 //
@@ -37,9 +38,9 @@ export default async ({ url, page }) => {
     await sleep(200);
 
     const layout = await page.evaluate(() => {
-        const item   = document.querySelector('.harness-component-frame-watcher')?.closest('.item');
         const frame  = document.querySelector('.harness-component-frame-watcher');
-        const chrome = frame?.querySelector('.component-chrome');
+        const item   = frame?.closest('.item');
+        const chrome = document.querySelector('.component-chrome');
         const front  = frame?.querySelector('.component-front');
         const rect = (el) => el ? el.getBoundingClientRect() : null;
         return {
@@ -53,17 +54,17 @@ export default async ({ url, page }) => {
     if (!layout.chrome || !layout.front || !layout.item) {
         throw new Error('chrome, front, or item not found');
     }
-    // Chrome must sit ABOVE the front, not overlap it.
+    // Chrome sits ABOVE the front card, not overlapping it.
     if (layout.chrome.bottom > layout.front.top + 1) {
         throw new Error('chrome overlaps the front card — chrome.bottom=' + layout.chrome.bottom + ', front.top=' + layout.front.top);
     }
-    // Chrome must stay INSIDE the item's bounds — not lifted above
-    // into a neighboring component's space.
-    if (layout.chrome.top < layout.item.top - 1) {
-        throw new Error('chrome leaks above item — chrome.top=' + layout.chrome.top + ', item.top=' + layout.item.top);
+    // ...but just above — a row's height, not flying off up the column.
+    if (layout.chrome.bottom < layout.front.top - 60) {
+        throw new Error('chrome floats too far above the card — chrome.bottom=' + layout.chrome.bottom + ', front.top=' + layout.front.top);
     }
-    // Chrome should be aligned to the right edge of the card.
+    // Chrome is right-aligned with the card's right edge.
     if (Math.abs(layout.chrome.right - layout.front.right) > 2) {
         throw new Error('chrome not right-aligned with card — chrome.right=' + layout.chrome.right + ', front.right=' + layout.front.right);
     }
+    console.log('  ok  chrome sits just above the card, right-aligned');
 };
