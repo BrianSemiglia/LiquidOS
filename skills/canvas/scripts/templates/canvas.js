@@ -5,14 +5,11 @@
 import { cssLayout } from '/lib/css-layout.js';
 
 export default cssLayout(`
+/* The harness owns the frame (.canvas-shell): position, scroll, and the
+   step-back inset. A canvas only adds its content padding here and styles
+   #app + its items — never re-position the frame or anchor to the window. */
 .canvas-shell {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: var(--debug-rail-space);
-    overflow: auto;
-    padding: 2rem 2rem var(--prompt-chrome-space) 1rem;
+    padding: 2rem 2rem 2rem 1rem;
 }
 
 #app {
@@ -22,7 +19,7 @@ export default cssLayout(`
     gap: 1rem;
     align-items: flex-start;
     width: 100%;
-    min-height: calc(100vh - var(--prompt-chrome-space) - 4rem);
+    min-height: calc(100vh - 4rem);
 }
 
 .item {
@@ -57,8 +54,7 @@ export default cssLayout(`
 
 @media (max-width: 1100px) {
     .canvas-shell {
-        left: 0;
-        padding: 1rem 1rem var(--prompt-chrome-space);
+        padding: 2rem 1rem;
     }
 }
 `);

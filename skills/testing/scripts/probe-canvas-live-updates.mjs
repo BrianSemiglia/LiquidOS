@@ -55,6 +55,14 @@ export default async ({ url, workspace, page, browser }) => {
             '</liquidos-component>\n');
     };
 
+    // Switch canvases via the zoom-out grid (the dropdown is gone). Works on any
+    // tab; reads completion from document.body.dataset.currentCanvas.
+    const switchCanvasVia = async (p, name) => {
+        await p.locator('#canvas-overview-toggle').dispatchEvent('click');
+        await p.locator(`.canvas-grid-card[data-canvas="${name}"]`).dispatchEvent('click');
+        await p.waitForFunction(n => document.body.dataset.currentCanvas === n, name, { timeout: 8000 });
+    };
+
     const results = [];
     const test = async (name, fn) => {
         process.stdout.write('▸ ' + name + ' ... ');
@@ -205,10 +213,10 @@ export default async ({ url, workspace, page, browser }) => {
         const pageB = await browser.newPage();
         pageB.on('pageerror', err => console.warn('[pageerror-B]', err.message));
         await pageB.goto(url, { waitUntil: 'domcontentloaded' });
-        await pageB.waitForSelector('#canvas-select', { timeout: 10000 });
+        await pageB.waitForSelector('#canvas-overview-toggle', { timeout: 10000 });
         // Both tabs should start on /home (the workspace's active canvas).
         await pageB.waitForFunction(
-            () => document.getElementById('canvas-select')?.value === 'home',
+            () => document.body.dataset.currentCanvas === 'home',
             undefined, { timeout: 5000 }
         );
         // Wait for page B's /events SSE to be live before page A switches.
@@ -221,19 +229,19 @@ export default async ({ url, workspace, page, browser }) => {
         }));
 
         try {
-            // Page A drives the change through the dropdown.
-            await page.selectOption('#canvas-select', 'other');
+            // Page A drives the change through the grid.
+            await switchCanvasVia(page, 'other');
 
-            // Page B's dropdown must follow without a reload.
+            // Page B must follow without a reload.
             await pageB.waitForFunction(
-                () => document.getElementById('canvas-select')?.value === 'other',
+                () => document.body.dataset.currentCanvas === 'other',
                 undefined, { timeout: 5000 }
             );
 
             // Restore /home in both tabs for downstream scenarios.
-            await page.selectOption('#canvas-select', 'home');
+            await switchCanvasVia(page, 'home');
             await pageB.waitForFunction(
-                () => document.getElementById('canvas-select')?.value === 'home',
+                () => document.body.dataset.currentCanvas === 'home',
                 undefined, { timeout: 5000 }
             );
             await page.waitForFunction(() => Array.from(document.querySelectorAll('main .item'))
@@ -246,10 +254,10 @@ export default async ({ url, workspace, page, browser }) => {
     });
 
 
-    // User switches canvas from the dropdown — DOM swaps to the other
+    // User switches canvas from the grid — DOM swaps to the other
     // canvas's components.
-    await test('user switches canvas via dropdown → DOM shows other canvas', async () => {
-        await page.selectOption('#canvas-select', 'other');
+    await test('user switches canvas via grid → DOM shows other canvas', async () => {
+        await switchCanvasVia(page, 'other');
         const switched = await page.waitForFunction(
             () => Array.from(document.querySelectorAll('main .item')).some(item =>
                 (item.dataset.componentPath || '').includes('/delta')),
@@ -258,7 +266,7 @@ export default async ({ url, workspace, page, browser }) => {
         ).then(() => true).catch(() => false);
         if (!switched) throw new Error('delta from /other canvas never appeared');
         // Switch back so the rest of the suite operates on /home.
-        await page.selectOption('#canvas-select', 'home');
+        await switchCanvasVia(page, 'home');
         await page.waitForFunction(() => Array.from(document.querySelectorAll('main .item'))
             .some(item => (item.dataset.componentPath || '').includes('/alpha')), null, { timeout: 5000 });
         return 'delta appeared after switch';
@@ -325,7 +333,7 @@ export default async ({ url, workspace, page, browser }) => {
         // Switch to /other and check that delta is still on screen 1 second
         // later (long enough for the write's broadcast to round-trip and any
         // racing load() to potentially blank the destination).
-        await page.selectOption('#canvas-select', 'other');
+        await switchCanvasVia(page, 'other');
         await page.waitForFunction(
             () => Array.from(document.querySelectorAll('main .item')).some(item =>
                 (item.dataset.componentPath || '').includes('/delta')),
@@ -343,26 +351,26 @@ export default async ({ url, workspace, page, browser }) => {
             import { cssLayout } from '/lib/css-layout.js';
             export default cssLayout('');
         `);
-        await page.selectOption('#canvas-select', 'home');
+        await switchCanvasVia(page, 'home');
         await page.waitForFunction(() => Array.from(document.querySelectorAll('main .item'))
             .some(item => (item.dataset.componentPath || '').includes('/alpha')), null, { timeout: 5000 });
         return 'delta survived the source teardown write';
     });
 
-    // Agent creates a new canvas folder — the dropdown should grow to
+    // Agent creates a new canvas folder — the canvas grid should grow to
     // include it.
-    await test('agent creates canvas folder → dropdown lists it', async () => {
+    await test('agent creates canvas folder → grid lists it', async () => {
         const name = 'probe-canvas-' + Date.now();
         agentWrite(name + '/input.json', { components: [] });
         agentWrite(name + '/canvas.js', "import { cssLayout } from '/lib/css-layout.js'; export default cssLayout('');");
         const present = await page.waitForFunction(
-            value => Array.from(document.querySelector('#canvas-select')?.options || [])
-                .some(opt => opt.value === value),
+            value => Array.from(document.querySelectorAll('.canvas-grid-card[data-canvas]'))
+                .some(card => card.dataset.canvas === value),
             name,
             { timeout: 5000 }
         ).then(() => true).catch(() => false);
-        if (!present) throw new Error('canvas-select did not gain option ' + name);
-        return 'option present: ' + name;
+        if (!present) throw new Error('canvas grid did not gain card ' + name);
+        return 'grid card present: ' + name;
     });
 
     // Agent adds a component to input.json — new component should appear.

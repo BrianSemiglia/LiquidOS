@@ -117,11 +117,12 @@ export default async ({ url, page, browser }) => {
     const conPage = await browser.newPage();
     conPage.on('pageerror', err => console.log('[con pageerror]', err.message));
     await conPage.goto(consumer.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await conPage.waitForSelector('#new-canvas', { timeout: 20000 });
-    await sleep(1000);  // small settle for the canvas-select wire-up
+    await conPage.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
+    await sleep(1000);  // small settle for the grid wire-up
 
-    // Open Browse via the New button, search for "home".
-    await conPage.locator('#new-canvas').click();
+    // Open Browse via the canvas grid's "+ New" card, search for "home".
+    await conPage.locator('#canvas-overview-toggle').dispatchEvent('click');
+    await conPage.locator('#canvas-grid-new').dispatchEvent('click');
     await conPage.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
     await conPage.locator('#browse-query').fill('home');
 

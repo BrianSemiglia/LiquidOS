@@ -52,7 +52,9 @@ export default async ({ url, page }) => {
     console.log('Shared ON');
 
     // --- own bundle appears in own Browse ---------------------------------
-    await page.locator('#new-canvas').click();
+    // Browse is reached via the canvas grid's "+ New" card.
+    await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+    await page.locator('#canvas-grid-new').dispatchEvent('click');
     await onScreen('Type to search', 5000);
     await page.locator('#browse-query').fill('home');
     // The bundle name "home" appears in the results list (input values are
@@ -63,7 +65,11 @@ export default async ({ url, page }) => {
     console.log('own bundle visible in own Browse');
 
     // --- share OFF via Canvas Info → Shared toggle ------------------------
-    // Close Browse, reopen Canvas Info.
+    // Close Browse, reopen Canvas Info. Escape steps back browse → grid; a
+    // second Escape closes the grid back to the canvas so the canvas
+    // Requirements button is available again.
+    await page.keyboard.press('Escape');
+    await sleep(150);
     await page.keyboard.press('Escape');
     await sleep(200);
     await page.locator('#canvas-reqs-toggle').click();
@@ -88,7 +94,9 @@ export default async ({ url, page }) => {
     console.log('Shared OFF');
 
     // --- own bundle gone from own Browse ----------------------------------
-    await page.locator('#new-canvas').click();
+    // Browse is reached via the canvas grid's "+ New" card.
+    await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+    await page.locator('#canvas-grid-new').dispatchEvent('click');
     await onScreen('Type to search', 5000);
     await page.locator('#browse-query').fill('home');
     await sleep(500); // let the debounce + search complete

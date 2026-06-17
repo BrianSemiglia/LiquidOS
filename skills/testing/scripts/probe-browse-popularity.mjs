@@ -161,9 +161,11 @@ export default async ({ url, page, browser }) => {
         // --- Drive the Browse overlay -------------------------------------
         page.on('pageerror', err => console.log('[pageerror]', err.message));
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await page.waitForSelector('#new-canvas', { timeout: 20000 });
+        await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
         await sleep(500);
-        await page.locator('#new-canvas').click();
+        // Browse is reached via the canvas grid's "+ New" card.
+        await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+        await page.locator('#canvas-grid-new').dispatchEvent('click');
         await page.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
         await page.locator('#browse-query').fill(TOPIC);
 

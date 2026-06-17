@@ -2,10 +2,10 @@
 // probe-canvas-switcher.mjs
 //
 // Open canvas-info on the active canvas (home) → the modal shows home's
-// feature-requirements.txt. Close. Switch to the "other" canvas via the
-// dropdown. Open canvas-info again → the modal shows other's
-// feature-requirements.txt (not stale home content). Verifies the
-// per-canvas content isolation through the user-facing switcher flow.
+// feature-requirements.txt. Close. Zoom out with the top-left overview button,
+// pick the "other" canvas from the grid. Open canvas-info again → the modal
+// shows other's feature-requirements.txt (not stale home content). Verifies the
+// per-canvas content isolation through the user-facing zoom-out-to-grid switch.
 //
 // Run it:  node run-probe.mjs probe-canvas-switcher.mjs
 //
@@ -17,7 +17,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#canvas-select', { timeout: 20000 });
+    await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
     await sleep(1500);
 
     // 1. Open canvas-info on home; assert HOME marker.
@@ -34,10 +34,12 @@ export default async ({ url, page }) => {
     await page.locator('#canvas-requirements-cancel').dispatchEvent('click');
     await sleep(300);
 
-    // 2. Switch to "other" via the dropdown.
-    await page.locator('#canvas-select').selectOption('other');
+    // 2. Zoom out to the grid and pick "other".
+    await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+    await page.waitForSelector('.canvas-grid-card[data-canvas="other"]', { timeout: 5000 });
+    await page.locator('.canvas-grid-card[data-canvas="other"]').dispatchEvent('click');
     await page.waitForFunction(
-        () => document.getElementById('canvas-select').value === 'other',
+        () => document.body.dataset.currentCanvas === 'other',
         { timeout: 5000 }
     );
     await sleep(500);

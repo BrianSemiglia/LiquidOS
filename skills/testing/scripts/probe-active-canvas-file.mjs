@@ -27,12 +27,12 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#canvas-select', { timeout: 20000 });
+    await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
     await sleep(1500);
 
     // 1. Confirm we start on home.
-    const initial = await page.locator('#canvas-select').inputValue();
-    console.log('initial dropdown value:', initial);
+    const initial = await page.evaluate(() => document.body.dataset.currentCanvas);
+    console.log('initial canvas:', initial);
     if (initial !== 'home') {
         throw new Error('expected initial canvas to be `home`, got `' + initial + '`');
     }
@@ -43,12 +43,12 @@ export default async ({ url, workspace, page }) => {
     console.log('wrote active-canvas.json -> other');
 
     // 3. Client should pick up the change via SSE (canvases-changed) and
-    //    reflect it in the dropdown.
+    //    reflect it as the current canvas.
     await page.waitForFunction(
-        () => document.getElementById('canvas-select').value === 'other',
+        () => document.body.dataset.currentCanvas === 'other',
         { timeout: 5000 }
     );
-    console.log('dropdown flipped to other');
+    console.log('current canvas flipped to other');
 
     // 4. Verify the canvas content actually swapped — the canvas-info
     //    modal should show OTHER's feature-requirements.
