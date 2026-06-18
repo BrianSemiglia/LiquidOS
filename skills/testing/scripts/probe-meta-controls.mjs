@@ -5,11 +5,11 @@
 //   - Each component's "Requirements" button is visible while the prompt bar
 //     is up and gone when Escape hides it (a fully clean canvas).
 //   - A top-right canvas "Requirements" button opens the canvas requirements
-//     editor as a panel docked beside the canvas (title "Canvas Requirements"),
-//     and rides with the prompt bar the same way. Escape closes the panel.
+//     editor as a panel docked beside the canvas, and rides with the prompt
+//     bar the same way. Escape closes the panel.
 //
 // Asserts visible text coming and going — the buttons' "Requirements" label and
-// the docked panel's "Canvas Requirements" title — never geometry or flags.
+// the docked editor's "Build" action — never geometry or flags.
 //
 // Run it:  node run-probe.mjs probe-meta-controls.mjs
 //
@@ -54,7 +54,7 @@ export default async ({ url, page }) => {
   // 4. The top-right canvas button docks the requirements panel beside the
   //    canvas — the canvas content stays on screen next to it.
   await page.locator('#canvas-reqs-toggle').click();
-  await onScreen('Canvas Requirements').catch(() => {
+  await onScreen('Build').catch(() => {
     throw new Error('clicking the canvas Requirements button did not open the docked panel');
   });
   const widgetStillThere = await page.evaluate(t => document.body.innerText.includes(t), WIDGET);
@@ -68,7 +68,7 @@ export default async ({ url, page }) => {
 
   // 5. Escape closes the docked panel and the meta controls come back.
   await page.keyboard.press('Escape');
-  await offScreen('Canvas Requirements').catch(() => {
+  await offScreen('Build').catch(() => {
     throw new Error('Escape did not close the docked canvas requirements panel');
   });
   await onScreen('Send').catch(() => { throw new Error('prompt bar should return after closing the panel'); });

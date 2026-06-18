@@ -159,7 +159,7 @@
             if (!canvas || !canvas.getContext) return { bump() {} };
             const ctx = canvas.getContext('2d');
             const row = canvas.closest('.agent-activity-row');
-            const ACCENT = '#7c5cff';
+            const ACCENT = '#ffffff';
             const BAR = 0.1875;     // css px the readout drifts per frame (scroll speed)
             const TICK_GAP = 48;    // min frames between ticks (≈ TICK_GAP*BAR px apart)
             const TICK_W = 1.5;     // css px width of a tick
@@ -1409,8 +1409,8 @@
             width: 6px;
             height: 6px;
             border-radius: 999px;
-            background: #7c5cff;
-            box-shadow: 0 0 8px rgba(124, 92, 255, 0.6);
+            background: #ffffff;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
             animation: agent-pulse 1.3s ease-in-out infinite;
             flex-shrink: 0;
         }
@@ -1421,16 +1421,15 @@
 
         /* The heartbeat label — just text now; the pill chrome is on the row.
            The agent owns its content via <lqpatch target="#agent-activity">.
-           It takes priority for space: sized to its content, shrinking (with an
-           ellipsis) only past a floor, so the message uses what it needs. */
+           It takes priority for space: sized to its full content and never
+           shrinks, so the message is shown in full (the waveform yields the
+           space). */
         .agent-activity {
-            flex: 0 1 auto;
+            flex: 0 0 auto;
             min-width: 3rem;
             font-size: 0.8rem;
-            color: rgba(232, 232, 234, 0.78);
+            color: rgba(255, 255, 255, 0.78);
             line-height: 1.2;
-            overflow: hidden;
-            text-overflow: ellipsis;
             white-space: nowrap;
         }
         .agent-activity[data-empty="true"] {
@@ -3340,7 +3339,7 @@
             }
             const outcome = item.__featureLoadOutcome;
             const button = callback.querySelector('button');
-            const scope = item.__component?.componentPath || '';
+            const scope = item.__component?.scope || '';
             callback.setAttribute('scope', scope);
             if (outcome === 'empty') {
                 if (button) button.textContent = 'Generate';
@@ -3370,7 +3369,7 @@
                 callback.hidden = true;
                 return;
             }
-            callback.setAttribute('scope', component.componentPath || '');
+            callback.setAttribute('scope', component.scope || '');
             callback.setAttribute('prompt', 'The component threw a runtime error.');
             callback.hidden = false;
         };

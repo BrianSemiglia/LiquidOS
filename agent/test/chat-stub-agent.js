@@ -11,10 +11,12 @@
 let host = { output: () => {}, status: () => {} };
 const KIND = 'chat-stub';
 
-// The composer's prompt embeds the user's text as
-// "...in the chat: <message>. The whole conversation...". Pull it back out.
+// The composer's prompt (see skills/chat/scripts/create-chat.sh) embeds the
+// user's text as "...in the chat: <message>. FIRST, before doing anything
+// else, ...". Pull it back out — keep this terminator in sync with the
+// scaffold's prompt wording.
 const userMessage = (prompt) => {
-    const m = String(prompt || '').match(/in the chat: ([\s\S]*?)\. The whole conversation/);
+    const m = String(prompt || '').match(/in the chat: ([\s\S]*?)\. FIRST, before doing anything else/);
     return m ? m[1] : '';
 };
 

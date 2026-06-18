@@ -27,8 +27,8 @@ export default async ({ url, page }) => {
 
     // Open the canvas requirements modal.
     await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
-    await onScreen('Canvas Requirements').catch(() => {
-        throw new Error('"Canvas Requirements" title did not appear — modal did not open');
+    await onScreen('Build').catch(() => {
+        throw new Error('canvas requirements editor did not open');
     });
 
     // Textarea is empty; Repair surfaces.
@@ -44,8 +44,8 @@ export default async ({ url, page }) => {
     await page.locator('#canvas-requirements-cancel').dispatchEvent('click');
     await sleep(300);
     await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
-    await onScreen('Canvas Requirements').catch(() => {
-        throw new Error('"Canvas Requirements" title did not appear on reopen');
+    await onScreen('Build').catch(() => {
+        throw new Error('canvas requirements editor did not reopen');
     });
 
     // After the agent wrote the file, the textarea is populated and

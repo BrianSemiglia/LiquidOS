@@ -31,8 +31,8 @@ export default async ({ url, page }) => {
 
     // --- share ON via Canvas Info → Shared toggle -------------------------
     await page.locator('#canvas-reqs-toggle').click();
-    await onScreen('Canvas Requirements').catch(() => {
-        throw new Error('"Canvas Requirements" modal did not open');
+    await onScreen('Build').catch(() => {
+        throw new Error('canvas requirements editor did not open');
     });
     await page.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
     await page.locator('#canvas-share-switch').click();
@@ -46,8 +46,8 @@ export default async ({ url, page }) => {
         { timeout: 30000 }
     );
     await page.locator('#canvas-requirements-cancel').click();
-    await offScreen('Canvas Requirements').catch(() => {
-        throw new Error('"Canvas Requirements" modal did not close');
+    await offScreen('Build').catch(() => {
+        throw new Error('canvas requirements editor did not close');
     });
     console.log('Shared ON');
 
@@ -73,8 +73,8 @@ export default async ({ url, page }) => {
     await page.keyboard.press('Escape');
     await sleep(200);
     await page.locator('#canvas-reqs-toggle').click();
-    await onScreen('Canvas Requirements').catch(() => {
-        throw new Error('"Canvas Requirements" modal did not reopen');
+    await onScreen('Build').catch(() => {
+        throw new Error('canvas requirements editor did not reopen');
     });
     await page.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
     await page.locator('#canvas-share-switch').click();
@@ -88,8 +88,8 @@ export default async ({ url, page }) => {
         { timeout: 30000 }
     );
     await page.locator('#canvas-requirements-cancel').click();
-    await offScreen('Canvas Requirements').catch(() => {
-        throw new Error('"Canvas Requirements" modal did not close after share OFF');
+    await offScreen('Build').catch(() => {
+        throw new Error('canvas requirements editor did not close after share OFF');
     });
     console.log('Shared OFF');
 

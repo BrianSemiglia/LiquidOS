@@ -27,9 +27,9 @@ export default async ({ url, page }) => {
 
     await page.locator('#canvas-reqs-toggle').click();
 
-    // Modal is open when its title is visible.
-    await onScreen('Canvas Requirements').catch(() => {
-        throw new Error('"Canvas Requirements" title did not appear — modal did not open');
+    // The editor is open when its Build action is visible.
+    await onScreen('Build').catch(() => {
+        throw new Error('canvas requirements editor did not open');
     });
 
     // File loaded with content — neither Repair nor Generate should surface
