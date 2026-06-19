@@ -1,0 +1,1 @@
+Home canvas with a ticker whose service stamps its instance id and a step count.

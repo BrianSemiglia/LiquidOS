@@ -1,0 +1,1 @@
+Shows a live, ever-advancing step count from a background service.
