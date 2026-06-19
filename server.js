@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const parcelWatcher = require('@parcel/watcher');
 const { createActivityPersistence } = require('./canvas/activity-persistence');
 const { createRuntimes } = require('./agent/(workspacePath+runtimePath+skillsPath)->runtimes');
 const { createActiveRuntime } = require('./agent/(runtimes+selection)->active-runtime');
@@ -399,11 +400,6 @@ const emitDebugEvent = payload => {
         res.write('data: ' + message + '\n\n');
     });
 };
-let watchers = [];
-let workspaceWatcher = null;
-let dirtyWatchEntries = [];
-let graphWatchStarted = false;
-let graphWatchKey = '';
 let activeCanvasRuntime = null;
 let outputQueue = null;
 const agentDebugState = {
@@ -586,15 +582,9 @@ const createCanvasRuntime = canvasPath => {
                 return this;
             }
 
-            dirtyWatchEntries = [];
-if (workspaceWatcher) {
-    workspaceWatcher.close();
-    workspaceWatcher = null;
-}
-            watchers.forEach(watcher => watcher.close());
-            watchers = [];
-            graphWatchStarted = false;
-            graphWatchKey = '';
+            // The workspace watcher is workspace-scoped, not canvas-scoped:
+            // it spans every canvas and outlives a switch, so stop() leaves it
+            // running. Only the active-canvas pointer changes.
             outputQueue.clearActiveLanes();
             this.started = false;
             return this;
@@ -953,66 +943,23 @@ const broadcastQueueState = (componentPath = '', completed = null) => {
     broadcast(queueStatePayload(componentPath, completed));
 };
 
-const componentChangePayload = (entries, rendered) => {
-    if (entries.length === 0) return null;
-    if (!rendered || rendered.canvasError) return null;
-
-    // When only component watch entries fired (an edit anywhere inside a
-    // component's folder), ship the affected components in a typed event so
-    // the client can update them without a full reload.
-    const componentKinds = new Set(['component', 'relationship']);
-    if (entries.every(entry => componentKinds.has(entry.kind)) && Array.isArray(rendered.components)) {
-        const dirtyFolders = new Set(entries.map(entry => entry.componentPath));
-        const components = rendered.components.filter(component =>
-            dirtyFolders.has(canvasGraph.componentFolderPath(component.componentPath)));
-
-        if (components.length === 0) return null;
-        return { type: 'components-changed', components };
-    }
-
-    // Everything else (canvas.js, or any mix) emits a generic update;
-    // the client falls through to load() which is cheap enough (existing
-    // DOM is reused) that a separate fast path isn't worth the API surface.
-    return null;
-};
-
-// When the apply endpoint is mid-flight, the watcher pipeline pauses:
-// fs.watch events for files we just wrote are dropped instead of being
-// rebroadcast. After the apply completes the server emits one explicit
-// refresh, so the client sees a single coherent change instead of one
-// event per copied file.
-let watcherPaused = false;
-
-const scheduleWatchRefresh = entry => {
-    if (watcherPaused) return;
-    if (entry) {
-        dirtyWatchEntries.push(entry);
-    }
-
-    const entries = dirtyWatchEntries;
-    dirtyWatchEntries = [];
-
-    let rendered;
-
-    try {
-        rendered = canvasGraph.renderedInput();
-        refreshGraphWatchers();
-    } catch (error) {
-        logHermesError('watch', error, { message: 'watch error' });
+// Structural files (canvas.js, input.json, relationships/) have no element
+// on the page watching them — they re-render through the graph. Coalesce a
+// burst of them (an install copying many files, an agent's multi-file edit)
+// into one re-read + one generic update so the client runs load() once, not
+// once per file.
+let graphRefreshTimer = null;
+const scheduleGraphRefresh = () => {
+    if (graphRefreshTimer) return;
+    graphRefreshTimer = setTimeout(() => {
+        graphRefreshTimer = null;
+        try {
+            canvasGraph.renderedInput();
+        } catch (error) {
+            logHermesError('watch', error, { message: 'graph refresh failed' });
+        }
         broadcast();
-        return;
-    }
-
-    broadcast(componentChangePayload(entries, rendered));
-};
-
-const broadcastWorkspaceFile = (watchedDir, filename) => {
-    if (watcherPaused) return;
-    if (!filename) return;
-    const abs = path.join(watchedDir, filename);
-    const rel = path.relative(WORKSPACE_PATH, abs);
-    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return;
-    broadcast({ type: 'workspace-file', path: rel });
+    }, 30);
 };
 
 // Canvas folders are non-dotted direct children of the workspace
@@ -1048,115 +995,94 @@ const applyActiveCanvasFromFile = () => {
     broadcast();
 };
 
-const scheduleWorkspaceRefresh = (eventType, filename) => {
-    // Do not close-and-recreate the watcher here. fs.watch's earlier
-    // behavior (recreating on every event) caused the in-process writes
-    // from /canvas and similar endpoints to be dropped on macOS — the
-    // close/open cycle raced with FSEvents and ate same-process events.
-    // A single long-lived watcher on the workspace root is enough:
-    // FSEvents and inotify both observe the directory itself, so new
-    // canvases that appear under it still fire events.
-    if (filename === 'active-canvas.json') {
+// One @parcel/watcher subscription on the whole workspace replaces the
+// fs.watch instances this used to juggle. @parcel/watcher drives the native
+// FSEvents/inotify backends directly and reliably reports every change —
+// including the server's own writes (the lqpatch writeFile PUT, /writes,
+// /canvas) — so no endpoint needs to announce its own writes; the watcher is
+// the single source of "a file changed → tell the clients". It's
+// workspace-scoped (WORKSPACE_PATH never changes for the life of the server),
+// so the subscription is established once and never torn down on a canvas
+// switch — the close/reopen cycle that used to race FSEvents and drop events
+// is gone.
+//
+// @parcel/watcher resolves symlinks, so event paths arrive under the real
+// path (/var → /private/var on macOS). Diff against the resolved root so
+// workspace-relative paths line up with what the client watches.
+let workspaceSubscription = null;
+const workspaceWatchRoot = (() => {
+    try { return fs.realpathSync(WORKSPACE_PATH); } catch { return WORKSPACE_PATH; }
+})();
+
+// Returns true when the change is to a structural file (the graph owns it and
+// must re-render); false when it's already handled (a component morph, an
+// active-canvas switch, a canvas-list change) or irrelevant.
+const dispatchWorkspaceEvent = absPath => {
+    const rel = path.relative(workspaceWatchRoot, absPath).split(path.sep).join('/');
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+
+    // active-canvas.json is the source of truth for the active canvas: POST
+    // /canvas, an agent, or an external editor may write it. Apply it.
+    if (rel === 'active-canvas.json') {
         applyActiveCanvasFromFile();
-        return;
-    }
-    if (!isCanvasCandidateFilename(filename)) return;
-    broadcastWorkspaceFile(WORKSPACE_PATH, filename);
-    broadcast({ type: 'canvases-changed' });
-};
-
-const watchWorkspace = () => {
-    if (workspaceWatcher) {
-        workspaceWatcher.close();
-        workspaceWatcher = null;
+        return false;
     }
 
-    workspaceWatcher = fs.watch(WORKSPACE_PATH, { persistent: false }, scheduleWorkspaceRefresh);
-};
-
-const safeWatchEntries = () => {
-    try {
-        return canvasGraph.watchedPaths()
-            .filter(entry => fs.existsSync(entry.path))
-            .filter(entry => {
-                try {
-                    return path.relative(CANVAS_PATH, entry.path) === ''
-                        || (!path.relative(CANVAS_PATH, entry.path).startsWith('..') && !path.isAbsolute(path.relative(CANVAS_PATH, entry.path)));
-                } catch (error) {
-                    return false;
-                }
-            });
-    } catch (error) {
-        logHermesError('watch', error, {
-            message: 'graph watch paused until canvas config is repaired'
-        });
-        return fs.existsSync(INPUT_PATH)
-            ? [{ path: INPUT_PATH, recursive: false, kind: 'canvas' }]
-            : [];
-    }
-};
-
-const refreshGraphWatchers = () => {
-    const entries = safeWatchEntries();
-    const nextKey = JSON.stringify(entries.map(entry => [entry.path, Boolean(entry.recursive)]).sort());
-
-    if (nextKey === graphWatchKey) {
-        return;
-    }
-
-    watchers.forEach(watcher => watcher.close());
-    watchers = [];
-    graphWatchKey = nextKey;
-
-    entries.forEach(entry => {
-        try {
-            watchers.push(fs.watch(entry.path, { persistent: false, recursive: Boolean(entry.recursive) }, (eventType, filename) => {
-                broadcastWorkspaceFile(entry.path, filename);
-
-                // Component content is re-rendered by the workspace-file morph
-                // above (the page has a <liquidos-file> watching it). But the
-                // canvas's own wiring — canvas.js (presentation) and the
-                // relationships under relationships/ — is mounted by the graph
-                // itself, with no element in the page to observe the change, so
-                // a morph can't re-mount it. Re-render the graph for those.
-                if (entry.kind === 'canvas-root' && filename) {
-                    const normalized = filename.split(path.sep).join('/');
-                    if (filename === 'canvas.js') {
-                        scheduleWatchRefresh({ ...entry, kind: 'canvas-js' });
-                    } else if (normalized.startsWith('relationships/')) {
-                        scheduleWatchRefresh({ ...entry, kind: 'relationship' });
-                    }
-                    return;
-                }
-
-                if (entry.kind === 'component' || entry.kind === 'relationship') {
-                    if (!filename) return;
-                    // Diagnostics is owned by its writers: error-router.js
-                    // sets runtime ok:false on a thrown error, and clears
-                    // ok:true once a re-mount stays quiet (see
-                    // noteSuccessfulMount). The harness must not infer
-                    // diagnostic state from filesystem events.
-                    scheduleWatchRefresh(entry);
-                    return;
-                }
-
-                scheduleWatchRefresh(entry);
-            }));
-        } catch (error) {
-            logHermesError('watch', error, { file: entry.path, message: 'file watch skipped' });
+    // A direct child of the workspace is canvas-level: a canvas folder
+    // appearing or disappearing changes the switcher.
+    if (!rel.includes('/')) {
+        if (isCanvasCandidateFilename(rel)) {
+            broadcast({ type: 'canvases-changed' });
         }
-    });
-};
-
-const watchGraph = () => {
-    graphWatchStarted = true;
-    refreshGraphWatchers();
-};
-
-const startGraphWatchAfterFirstInput = () => {
-    if (!graphWatchStarted) {
-        setImmediate(watchGraph);
+        return false;
     }
+
+    // Everything else is content; only the active canvas is on screen, so
+    // only its files drive a re-render.
+    const activeName = canvasName(CANVAS_PATH);
+    if (!activeName || !rel.startsWith(activeName + '/')) return false;
+
+    // The page has a <liquidos-file> watching each component file; tell it to
+    // re-render (component edits repaint through their own morph).
+    broadcast({ type: 'workspace-file', path: rel });
+
+    // canvas.js (presentation), the relationships under relationships/, and
+    // input.json (the component list) have no element watching them — they
+    // re-render through the graph.
+    return rel === activeName + '/canvas.js'
+        || rel.startsWith(activeName + '/relationships/')
+        || rel === activeName + '/input.json';
+};
+
+const startWorkspaceWatch = () => {
+    if (workspaceSubscription) return;
+    parcelWatcher.subscribe(workspaceWatchRoot, (error, events) => {
+        if (error) {
+            // FSEvents can overflow its kernel buffer under a burst and ask
+            // for a re-scan; we can't know which events were missed. The files
+            // are the source of truth, so re-sync every client from disk:
+            // refresh the canvas list and reload the active canvas. The
+            // subscription stays live — this is recovery, not a teardown.
+            logHermesError('watch', error, { message: 'workspace watcher dropped events; re-syncing from disk' });
+            broadcast({ type: 'canvases-changed' });
+            scheduleGraphRefresh();
+            return;
+        }
+        let needGraphRefresh = false;
+        for (const event of events) {
+            if (dispatchWorkspaceEvent(event.path)) needGraphRefresh = true;
+        }
+        if (needGraphRefresh) scheduleGraphRefresh();
+    }, { ignore: ['node_modules', '.git', '.liquidos'] })
+        .then(sub => { workspaceSubscription = sub; })
+        .catch(error => logHermesError('watch', error, { message: 'workspace watcher subscribe failed' }));
+};
+
+const stopWorkspaceWatch = () => {
+    if (!workspaceSubscription) return;
+    const sub = workspaceSubscription;
+    workspaceSubscription = null;
+    sub.unsubscribe().catch(() => {});
 };
 
 const readBody = req =>
@@ -1972,7 +1898,6 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'GET' && url.pathname === '/input') {
             const rendered = canvasGraph.renderedInput();
             send(res, 200, JSON.stringify(rendered), 'application/json; charset=utf-8');
-            startGraphWatchAfterFirstInput();
             return;
         }
 
@@ -1982,9 +1907,6 @@ const server = http.createServer(async (req, res) => {
                 currentPath: CANVAS_PATH,
                 canvases: canvasFiles.availableCanvases()
             }), 'application/json; charset=utf-8');
-            if (!workspaceWatcher) {
-                setImmediate(watchWorkspace);
-            }
             return;
         }
 
@@ -2029,12 +1951,13 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'POST' && url.pathname === '/canvas') {
             const body = JSON.parse(await readBody(req));
 
+            // switchCanvas writes active-canvas.json AND flips the in-memory
+            // pointer inline, so the response can report the new canvas. The
+            // workspace watcher will see that write too, but applyActiveCanvas-
+            // FromFile no-ops once the pointer already matches — so this switch
+            // announces itself. Other sessions need canvases-changed to refresh
+            // their switcher; the generic update drives this session's load().
             canvasFiles.switchCanvas(String(body.name || ''));
-            // fs.watch on macOS doesn't reliably fire for the same process's
-            // own writes (writeActiveCanvasName just modified the workspace
-            // root) — so emit canvases-changed explicitly. Other browser
-            // sessions need this to refresh their canvas dropdowns; the
-            // generic update below drives the current session's load().
             broadcast({ type: 'canvases-changed' });
             broadcast();
             send(res, 200, JSON.stringify({
@@ -2198,7 +2121,6 @@ const server = http.createServer(async (req, res) => {
                 }
             }
 
-            watcherPaused = true;
             const applied = [];
             try {
                 for (const write of planned) {
@@ -2219,29 +2141,14 @@ const server = http.createServer(async (req, res) => {
                     applied.push(write.rel);
                 }
             } catch (error) {
-                watcherPaused = false;
-                dirtyWatchEntries = [];
                 logServer('workspace', 'writes failed mid-batch', { error: error.message, applied });
                 send(res, 500, 'write failed after ' + applied.length + ' of ' + planned.length + ': ' + error.message);
-                scheduleWatchRefresh();
                 return;
             }
-            watcherPaused = false;
-            dirtyWatchEntries = [];
-
-            // One explicit refresh: re-read workspace, broadcast generic
-            // update so the client runs load() once for the entire batch.
-            try {
-                canvasGraph.renderedInput();
-                refreshGraphWatchers();
-            } catch (error) {
-                logHermesError('writes', error, { message: 'post-writes refresh failed' });
-            }
-            // External listeners (canvas.js, services) see one workspace-file
-            // event per applied path so they can re-fetch a coherent end-of-
-            // batch state instead of intermediate writes mid-flight.
-            applied.forEach(rel => broadcast({ type: 'workspace-file', path: rel }));
-            broadcast();
+            // No explicit broadcast: the workspace watcher sees these writes —
+            // it coalesces the batch into one workspace-file event per file
+            // plus a single graph refresh — so the client gets one coherent
+            // update without this endpoint announcing anything itself.
             logServer('workspace', 'writes complete', { files: applied });
             send(res, 200, JSON.stringify({ applied }), 'application/json; charset=utf-8');
             return;
@@ -2350,7 +2257,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 setCanvasPath(CANVAS_PATH);
-watchWorkspace();
+startWorkspaceWatch();
 
 const commitShutdownState = reason => {
     if (shutdownCommitAttempted) {
@@ -2372,6 +2279,7 @@ const commitShutdownState = reason => {
 
 const shutdownCanvasRuntime = reason => {
     commitShutdownState(reason || 'application was shut down');
+    stopWorkspaceWatch();
 
     if (networkNode && networkModule) {
         // Fire-and-forget — shutdown is synchronous from this caller's

@@ -349,27 +349,6 @@ const createCanvasGraph = ({
         }
     };
 
-    const watchedPaths = () => {
-        const relationshipsDirPath = relationshipsDir();
-
-        return [
-            // input.json drives the graph — watch it directly so a component
-            // add/remove re-reads the config.
-            ...[getInputPath()].filter(Boolean).map(file => ({ path: file, recursive: false, kind: 'canvas' })),
-            // One recursive watch on the whole canvas catches every file change
-            // — canvas.js and any file inside any component — and never changes
-            // as components come and go. So the watcher is never torn down and
-            // recreated; that close/reopen cycle raced FSEvents and dropped
-            // events, which was why patches wrote to disk but never painted.
-            ...[getCanvasPath()].filter(file => fs.existsSync(file) && fs.statSync(file).isDirectory())
-                .map(file => ({ path: file, recursive: true, kind: 'canvas-root' })),
-            // relationships/ add/remove also changes the graph.
-            ...(fs.existsSync(relationshipsDirPath) && fs.statSync(relationshipsDirPath).isDirectory()
-                ? [{ path: relationshipsDirPath, recursive: false, kind: 'relationships-root' }]
-                : [])
-        ];
-    };
-
     const validateCanvasConfig = () => {
         const input = readJson(getInputPath());
 
@@ -392,7 +371,6 @@ const createCanvasGraph = ({
         updateDiagnostics,
         componentResources,
         renderedInput,
-        watchedPaths,
         findLeafComponentByPath,
         findAnyByPath,
         validateCanvasConfig
