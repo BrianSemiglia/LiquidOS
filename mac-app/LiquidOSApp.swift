@@ -76,6 +76,14 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         stopServer()
     }
     
+    // The harness "desk" background, matched natively so the title bar and the
+    // web content read as one surface (light = Mist #e9ebf0, dark = Slate #1a1c1f).
+    private static let deskColor = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(srgbRed: 0x1a / 255.0, green: 0x1c / 255.0, blue: 0x1f / 255.0, alpha: 1)
+            : NSColor(srgbRed: 0xe9 / 255.0, green: 0xeb / 255.0, blue: 0xf0 / 255.0, alpha: 1)
+    }
+
     private func showWindow() {
         let configuration = WKWebViewConfiguration()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
@@ -92,29 +100,25 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         webView?.navigationDelegate = self
         webView?.allowsBackForwardNavigationGestures = true
         
-        // Create a visual effect view for vibrancy
-        let visualEffectView = NSVisualEffectView()
-        visualEffectView.blendingMode = .behindWindow
-        visualEffectView.material = .sidebar
-        visualEffectView.state = .active
-        visualEffectView.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
-        visualEffectView.autoresizingMask = [.width, .height]
-        
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 840),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window?.title = ""
+        // Shows the workspace name (set in openWorkspace) centered in the bar.
         window?.titleVisibility = .visible
+        // A real title bar tinted to the harness "desk" color so the window
+        // reads as one uniform surface: the web content sits BELOW the bar (no
+        // overlap), and the bar stays draggable. titlebarAppearsTransparent
+        // makes the title bar draw the window's background, which we set to the
+        // desk tone — following the system light/dark just like the harness.
         window?.titlebarAppearsTransparent = true
-        window?.isOpaque = false
-        window?.backgroundColor = .clear
+        window?.isOpaque = true
+        window?.backgroundColor = Self.deskColor
         window?.center()
-        window?.contentView = visualEffectView
-        visualEffectView.addSubview(webView!)
-        webView?.frame = visualEffectView.bounds
+        window?.contentView = webView
         webView?.autoresizingMask = [.width, .height]
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
