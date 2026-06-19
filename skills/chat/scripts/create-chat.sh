@@ -169,13 +169,19 @@ cat > "$component_dir/component.html" <<HTML
         }
         .chat__composer {
             display: flex;
-            align-items: center;
+            align-items: flex-end;
             gap: 0.5rem;
             padding: 0 0.75rem 0.75rem;
         }
-        .chat__composer input {
+        .chat__composer textarea {
             flex: 1;
             min-width: 0;
+            /* Grows with content (same mechanism as the prompt bar): field-sizing
+               lets the control size to its text, one row at rest, taller as you
+               type, bounded by max-height — then it scrolls at the cap. */
+            field-sizing: content;
+            max-height: 6rem;
+            resize: none;
             padding: 0.5rem 0.7rem;
             border-radius: 10px;
             border: none;
@@ -183,9 +189,10 @@ cat > "$component_dir/component.html" <<HTML
             color: var(--c-fg-solid);
             font: inherit;
             font-size: 0.88rem;
+            line-height: 1.3;
             outline: none;
         }
-        .chat__composer input::placeholder { color: rgba(var(--c-fg), 0.4); }
+        .chat__composer textarea::placeholder { color: rgba(var(--c-fg), 0.4); }
         .chat__composer button {
             flex-shrink: 0;
             width: 2.1rem;
@@ -209,7 +216,7 @@ cat > "$component_dir/component.html" <<HTML
         <div class="chat__log" id="chat-log"></div>
         <liquidos-callback on="submit" scope="components/${safe_name}" values="message" prompt="The user sent this message in the chat: {{message}}. FIRST, before doing anything else, append two bubbles to #chat-log: their message as a .msg--user bubble, then a placeholder .msg--bot bubble containing only '…' to show you're working on a reply. THEN read the whole conversation in #chat-log for context (including any 'this/that' references) and, if the message asks to change the canvas or workspace, make that change. FINALLY, replace the '…' in the placeholder .msg--bot bubble with your actual reply (for a change, a short note saying what changed).">
             <form class="chat__composer" autocomplete="off">
-                <input name="message" aria-label="Message" required>
+                <textarea name="message" aria-label="Message" rows="1" required></textarea>
                 <button type="submit" aria-label="Send">↑</button>
             </form>
         </liquidos-callback>
@@ -243,7 +250,7 @@ export function mount(surface) {
     // Composer: Send is disabled until there's text, and the input clears once
     // the agent's reply lands — kept until then so a failed turn doesn't lose
     // what the user typed.
-    const input = surface.querySelector('.chat__composer input');
+    const input = surface.querySelector('.chat__composer textarea');
     const sendBtn = surface.querySelector('.chat__composer button[type="submit"]');
     let awaitingReply = false;
     const syncSend = () => { if (input && sendBtn) sendBtn.disabled = input.value.trim().length === 0; };
@@ -257,6 +264,14 @@ export function mount(surface) {
     };
     if (input && sendBtn) {
         input.addEventListener('input', syncSend);
+        // The composer is a textarea so it can grow with content (like the prompt
+        // bar): Enter sends, Shift+Enter inserts a newline.
+        input.addEventListener('keydown', event => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                if (input.form && !sendBtn.disabled) input.form.requestSubmit();
+            }
+        });
         if (input.form) input.form.addEventListener('submit', () => { awaitingReply = true; });
         syncSend();
     }
