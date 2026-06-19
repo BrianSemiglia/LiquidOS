@@ -86,104 +86,131 @@ printf '{}\n' > "$component_dir/diagnostics/status.json"
 cat > "$component_dir/component.html" <<HTML
 <liquidos-component path="components/${safe_name}">
     <style>
+        /* Mirrors the harness in escape mode: a darker outer "desk" frame
+           (header + composer) wrapping a lighter "canvas" message area, with
+           a prompt-bar-style input — all separated by tone, no strokes. Hardcoded
+           local --c-* vars (with a light/dark media query) so it stays put if a
+           future app version restyles the harness. */
         .chat {
+            --c-desk: #1a1c1f;
+            --c-canvas: #23262a;
+            --c-input: #2c2f34;
+            --c-control: #2a2d31;
+            --c-accent: #d4d7dc;
+            --c-accent-hover: #e6e8ec;
+            --c-accent-fg: #1a1c1f;
+            --c-fg: 226, 229, 233;
+            --c-fg-solid: #edeff2;
+
             display: flex;
             flex-direction: column;
             min-width: 280px;
             max-width: 380px;
             width: 100%;
             height: 440px;
-            background: #0f1117;
-            border-radius: 14px;
+            background: var(--c-desk);
+            border-radius: 16px;
             overflow: hidden;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            color: #e6e8ee;
+            font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
+            color: var(--c-fg-solid);
+        }
+        @media (prefers-color-scheme: light) {
+            .chat {
+                --c-desk: #e9ebf0;
+                --c-canvas: #ffffff;
+                --c-input: #ffffff;
+                --c-control: #eceef2;
+                --c-accent: #3b4047;
+                --c-accent-hover: #2c3037;
+                --c-accent-fg: #ffffff;
+                --c-fg: 38, 42, 48;
+                --c-fg-solid: #22262c;
+            }
         }
         .chat__header {
-            padding: 12px 16px;
-            font-size: 0.95rem;
+            padding: 0.75rem 0.75rem 0;
+            font-size: 0.86rem;
             font-weight: 600;
-            letter-spacing: 0.02em;
-            background: #151823;
-            border-bottom: 1px solid #232838;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .chat__dot {
-            width: 8px; height: 8px;
-            border-radius: 50%;
-            background: #46d18a;
-            box-shadow: 0 0 8px #46d18a;
         }
         .chat__log {
             flex: 1;
             min-height: 0;
             overflow-y: auto;
-            padding: 16px;
+            padding: 0.9rem;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 0.5rem;
+            background: var(--c-canvas);
+            /* Inset rounded card with desk columns on each side — like the
+               canvas sitting in the desk in escape mode. */
+            margin: 0.75rem;
+            border-radius: 12px;
         }
         .msg {
             max-width: 82%;
-            padding: 9px 13px;
+            padding: 0.5rem 0.75rem;
             border-radius: 14px;
             line-height: 1.45;
-            font-size: 0.92rem;
+            font-size: 0.88rem;
             white-space: pre-wrap;
             word-break: break-word;
         }
         .msg--user {
             align-self: flex-end;
-            background: #3a6df0;
-            color: #fff;
+            background: var(--c-accent);
+            color: var(--c-accent-fg);
             border-bottom-right-radius: 4px;
         }
         .msg--bot {
             align-self: flex-start;
-            background: #1d2230;
-            color: #dfe3ee;
+            background: var(--c-control);
+            color: rgba(var(--c-fg), 0.92);
             border-bottom-left-radius: 4px;
         }
         .chat__composer {
             display: flex;
-            gap: 8px;
-            padding: 12px;
-            background: #151823;
-            border-top: 1px solid #232838;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0 0.75rem 0.75rem;
         }
         .chat__composer input {
             flex: 1;
             min-width: 0;
-            padding: 10px 12px;
-            border-radius: 10px;
-            border: 1px solid #2b3145;
-            background: #0f1117;
-            color: #e6e8ee;
-            font-size: 0.92rem;
-            outline: none;
-        }
-        .chat__composer input:focus { border-color: #3a6df0; }
-        .chat__composer button {
-            padding: 10px 16px;
+            padding: 0.5rem 0.7rem;
             border-radius: 10px;
             border: none;
-            background: #3a6df0;
-            color: #fff;
-            font-weight: 600;
-            cursor: pointer;
-            font-size: 0.92rem;
+            background: var(--c-input);
+            color: var(--c-fg-solid);
+            font: inherit;
+            font-size: 0.88rem;
+            outline: none;
         }
-        .chat__composer button:hover { background: #2f5ad6; }
+        .chat__composer input::placeholder { color: rgba(var(--c-fg), 0.4); }
+        .chat__composer button {
+            flex-shrink: 0;
+            width: 2.1rem;
+            height: 2.1rem;
+            border-radius: 50%;
+            border: none;
+            background: var(--c-accent);
+            color: var(--c-accent-fg);
+            font-size: 1rem;
+            line-height: 1;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .chat__composer button:hover:not(:disabled) { background: var(--c-accent-hover); }
+        .chat__composer button:disabled { opacity: 0.45; cursor: default; }
     </style>
     <div class="chat">
-        <div class="chat__header"><span class="chat__dot"></span>Chat with LiquidOS</div>
+        <div class="chat__header">Chat with LiquidOS</div>
         <div class="chat__log" id="chat-log"></div>
         <liquidos-callback on="submit" scope="components/${safe_name}" values="message" prompt="The user sent this message in the chat: {{message}}. FIRST, before doing anything else, append two bubbles to #chat-log: their message as a .msg--user bubble, then a placeholder .msg--bot bubble containing only '…' to show you're working on a reply. THEN read the whole conversation in #chat-log for context (including any 'this/that' references) and, if the message asks to change the canvas or workspace, make that change. FINALLY, replace the '…' in the placeholder .msg--bot bubble with your actual reply (for a change, a short note saying what changed).">
             <form class="chat__composer" autocomplete="off">
-                <input name="message" placeholder="Type a message…" required>
-                <button type="submit">Send</button>
+                <input name="message" aria-label="Message" required>
+                <button type="submit" aria-label="Send">↑</button>
             </form>
         </liquidos-callback>
         <liquidos-file path="components/${safe_name}/scroll.js" script></liquidos-file>
@@ -213,7 +240,28 @@ export function mount(surface) {
     // The user scrolling up unpins; scrolling back to the bottom re-pins.
     log.addEventListener('scroll', () => { pinned = atBottom(); });
 
-    const observer = new MutationObserver(() => { if (pinned) toBottom(); });
+    // Composer: Send is disabled until there's text, and the input clears once
+    // the agent's reply lands — kept until then so a failed turn doesn't lose
+    // what the user typed.
+    const input = surface.querySelector('.chat__composer input');
+    const sendBtn = surface.querySelector('.chat__composer button[type="submit"]');
+    let awaitingReply = false;
+    const syncSend = () => { if (input && sendBtn) sendBtn.disabled = input.value.trim().length === 0; };
+    const clearWhenReplied = () => {
+        if (!awaitingReply || !input) return;
+        const bots = log.querySelectorAll('.msg--bot');
+        const last = bots[bots.length - 1];
+        const text = last ? last.textContent.trim() : '';
+        // The reply starts as a "…" placeholder; clear once real text replaces it.
+        if (text && text !== '…') { input.value = ''; awaitingReply = false; syncSend(); }
+    };
+    if (input && sendBtn) {
+        input.addEventListener('input', syncSend);
+        if (input.form) input.form.addEventListener('submit', () => { awaitingReply = true; });
+        syncSend();
+    }
+
+    const observer = new MutationObserver(() => { if (pinned) toBottom(); clearWhenReplied(); });
     observer.observe(log, { childList: true, subtree: true, characterData: true });
 
     return () => observer.disconnect();

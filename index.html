@@ -159,7 +159,13 @@
             if (!canvas || !canvas.getContext) return { bump() {} };
             const ctx = canvas.getContext('2d');
             const row = canvas.closest('.agent-activity-row');
-            const ACCENT = '#ffffff';
+            // Trace color follows the theme: read the canvas's CSS color (set
+            // from --fg) and re-read on light/dark switches.
+            let ACCENT = getComputedStyle(canvas).color || '#ffffff';
+            try {
+                window.matchMedia('(prefers-color-scheme: dark)')
+                    .addEventListener('change', () => { ACCENT = getComputedStyle(canvas).color || ACCENT; });
+            } catch (_) {}
             const BAR = 0.1875;     // css px the readout drifts per frame (scroll speed)
             const TICK_GAP = 48;    // min frames between ticks (≈ TICK_GAP*BAR px apart)
             const TICK_W = 1.5;     // css px width of a tick
@@ -529,6 +535,69 @@
             --debug-rail-gap: 0px;
             --debug-rail-space: 0px;
             --canvas-reqs-width: min(30rem, 34vw);
+
+            /* Harness chrome theme — "blueprint": a neutral, flat drafting
+               surface. Monochrome, no hue, NO drop shadows (--elev-* are none);
+               surfaces separate by tone alone (stroke-less); the body is a flat
+               neutral "desk" the canvas sheet sits on. These tokens are the
+               ONLY place chrome colors live — every chrome rule references them.
+               Default values are the dark theme (Slate); the
+               prefers-color-scheme:light block below flips to the light theme
+               (Mist), so the harness follows the system appearance. --fg/--bg are
+               bare "R, G, B" triples so alpha overlays compose as rgba(var(--fg),
+               0.12). --accent is the soft-graphite primary action fill; --control
+               is the opaque secondary-button fill (opaque so the grid never
+               bleeds through a button). */
+            color-scheme: light dark;
+            --fg: 226, 229, 233;            /* foreground triple for text/lines/overlays */
+            --bg: #1a1c1f;                  /* app background — neutral slate, not navy */
+            --c-fg-solid: #edeff2;          /* opaque body text */
+            --scrim: rgba(12, 12, 14, 0.6);             /* modal/overlay backdrop */
+            --surface-1: #23262a;                       /* cards, toggles, panels */
+            --surface-1-hover: #2a2d32;
+            --surface-input: #1e2023;                   /* text fields */
+            --surface-input-focus: #262a2e;
+            --surface-sunken: rgba(0, 0, 0, 0.28);      /* inset preview wells */
+            --control: #2a2d31;                         /* opaque secondary-button fill */
+            --control-hover: #31343a;
+            --prompt-fill: #2c2f34;                     /* prompt input — lifted so it reads against the dotted field */
+            --accent: #d4d7dc;                          /* soft primary action fill */
+            --accent-hover: #e6e8ec;
+            --accent-fg: #1a1c1f;                       /* text/icon on accent */
+            --accent-border: rgba(255, 255, 255, 0.45);
+            --accent-line: rgba(255, 255, 255, 0.45);   /* current/active hairline */
+            --accent-soft: rgba(255, 255, 255, 0.06);   /* tinted info panels */
+            --accent-soft-border: transparent;
+            /* No drop shadows — the blueprint surface is flat. */
+            --elev-1: none;
+            --elev-2: none;
+            --elev-3: none;
+        }
+        @media (prefers-color-scheme: light) {
+            :root {
+                --fg: 38, 42, 48;
+                /* Desk a touch darker than the white surfaces so the canvas
+                   sheet and the white meta buttons stand out against it (light
+                   mode otherwise clusters everything near-white). */
+                --bg: #e9ebf0;
+                --c-fg-solid: #22262c;
+                --scrim: rgba(244, 245, 247, 0.72);
+                --surface-1: #ffffff;
+                --surface-1-hover: #f6f7f9;
+                --surface-input: #eef0f3;
+                --surface-input-focus: #e8ebef;
+                --surface-sunken: rgba(0, 0, 0, 0.035);
+                --control: #eceef2;
+                --control-hover: #e3e6ec;
+                --prompt-fill: #ffffff;
+                --accent: #3b4047;                      /* soft graphite primary */
+                --accent-hover: #2c3037;
+                --accent-fg: #ffffff;
+                --accent-border: rgba(0, 0, 0, 0.4);
+                --accent-line: rgba(0, 0, 0, 0.4);
+                --accent-soft: rgba(0, 0, 0, 0.04);
+                --accent-soft-border: transparent;
+            }
         }
         body[data-debug-open="true"] {
             --debug-rail-width: var(--debug-rail-width-stored, 22rem);
@@ -544,8 +613,9 @@
             grid-template-columns: var(--debug-rail-width) minmax(0, 1fr);
             min-height: 100vh;
             margin: 0;
-            background: #111827;
-            color: #f9fafb;
+            /* Flat neutral "desk" the canvas sheet sits on. */
+            background: var(--bg);
+            color: var(--c-fg-solid);
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
@@ -561,6 +631,11 @@
             left: var(--debug-rail-space);
             min-width: 0;
             overflow: auto;
+            /* Solid surface so the canvas reads as a sheet on the dotted "desk"
+               (the body grid) — without it the canvas is transparent and the
+               grid shows straight through, so the stepped-back card doesn't
+               stand out from the background behind it. */
+            background: var(--surface-1);
             /* The frame is the containing block for everything a canvas renders —
                including position:fixed content (backdrops, scrims, rain). So
                canvas content is scoped to the frame and steps back WITH it,
@@ -586,7 +661,7 @@
            (immersive). The canvas stays fully interactive while stepped back.
            Higher specificity than the `inset:0` each canvas.js sets on the shell,
            so it wins for fixed (flowing) canvases. */
-        body:not([data-prompt-hidden="true"]):not([data-canvas-reqs-open="true"]) .canvas-shell {
+        body:not([data-prompt-hidden="true"]):not([data-canvas-reqs-open="true"]):not([data-canvas-grid-open="true"]) .canvas-shell {
             /* top/bottom are measured by updateStepInset so the gap to the
                buttons above and the prompt bar below is the same on each side
                (the prompt bar grows with the waveform, so it's measured live).
@@ -600,9 +675,8 @@
                govern the height while stepped back. */
             min-height: 0;
             border-radius: 16px;
-            box-shadow:
-                0 0 0 1px rgba(255, 255, 255, 0.10),
-                0 24px 70px rgba(0, 0, 0, 0.5);
+            /* No ring — the solid canvas surface stands out from the desk by
+               tone alone. */
         }
 
         #app {
@@ -644,20 +718,20 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(15, 15, 18, 0.78);
+            background: var(--scrim);
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            color: rgba(232, 232, 234, 0.95);
+            color: rgba(var(--fg), 0.95);
         }
         .canvas-requirements-overlay[hidden] { display: none; }
         .canvas-requirements-card {
             width: min(36rem, calc(100vw - 2rem));
             padding: 1.4rem 1.6rem;
-            border: 1px solid rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(var(--fg), 0.14);
             border-radius: 14px;
-            background: rgba(34, 34, 35, 0.92);
-            box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45);
+            background: var(--surface-1);
+            box-shadow: var(--elev-3);
             display: flex;
             flex-direction: column;
             gap: 0.85rem;
@@ -680,13 +754,13 @@
         .share-toggle-label {
             font-size: 0.78rem;
             font-weight: 600;
-            color: rgba(232, 232, 234, 0.72);
+            color: rgba(var(--fg), 0.72);
             letter-spacing: -0.005em;
         }
         .canvas-requirements-title { font-weight: 600; font-size: 1rem; }
         .canvas-requirements-subtitle {
             font-size: 0.78rem;
-            color: rgba(232, 232, 234, 0.6);
+            color: rgba(var(--fg), 0.6);
         }
         .canvas-requirements-textarea {
             width: 100%;
@@ -694,16 +768,16 @@
             font: inherit;
             font-size: 0.88rem;
             line-height: 1.45;
-            color: rgba(232, 232, 234, 0.95);
-            background: rgba(15, 15, 18, 0.55);
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: rgba(var(--fg), 0.95);
+            background: var(--surface-input);
+            border: 1px solid rgba(var(--fg), 0.12);
             border-radius: 10px;
             padding: 0.7rem 0.85rem;
             resize: vertical;
             outline: none;
         }
         .canvas-requirements-textarea:focus {
-            border-color: rgba(96, 165, 250, 0.55);
+            border-color: var(--accent-border);
         }
         .canvas-requirements-actions {
             display: flex;
@@ -714,23 +788,23 @@
             font: inherit;
             font-size: 0.82rem;
             font-weight: 600;
-            color: #fff;
-            background: rgba(59, 130, 246, 0.9);
-            border: 1px solid rgba(96, 165, 250, 0.65);
+            color: var(--accent-fg);
+            background: var(--accent);
+            border: 1px solid var(--accent-border);
             border-radius: 8px;
             padding: 0.4rem 0.9rem;
             cursor: pointer;
         }
         .canvas-requirements-actions button:disabled { opacity: 0.6; cursor: progress; }
-        .canvas-requirements-actions button:hover:not(:disabled) { background: rgba(59, 130, 246, 1); }
+        .canvas-requirements-actions button:hover:not(:disabled) { background: var(--accent-hover); }
         .canvas-requirements-actions button.is-secondary {
             background: transparent;
-            color: rgba(232, 232, 234, 0.7);
-            border-color: rgba(255, 255, 255, 0.18);
+            color: rgba(var(--fg), 0.7);
+            border-color: transparent;
         }
         .canvas-requirements-actions button.is-secondary:hover:not(:disabled) {
-            background: rgba(255, 255, 255, 0.06);
-            color: rgba(232, 232, 234, 0.95);
+            background: rgba(var(--fg), 0.06);
+            color: rgba(var(--fg), 0.95);
         }
 
         /* Top-right canvas requirements button (a meta control). Rides with
@@ -744,23 +818,23 @@
             font: inherit;
             font-size: 0.86rem;
             font-weight: 650;
-            color: rgba(255, 255, 255, 0.88);
+            color: rgba(var(--fg), 0.88);
             /* Near-solid fill instead of a backdrop-filter blur: this button sits
                fixed over the canvas, and on an animated 3D canvas (the gadgets
                room) a blur here forces the moving scene behind it to be
                re-blurred every frame, which tanks the frame rate. */
-            background: rgba(40, 40, 42, 0.95);
-            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: var(--surface-1);
+            border: 1px solid rgba(var(--fg), 0.14);
             border-radius: 999px;
             padding: 0.45rem 0.9rem;
             cursor: pointer;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+            box-shadow: var(--elev-2);
             visibility: visible;
             transition: opacity 0.28s ease,
                         transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
                         background 120ms ease;
         }
-        .canvas-reqs-toggle:hover { background: rgba(56, 56, 58, 0.97); }
+        .canvas-reqs-toggle:hover { background: var(--surface-1-hover); }
         /* Hidden when the prompt bar is hidden (mirrors .global-prompt's hide),
            and also while the requirements panel is open — opening it is a
            focused mode with every meta control out of the way. It slides up off
@@ -788,21 +862,22 @@
             font: inherit;
             font-size: 0.86rem;
             font-weight: 650;
-            color: rgba(255, 255, 255, 0.88);
-            background: rgba(40, 40, 42, 0.95);
-            border: 1px solid rgba(255, 255, 255, 0.14);
+            color: rgba(var(--fg), 0.88);
+            background: var(--surface-1);
+            border: 1px solid rgba(var(--fg), 0.14);
             border-radius: 999px;
             padding: 0.45rem 0.9rem;
             cursor: pointer;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+            box-shadow: var(--elev-2);
             visibility: visible;
             transition: opacity 0.28s ease,
                         transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
                         background 120ms ease;
         }
-        .canvas-overview-toggle:hover { background: rgba(56, 56, 58, 0.97); }
+        .canvas-overview-toggle:hover { background: var(--surface-1-hover); }
         body[data-prompt-hidden="true"] .canvas-overview-toggle,
-        body[data-canvas-reqs-open="true"] .canvas-overview-toggle {
+        body[data-canvas-reqs-open="true"] .canvas-overview-toggle,
+        body[data-canvas-grid-open="true"] .canvas-overview-toggle {
             opacity: 0;
             visibility: hidden;
             pointer-events: none;
@@ -817,76 +892,91 @@
            named cards, one per canvas plus a "+ New" card. Sits ABOVE the
            canvas but BELOW the prompt bar (z 20) so the bar stays usable while
            zoomed out. */
+        /* Minimize opens a left-docked panel listing every canvas (current one
+           marked) plus a "+ New" row — mirroring how Requirements docks a panel
+           on the right. It overlays the canvas's left edge; the Minimize button
+           stays above it (higher z) to toggle it shut. */
         .canvas-grid-overlay {
             position: fixed;
-            inset: 0;
-            z-index: 15;
+            top: 0;
+            left: var(--debug-rail-space);
+            bottom: 0;
+            width: min(20rem, 32vw);
+            z-index: 19;
+            background: var(--surface-1);
+            border-right: 1px solid rgba(var(--fg), 0.08);
+            /* Matches the right (Requirements) panel's margin; the extra top
+               clears the macOS title-bar controls that sit over this left edge. */
+            padding: 2.5rem 1rem 1.4rem;
+            overflow: hidden;
             display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 4.5rem 2rem 7rem;
-            background: rgba(18, 18, 20, 0.72);
-            backdrop-filter: blur(18px) saturate(1.2);
-            -webkit-backdrop-filter: blur(18px) saturate(1.2);
-            overflow: auto;
+            flex-direction: column;
         }
         .canvas-grid-overlay[hidden] { display: none; }
+        .canvas-list-heading {
+            padding: 0 0.7rem 0.4rem;
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: rgba(var(--fg), 0.45);
+        }
         .canvas-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-            gap: 1.1rem;
-            width: min(100%, 64rem);
-            align-content: start;
+            display: flex;
+            flex-direction: column;
+            gap: 0.1rem;
+            width: 100%;
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow: auto;
         }
         .canvas-grid-card {
             font: inherit;
             text-align: left;
-            color: rgba(255, 255, 255, 0.9);
-            background: rgba(44, 44, 46, 0.92);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            border-radius: 16px;
-            padding: 1rem 1.1rem;
-            /* Each tile mirrors the app window's shape (set as --app-aspect by
-               openCanvasGrid), so the grid reads like a zoomed-out wall of the
-               actual canvases. */
-            aspect-ratio: var(--app-aspect, 16 / 10);
+            color: rgba(var(--fg), 0.82);
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            padding: 0.5rem 0.7rem;
             display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
+            align-items: center;
             cursor: pointer;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
-            transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+            transition: background 120ms ease, color 120ms ease;
         }
         .canvas-grid-card:hover {
-            transform: translateY(-2px);
-            background: rgba(58, 58, 60, 0.96);
+            background: var(--control);
+            color: rgba(var(--fg), 0.95);
         }
         .canvas-grid-card .canvas-grid-name {
-            font-size: 0.95rem;
-            font-weight: 650;
+            font-size: 0.86rem;
+            font-weight: 600;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
         .canvas-grid-card.current {
-            border-color: rgba(120, 170, 255, 0.85);
-            box-shadow: 0 10px 30px rgba(40, 90, 200, 0.35);
+            background: var(--control);
+            color: rgba(var(--fg), 0.95);
         }
-        .canvas-grid-card.current .canvas-grid-name::before {
-            content: "● ";
-            color: rgba(120, 170, 255, 0.95);
-        }
+        /* "Create" — a primary (accent) button pinned to the bottom of the
+           panel, like the Save button in the requirements sidebar. */
         .canvas-grid-card.new {
-            align-items: center;
-            justify-content: center;
-            color: rgba(255, 255, 255, 0.7);
-            background: transparent;
-            border-style: dashed;
-            font-weight: 650;
+            margin-top: auto;
+            align-self: flex-start;   /* only as wide as its label, left-aligned */
+            /* Match the requirements panel's primary (Save) button exactly. */
+            font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
+            text-transform: capitalize;
+            letter-spacing: -0.005em;
+            font-size: 0.82rem;
+            font-weight: 600;
+            border-radius: 6px;
+            padding: 0.4rem 0.9rem;
+            background: var(--accent);
+            color: var(--accent-fg);
         }
         .canvas-grid-card.new:hover {
-            color: rgba(255, 255, 255, 0.95);
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--accent-hover);
+            color: var(--accent-fg);
         }
 
         /* --- Docked canvas requirements --------------------------------------
@@ -915,8 +1005,8 @@
             box-sizing: border-box;
             border-radius: 0;
             border: none;
-            border-left: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: -24px 0 60px rgba(0, 0, 0, 0.35);
+            border-left: 1px solid rgba(var(--fg), 0.1);
+            box-shadow: -16px 0 48px rgba(0, 0, 0, 0.16);
             overflow: auto;
         }
         /* Let the editor fill the docked card's height: the region grows into
@@ -943,11 +1033,11 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(15, 15, 18, 0.78);
+            background: var(--scrim);
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            color: rgba(232, 232, 234, 0.95);
+            color: rgba(var(--fg), 0.95);
         }
         .browse-overlay[hidden] { display: none; }
         .browse-card {
@@ -955,44 +1045,44 @@
             max-height: calc(100vh - 4rem);
             display: flex;
             flex-direction: column;
-            border: 1px solid rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(var(--fg), 0.14);
             border-radius: 14px;
-            background: rgba(34, 34, 35, 0.92);
-            box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45);
+            background: var(--surface-1);
+            box-shadow: var(--elev-3);
             overflow: hidden;
         }
         .browse-header {
             display: flex;
             gap: 0.6rem;
             padding: 1rem 1.1rem 0.85rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            border-bottom: 1px solid rgba(var(--fg), 0.08);
         }
         .browse-query {
             flex: 1;
             font: inherit;
             font-size: 0.95rem;
-            color: rgba(232, 232, 234, 0.95);
-            background: rgba(15, 15, 18, 0.55);
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: rgba(var(--fg), 0.95);
+            background: var(--surface-input);
+            border: 1px solid rgba(var(--fg), 0.12);
             border-radius: 8px;
             padding: 0.5rem 0.75rem;
             outline: none;
         }
-        .browse-query:focus { border-color: rgba(96, 165, 250, 0.55); }
+        .browse-query:focus { border-color: var(--accent-border); }
         .browse-close {
             font: inherit;
             font-size: 0.82rem;
             font-weight: 600;
-            color: rgba(232, 232, 234, 0.7);
+            color: rgba(var(--fg), 0.7);
             background: transparent;
-            border: 1px solid rgba(255, 255, 255, 0.18);
+            border: 1px solid rgba(var(--fg), 0.18);
             border-radius: 8px;
             padding: 0.4rem 0.9rem;
             cursor: pointer;
         }
         .browse-close:hover {
-            background: rgba(255, 255, 255, 0.06);
-            color: rgba(232, 232, 234, 0.95);
+            background: rgba(var(--fg), 0.06);
+            color: rgba(var(--fg), 0.95);
         }
         .browse-from-scratch {
             display: flex;
@@ -1002,17 +1092,17 @@
             margin: 0.6rem 0.6rem 0.2rem;
             padding: 0.7rem 0.9rem;
             font: inherit;
-            color: rgba(232, 232, 234, 0.95);
+            color: rgba(var(--fg), 0.95);
             text-align: left;
-            background: rgba(59, 130, 246, 0.12);
-            border: 1px solid rgba(96, 165, 250, 0.35);
+            background: var(--accent-soft);
+            border: 1px solid var(--accent-soft-border);
             border-radius: 10px;
             cursor: pointer;
             transition: background 0.12s ease, border-color 0.12s ease;
         }
         .browse-from-scratch:hover {
-            background: rgba(59, 130, 246, 0.2);
-            border-color: rgba(96, 165, 250, 0.55);
+            background: rgba(var(--fg), 0.14);
+            border-color: transparent;
         }
         .browse-from-scratch-icon {
             width: 28px;
@@ -1020,8 +1110,8 @@
             border-radius: 50%;
             display: inline-grid;
             place-items: center;
-            background: rgba(59, 130, 246, 0.6);
-            color: #fff;
+            background: var(--accent);
+            color: var(--accent-fg);
             font-weight: 700;
             font-size: 1.1rem;
             line-height: 1;
@@ -1036,11 +1126,11 @@
         .browse-from-scratch-title {
             font-weight: 650;
             font-size: 0.92rem;
-            color: rgba(232, 232, 234, 0.95);
+            color: rgba(var(--fg), 0.95);
         }
         .browse-from-scratch-subtitle {
             font-size: 0.78rem;
-            color: rgba(232, 232, 234, 0.65);
+            color: rgba(var(--fg), 0.65);
             line-height: 1.35;
         }
 
@@ -1053,14 +1143,14 @@
         .browse-empty, .browse-loading {
             padding: 1.5rem 1rem;
             text-align: center;
-            color: rgba(232, 232, 234, 0.55);
+            color: rgba(var(--fg), 0.55);
             font-size: 0.88rem;
         }
         .browse-popularity {
             margin: 0.3rem 0.3rem 0.7rem;
             padding: 0.75rem 0.9rem 0.85rem;
-            background: rgba(96, 165, 250, 0.07);
-            border: 1px solid rgba(96, 165, 250, 0.22);
+            background: var(--accent-soft);
+            border: 1px solid var(--accent-soft-border);
             border-radius: 10px;
             display: grid;
             gap: 0.32rem;
@@ -1069,7 +1159,7 @@
             font-size: 0.7rem;
             letter-spacing: 0.08em;
             text-transform: uppercase;
-            color: rgba(147, 197, 253, 0.85);
+            color: rgba(var(--fg), 0.85);
             margin-bottom: 0.2rem;
             font-weight: 600;
         }
@@ -1077,8 +1167,8 @@
             display: grid;
             gap: 0.25rem;
             padding: 0.5rem 0.6rem 0.55rem;
-            background: rgba(15, 15, 18, 0.32);
-            border: 1px solid rgba(96, 165, 250, 0.18);
+            background: var(--surface-sunken);
+            border: 1px solid var(--accent-soft-border);
             border-radius: 8px;
         }
         .browse-popularity-component[data-unchecked="true"] {
@@ -1091,7 +1181,7 @@
             gap: 0.55rem;
             font-size: 0.92rem;
             font-weight: 600;
-            color: rgba(232, 232, 234, 0.98);
+            color: rgba(var(--fg), 0.98);
             cursor: pointer;
             padding: 0.1rem 0.05rem;
             border-radius: 4px;
@@ -1104,7 +1194,7 @@
         .browse-popularity-component-count {
             font-family: ui-monospace, Menlo, monospace;
             font-size: 0.75rem;
-            color: rgba(147, 197, 253, 0.95);
+            color: rgba(var(--fg), 0.95);
             text-align: right;
             font-variant-numeric: tabular-nums;
             font-weight: 700;
@@ -1119,7 +1209,7 @@
             gap: 0.18rem;
             margin-left: 0.85rem;
             padding-left: 0.6rem;
-            border-left: 1px dashed rgba(96, 165, 250, 0.18);
+            border-left: 1px dashed var(--accent-soft-border);
         }
         .browse-popularity-row {
             display: grid;
@@ -1127,13 +1217,13 @@
             align-items: baseline;
             gap: 0.55rem;
             font-size: 0.85rem;
-            color: rgba(232, 232, 234, 0.92);
+            color: rgba(var(--fg), 0.92);
             cursor: pointer;
             padding: 0.1rem 0.05rem;
             border-radius: 4px;
         }
         .browse-popularity-row:hover {
-            background: rgba(96, 165, 250, 0.06);
+            background: var(--accent-soft);
         }
         .browse-popularity-pick {
             margin: 0;
@@ -1143,7 +1233,7 @@
         .browse-popularity-count {
             font-family: ui-monospace, Menlo, monospace;
             font-size: 0.72rem;
-            color: rgba(147, 197, 253, 0.85);
+            color: rgba(var(--fg), 0.85);
             text-align: right;
             font-variant-numeric: tabular-nums;
         }
@@ -1153,7 +1243,7 @@
         .browse-popularity-actions {
             margin-top: 0.55rem;
             padding-top: 0.6rem;
-            border-top: 1px dashed rgba(96, 165, 250, 0.18);
+            border-top: 1px dashed var(--accent-soft-border);
             display: flex;
             justify-content: flex-end;
         }
@@ -1161,31 +1251,31 @@
             font: inherit;
             font-size: 0.78rem;
             font-weight: 600;
-            color: #fff;
-            background: rgba(59, 130, 246, 0.9);
-            border: 1px solid rgba(96, 165, 250, 0.65);
+            color: var(--accent-fg);
+            background: var(--accent);
+            border: 1px solid var(--accent-border);
             border-radius: 6px;
             padding: 0.4rem 0.85rem;
             cursor: pointer;
         }
-        .browse-popularity-install:hover:not(:disabled) { background: rgba(59, 130, 246, 1); }
+        .browse-popularity-install:hover:not(:disabled) { background: var(--accent-hover); }
         .browse-popularity-install:disabled { opacity: 0.6; cursor: progress; }
         .browse-result {
             padding: 0.7rem 0.85rem;
             margin: 0.3rem 0;
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(var(--fg), 0.08);
             border-radius: 10px;
-            background: rgba(15, 15, 18, 0.4);
+            background: var(--surface-input);
             cursor: pointer;
             transition: background 0.12s ease, border-color 0.12s ease;
         }
         .browse-result:hover {
-            background: rgba(15, 15, 18, 0.6);
-            border-color: rgba(255, 255, 255, 0.16);
+            background: var(--surface-input-focus);
+            border-color: rgba(var(--fg), 0.16);
         }
         .browse-result[data-expanded="true"] {
-            background: rgba(15, 15, 18, 0.7);
-            border-color: rgba(96, 165, 250, 0.4);
+            background: var(--surface-input-focus);
+            border-color: var(--accent-border);
         }
         .browse-result-row {
             display: flex;
@@ -1195,18 +1285,18 @@
         .browse-result-name {
             font-weight: 650;
             font-size: 0.92rem;
-            color: rgba(232, 232, 234, 0.95);
+            color: rgba(var(--fg), 0.95);
         }
         .browse-result-peer {
             font-size: 0.7rem;
-            color: rgba(232, 232, 234, 0.45);
+            color: rgba(var(--fg), 0.45);
             font-family: ui-monospace, Menlo, monospace;
             margin-left: auto;
         }
         .browse-result-detail {
             margin-top: 0.7rem;
             padding-top: 0.7rem;
-            border-top: 1px dashed rgba(255, 255, 255, 0.08);
+            border-top: 1px dashed rgba(var(--fg), 0.08);
             display: none;
         }
         .browse-result[data-expanded="true"] .browse-result-detail {
@@ -1214,26 +1304,26 @@
         }
         .browse-result-requirements {
             font-size: 0.78rem;
-            color: rgba(232, 232, 234, 0.7);
+            color: rgba(var(--fg), 0.7);
             white-space: pre-wrap;
             line-height: 1.45;
             font-family: ui-monospace, Menlo, monospace;
             max-height: 14rem;
             overflow: auto;
             padding: 0.5rem 0.7rem;
-            background: rgba(0, 0, 0, 0.2);
+            background: var(--surface-sunken);
             border-radius: 6px;
         }
         .browse-result-components {
             margin-top: 0.55rem;
             font-size: 0.78rem;
-            color: rgba(232, 232, 234, 0.7);
+            color: rgba(var(--fg), 0.7);
             display: flex;
             flex-direction: column;
             gap: 0.45rem;
         }
         .browse-result-components-label {
-            color: rgba(232, 232, 234, 0.5);
+            color: rgba(var(--fg), 0.5);
             font-size: 0.72rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
@@ -1241,19 +1331,19 @@
         }
         .browse-result-component {
             padding: 0.45rem 0.6rem;
-            border: 1px solid rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(var(--fg), 0.06);
             border-radius: 6px;
-            background: rgba(0, 0, 0, 0.18);
+            background: var(--surface-sunken);
         }
         .browse-result-component-name {
             font-size: 0.78rem;
             font-weight: 650;
-            color: rgba(232, 232, 234, 0.9);
+            color: rgba(var(--fg), 0.9);
             margin-bottom: 0.25rem;
         }
         .browse-result-component-requirements {
             font-size: 0.74rem;
-            color: rgba(232, 232, 234, 0.68);
+            color: rgba(var(--fg), 0.68);
             white-space: pre-wrap;
             line-height: 1.4;
             font-family: ui-monospace, Menlo, monospace;
@@ -1268,15 +1358,15 @@
             font: inherit;
             font-size: 0.82rem;
             font-weight: 600;
-            color: #fff;
-            background: rgba(59, 130, 246, 0.9);
-            border: 1px solid rgba(96, 165, 250, 0.65);
+            color: var(--accent-fg);
+            background: var(--accent);
+            border: 1px solid var(--accent-border);
             border-radius: 8px;
             padding: 0.4rem 0.9rem;
             cursor: pointer;
         }
         .browse-install:disabled { opacity: 0.6; cursor: progress; }
-        .browse-install:hover:not(:disabled) { background: rgba(59, 130, 246, 1); }
+        .browse-install:hover:not(:disabled) { background: var(--accent-hover); }
 
         /* iOS-style switch shared by the per-instance Shared toggles
            in the canvas requirements modal and component flip-backs.
@@ -1286,17 +1376,17 @@
             width: 36px;
             height: 20px;
             background: rgba(120, 120, 130, 0.45);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(var(--fg), 0.08);
             border-radius: 999px;
             padding: 0;
             cursor: pointer;
             transition: background 0.18s ease, border-color 0.18s ease;
             flex-shrink: 0;
         }
-        .share-switch:hover { border-color: rgba(255, 255, 255, 0.14); }
+        .share-switch:hover { border-color: rgba(var(--fg), 0.14); }
         .share-switch[aria-checked="true"] {
-            background: rgba(59, 130, 246, 0.85);
-            border-color: rgba(96, 165, 250, 0.5);
+            background: var(--accent);
+            border-color: var(--accent-border);
         }
         .share-switch-thumb {
             position: absolute;
@@ -1304,9 +1394,9 @@
             left: 1px;
             width: 16px;
             height: 16px;
-            background: #fff;
+            background: var(--accent-fg);
             border-radius: 50%;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
             transition: transform 0.18s ease;
         }
         .share-switch[aria-checked="true"] .share-switch-thumb {
@@ -1322,13 +1412,15 @@
             display: grid;
             grid-template-columns: max-content minmax(0, 1fr);
             grid-template-areas:
-                "activity activity"
+                ".        activity"
                 "nav      send";
             row-gap: 0;
             column-gap: 1rem;
             align-items: center;
             width: min(calc(100vw - var(--debug-rail-space) - 2rem), 58rem);
-            padding: 0.55rem;
+            /* No container padding: the controls sit flush so the bottom row's
+               1rem gap from the edge matches the top meta buttons' 1rem. */
+            padding: 0;
             transform: translateX(-50%);
             -webkit-font-smoothing: antialiased;
             visibility: visible;
@@ -1344,7 +1436,8 @@
            0.28s delay) so the bar fully leaves the rendered/accessibility tree
            rather than just fading. */
         body[data-prompt-hidden="true"] .global-prompt,
-        body[data-canvas-reqs-open="true"] .global-prompt {
+        body[data-canvas-reqs-open="true"] .global-prompt,
+        body[data-canvas-grid-open="true"] .global-prompt {
             transform: translateX(-50%) translateY(calc(100% + 2rem));
             opacity: 0;
             visibility: hidden;
@@ -1357,6 +1450,8 @@
             display: grid;
             grid-template-columns: max-content minmax(14rem, 1fr) max-content;
             gap: 0.45rem;
+            /* Vertically center the agent picker, input, and send arrow — they
+               stay centered against the input as it grows. */
             align-items: center;
             min-width: 0;
         }
@@ -1409,11 +1504,11 @@
             width: 6px;
             height: 6px;
             border-radius: 999px;
-            background: #ffffff;
-            box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+            background: rgba(var(--fg), 0.85);
             animation: agent-pulse 1.3s ease-in-out infinite;
             flex-shrink: 0;
         }
+        /* Smooth fade in/out pulse (no glow). */
         @keyframes agent-pulse {
             0%, 100% { opacity: 0.45; }
             50% { opacity: 1; }
@@ -1428,7 +1523,7 @@
             flex: 0 0 auto;
             min-width: 3rem;
             font-size: 0.8rem;
-            color: rgba(255, 255, 255, 0.78);
+            color: rgba(var(--fg), 0.78);
             line-height: 1.2;
             white-space: nowrap;
         }
@@ -1447,6 +1542,9 @@
             height: 1.4rem;
             opacity: 0;
             transition: opacity 180ms ease;
+            /* Drives the canvas trace color (read in JS) so the waveform
+               follows the theme instead of being hardcoded white. */
+            color: rgba(var(--fg), 1);
         }
         /* Fades in/out as output starts/stops, independent of the pill's own
            show/hide fade — so it can appear after the label is already up.
@@ -1469,14 +1567,18 @@
         .global-prompt select,
         .global-prompt textarea {
             min-width: 0;
-            height: 2.45rem;
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            /* Auto-grow with content (same mechanism as the select beside it):
+               field-sizing lets the control size to its text, bounded by the
+               min/max-height below — one row at rest, taller as you type, then
+               it scrolls at the cap. */
+            field-sizing: content;
+            border: 1px solid rgba(var(--fg), 0.12);
             border-radius: 15px;
-            background: rgb(43, 52, 65);
-            color: rgba(255, 255, 255, 0.92);
+            background: var(--prompt-fill);
+            color: rgba(var(--fg), 0.92);
             font: inherit;
             box-shadow:
-                inset 0 1px 0 rgba(255, 255, 255, 0.08),
+                inset 0 1px 0 rgba(var(--fg), 0.08),
                 inset 0 -1px 0 rgba(0, 0, 0, 0.18);
         }
 
@@ -1484,7 +1586,7 @@
             width: fit-content;
             min-width: 0;
             max-width: 12rem;
-            padding: 0 0.65rem;
+            padding: 0.45rem 0.65rem;
             field-sizing: content;
         }
 
@@ -1493,57 +1595,73 @@
         }
 
         .global-prompt textarea {
-            min-height: 2.45rem;
             max-height: 8rem;
-            resize: vertical;
-            padding: 0.6rem 0.75rem;
+            resize: none;
+            padding: 0.45rem 0.75rem;
             line-height: 1.2;
         }
 
         .global-prompt select:focus,
         .global-prompt textarea:focus {
             outline: none;
-            border-color: rgba(255, 255, 255, 0.28);
-            background: rgb(48, 57, 70);
+            border-color: rgba(var(--fg), 0.28);
+            background: var(--prompt-fill);
         }
 
         .global-prompt textarea::placeholder {
-            color: rgba(255, 255, 255, 0.38);
+            color: rgba(var(--fg), 0.38);
         }
 
         .global-prompt button {
             width: max-content;
             justify-self: start;
             white-space: nowrap;
-            height: 2.45rem;
-            border: 1px solid rgba(255, 255, 255, 0.13);
+            /* Same box as the top meta toggles (padding 0.45rem 0.9rem, font
+               0.82rem) so the bottom controls match their height. */
+            border: 1px solid rgba(var(--fg), 0.13);
             border-radius: 15px;
-            padding: 0 0.85rem;
-            background: rgba(255, 255, 255, 0.10);
-            color: rgba(255, 255, 255, 0.82);
+            padding: 0.45rem 0.9rem;
+            background: rgba(var(--fg), 0.10);
+            color: rgba(var(--fg), 0.82);
             cursor: default;
             font: inherit;
             font-weight: 650;
             letter-spacing: -0.01em;
             box-shadow:
-                inset 0 1px 0 rgba(255, 255, 255, 0.08),
+                inset 0 1px 0 rgba(var(--fg), 0.08),
                 0 1px 2px rgba(0, 0, 0, 0.18);
         }
 
+        /* Send is a circular upward-arrow button, always present. */
         .global-prompt button[type="submit"] {
-            background: rgba(255, 255, 255, 0.70);
-            color: rgba(20, 20, 21, 0.92);
-            border-color: rgba(255, 255, 255, 0.24);
+            background: var(--accent);
+            color: var(--accent-fg);
+            border-color: transparent;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 2rem;
+            height: 2rem;
+            min-width: 0;
+            padding: 0;
+            border-radius: 50%;
+            font-size: 1rem;
+            line-height: 1;
+        }
+
+        /* When the input has grown to its max height (content scrolls), recess
+           its fill a step darker as a "this is as tall as it gets" cue. */
+        .global-prompt textarea[data-full] {
+            background: var(--surface-input);
         }
 
         .global-prompt button:hover:not(:disabled),
-        .global-prompt select:hover,
-        .global-prompt textarea:hover {
-            background-color: rgba(255, 255, 255, 0.14);
+        .global-prompt select:hover {
+            background-color: rgba(var(--fg), 0.14);
         }
 
         .global-prompt button[type="submit"]:hover:not(:disabled) {
-            background: rgba(255, 255, 255, 0.78);
+            background: var(--accent-hover);
         }
 
         .global-prompt button:active:not(:disabled) {
@@ -1576,9 +1694,9 @@
             padding: 1.35rem;
             border: 1px solid rgba(248, 113, 113, 0.45);
             border-radius: 22px;
-            background: rgba(31, 41, 55, 0.92);
+            background: var(--surface-1);
             color: #fecaca;
-            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+            box-shadow: var(--elev-3);
             text-align: center;
         }
 
@@ -1693,11 +1811,11 @@
             gap: 0.75rem;
             min-height: 12rem;
             padding: 1rem;
-            border: 1px solid rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(var(--fg), 0.14);
             border-radius: 18px;
-            background: rgb(31, 41, 55);
-            color: rgba(255, 255, 255, 0.92);
-            box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
+            background: var(--surface-1);
+            color: rgba(var(--fg), 0.92);
+            box-shadow: var(--elev-3);
         }
 
         .component-back-header {
@@ -1715,7 +1833,7 @@
 
         .component-back p {
             margin: 0;
-            color: rgba(255, 255, 255, 0.58);
+            color: rgba(var(--fg), 0.58);
             font-size: 0.86rem;
             line-height: 1.35;
         }
@@ -1724,8 +1842,8 @@
             margin: 0 0 0.75rem;
             padding: 0.85rem 1rem;
             border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(var(--fg), 0.14);
+            background: rgba(var(--fg), 0.04);
             display: flex;
             flex-direction: column;
             align-items: flex-start;
@@ -1736,32 +1854,32 @@
             font: inherit;
             font-size: 0.82rem;
             font-weight: 600;
-            color: #fff;
-            background: rgba(59, 130, 246, 0.9);
-            border: 1px solid rgba(96, 165, 250, 0.65);
+            color: var(--accent-fg);
+            background: var(--accent);
+            border: 1px solid var(--accent-border);
             border-radius: 8px;
             padding: 0.4rem 0.9rem;
             cursor: pointer;
         }
-        .component-back-recover button:hover:not(:disabled) { background: rgba(59, 130, 246, 1); }
+        .component-back-recover button:hover:not(:disabled) { background: var(--accent-hover); }
 
         .component-back textarea {
             width: 100%;
             min-height: 10rem;
             resize: vertical;
-            border: 1px solid rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(var(--fg), 0.14);
             border-radius: 14px;
             padding: 0.75rem;
-            background: rgb(43, 52, 65);
-            color: rgba(255, 255, 255, 0.92);
+            background: var(--surface-input);
+            color: rgba(var(--fg), 0.92);
             font: inherit;
             line-height: 1.35;
         }
 
         .component-back textarea:focus {
             outline: none;
-            border-color: rgba(255, 255, 255, 0.34);
-            background: rgb(48, 57, 70);
+            border-color: rgba(var(--fg), 0.34);
+            background: var(--surface-input-focus);
         }
 
         .component-back-actions {
@@ -1787,7 +1905,7 @@
         }
         .requirements-region-overlay liquidos-callback { pointer-events: auto; }
         .requirements-region-overlay [data-feature-loading] {
-            color: rgba(255, 255, 255, 0.55);
+            color: rgba(var(--fg), 0.55);
             font-size: 0.9rem;
             letter-spacing: 0.02em;
         }
@@ -1797,21 +1915,21 @@
             font: inherit;
             font-weight: 600;
             border-radius: 999px;
-            border: 1px solid rgba(96, 165, 250, 0.45);
-            background: rgba(30, 41, 59, 0.92);
-            color: rgba(232, 232, 234, 0.95);
+            border: 1px solid var(--accent-border);
+            background: var(--surface-1);
+            color: rgba(var(--fg), 0.95);
             cursor: pointer;
-            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.45);
+            box-shadow: var(--elev-1);
         }
-        .requirements-repair:hover { background: rgba(59, 130, 246, 0.9); border-color: rgba(96, 165, 250, 0.85); }
+        .requirements-repair:hover { background: var(--accent); border-color: var(--accent-border); }
 
         .component-back button,
         .component-flip-button {
-            border: 1px solid rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(var(--fg), 0.14);
             border-radius: 999px;
             padding: 0.45rem 0.75rem;
-            background: rgba(255, 255, 255, 0.10);
-            color: rgba(255, 255, 255, 0.88);
+            background: rgba(var(--fg), 0.10);
+            color: rgba(var(--fg), 0.88);
             font: inherit;
             font-size: 0.86rem;
             font-weight: 650;
@@ -1819,7 +1937,7 @@
 
         .component-back button:hover:not(:disabled),
         .component-flip-button:hover:not(:disabled) {
-            background: rgba(255, 255, 255, 0.16);
+            background: rgba(var(--fg), 0.16);
         }
 
         .component-back button:disabled {
@@ -1827,12 +1945,12 @@
         }
 
         .component-save-button {
-            background: rgba(255, 255, 255, 0.76) !important;
-            color: rgba(17, 24, 39, 0.94) !important;
+            background: var(--accent) !important;
+            color: var(--accent-fg) !important;
         }
 
         .component-flip-button:focus-visible {
-            outline: 2px solid rgba(96, 165, 250, 0.65);
+            outline: 2px solid var(--accent-border);
             outline-offset: 2px;
         }
 
@@ -1852,7 +1970,7 @@
         }
 
         .component-requirements-status {
-            color: rgba(255, 255, 255, 0.58);
+            color: rgba(var(--fg), 0.58);
             font-size: 0.82rem;
         }
 
@@ -1878,7 +1996,7 @@
             display: grid;
             place-items: center;
             padding: 2rem;
-            background: rgba(3, 7, 18, 0.82);
+            background: var(--scrim);
             backdrop-filter: blur(14px);
             -webkit-backdrop-filter: blur(14px);
         }
@@ -1965,13 +2083,13 @@
             gap: 0.9rem;
             width: min(92vw, 24rem);
             padding: 1.1rem;
-            border: 1px solid rgba(255, 255, 255, 0.18);
+            border: 1px solid rgba(var(--fg), 0.18);
             border-radius: 28px;
-            background: rgba(44, 44, 46, 0.84);
-            color: rgba(255, 255, 255, 0.94);
+            background: var(--surface-1);
+            color: rgba(var(--fg), 0.94);
             box-shadow:
-                0 34px 90px rgba(0, 0, 0, 0.44),
-                inset 0 1px 0 rgba(255, 255, 255, 0.12);
+                var(--elev-3),
+                inset 0 1px 0 rgba(var(--fg), 0.12);
             backdrop-filter: blur(36px) saturate(1.45);
             -webkit-backdrop-filter: blur(36px) saturate(1.45);
             transform: translateY(0) scale(1);
@@ -1999,7 +2117,7 @@
 
         .new-canvas-modal p {
             margin: -0.35rem 0 0;
-            color: rgba(255, 255, 255, 0.58);
+            color: rgba(var(--fg), 0.58);
             font-size: 0.88rem;
             text-align: center;
         }
@@ -2007,23 +2125,23 @@
         .new-canvas-modal input {
             width: 100%;
             height: 2.75rem;
-            border: 1px solid rgba(255, 255, 255, 0.16);
+            border: 1px solid rgba(var(--fg), 0.16);
             border-radius: 16px;
             padding: 0 0.85rem;
-            background: rgba(255, 255, 255, 0.10);
-            color: rgba(255, 255, 255, 0.94);
+            background: rgba(var(--fg), 0.10);
+            color: rgba(var(--fg), 0.94);
             font: inherit;
             box-shadow:
-                inset 0 1px 0 rgba(255, 255, 255, 0.08),
+                inset 0 1px 0 rgba(var(--fg), 0.08),
                 inset 0 -1px 0 rgba(0, 0, 0, 0.16);
         }
 
         .new-canvas-modal input:focus {
             outline: none;
-            border-color: rgba(10, 132, 255, 0.86);
+            border-color: var(--accent-border);
             box-shadow:
-                0 0 0 4px rgba(10, 132, 255, 0.18),
-                inset 0 1px 0 rgba(255, 255, 255, 0.08);
+                0 0 0 4px var(--accent-soft),
+                inset 0 1px 0 rgba(var(--fg), 0.08);
         }
 
         .new-canvas-actions {
@@ -2042,13 +2160,13 @@
         }
 
         .new-canvas-actions button[type="button"] {
-            background: rgba(255, 255, 255, 0.10);
-            color: rgba(255, 255, 255, 0.78);
+            background: rgba(var(--fg), 0.10);
+            color: rgba(var(--fg), 0.78);
         }
 
         .new-canvas-actions button[type="submit"] {
-            background: rgba(10, 132, 255, 0.92);
-            color: white;
+            background: var(--accent);
+            color: var(--accent-fg);
         }
 
         .new-canvas-actions button:disabled {
@@ -2069,9 +2187,9 @@
             width: auto;
             height: 100vh;
             padding: 1rem;
-            border-right: 1px solid rgba(255, 255, 255, 0.08);
-            background: rgba(8, 15, 30, 0.84);
-            color: rgba(255, 255, 255, 0.94);
+            border-right: 1px solid rgba(var(--fg), 0.08);
+            background: var(--surface-1);
+            color: rgba(var(--fg), 0.94);
             backdrop-filter: blur(20px) saturate(1.1);
             -webkit-backdrop-filter: blur(20px) saturate(1.1);
             overflow: hidden;
@@ -2098,7 +2216,7 @@
             width: 2px;
             transform: translateX(-50%);
             border-radius: 999px;
-            background: linear-gradient(180deg, rgba(147, 197, 253, 0), rgba(147, 197, 253, 0.65), rgba(147, 197, 253, 0));
+            background: linear-gradient(180deg, rgba(var(--fg), 0), rgba(var(--fg), 0.65), rgba(var(--fg), 0));
             opacity: 0.5;
         }
 
@@ -2117,10 +2235,10 @@
 
         .debug-copy-button {
             appearance: none;
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(var(--fg), 0.12);
             border-radius: 999px;
-            background: rgba(255, 255, 255, 0.08);
-            color: rgba(255, 255, 255, 0.86);
+            background: rgba(var(--fg), 0.08);
+            color: rgba(var(--fg), 0.86);
             cursor: pointer;
             font: inherit;
             font-size: 0.72rem;
@@ -2130,7 +2248,7 @@
         }
 
         .debug-copy-button:hover {
-            background: rgba(255, 255, 255, 0.13);
+            background: rgba(var(--fg), 0.13);
         }
 
         .debug-copy-button:disabled {
@@ -2142,10 +2260,10 @@
             margin: 0;
             min-height: 0;
             padding: 0.85rem;
-            border: 1px solid rgba(255, 255, 255, 0.10);
+            border: 1px solid rgba(var(--fg), 0.10);
             border-radius: 12px;
-            background: rgba(2, 6, 23, 0.85);
-            color: rgba(226, 232, 240, 0.92);
+            background: var(--surface-sunken);
+            color: rgba(var(--fg), 0.92);
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
             font-size: 0.72rem;
             line-height: 1.4;
@@ -2179,6 +2297,89 @@
             }
         }
 
+        /* ============================================================
+           BLUEPRINT CHROME — shape / stroke / type layer for the
+           harness controls. Colors come from the tokens at the top of
+           this stylesheet; this block only handles: (1) stroke-less
+           surfaces (separate by tone, not borders), (2) flat (no
+           shadows, scoped to chrome so component content keeps its
+           own), (3) opaque secondary controls so the dotted grid never
+           bleeds through a button, and (4) the native macOS system font
+           on the controls (buttons, selects, toggles) with crisp 6px
+           corners — normal case, no letterspacing tricks, so the chrome
+           reads native. Appended last so it wins on source order over
+           the base rules above. */
+        .canvas-requirements-card, .browse-card, .browse-result, .browse-popularity,
+        .browse-popularity-component, .global-prompt select, .global-prompt textarea,
+        .global-prompt button, .canvas-requirements-textarea, .browse-query,
+        .canvas-reqs-toggle, .canvas-overview-toggle, .browse-close, .browse-from-scratch,
+        .canvas-requirements-actions button, .browse-install, .browse-popularity-install,
+        .component-back, .component-back textarea, .component-back button, .component-flip-button,
+        .requirements-repair, .new-canvas-modal, .new-canvas-modal input, .new-canvas-actions button,
+        .share-switch, .share-switch-thumb, .canvas-grid-card {
+            border-color: transparent;
+            box-shadow: none;
+        }
+        .browse-header { border-bottom-color: transparent; }
+
+        /* Opaque secondary controls. */
+        .global-prompt button:not([type="submit"]), .canvas-nav button, .browse-close,
+        .canvas-requirements-actions button.is-secondary, .component-flip-button,
+        .component-back button:not(.component-save-button) {
+            background: var(--control);
+        }
+        .global-prompt button:not([type="submit"]):hover:not(:disabled),
+        .canvas-nav button:hover, .browse-close:hover,
+        .canvas-requirements-actions button.is-secondary:hover:not(:disabled),
+        .component-flip-button:hover:not(:disabled),
+        .component-back button:not(.component-save-button):hover:not(:disabled) {
+            background: var(--control-hover);
+        }
+
+        /* Native system-font controls + gentle 6px corners. */
+        .global-prompt button, .global-prompt select, .canvas-nav button,
+        .canvas-requirements-actions button, .browse-close, .browse-install,
+        .browse-popularity-install, .canvas-reqs-toggle, .canvas-overview-toggle,
+        .component-flip-button, .component-back button, .requirements-repair,
+        .new-canvas-actions button {
+            font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
+            text-transform: capitalize;
+            letter-spacing: -0.005em;
+            font-size: 0.82rem;
+            font-weight: 600;
+            border-radius: 6px;
+        }
+
+        /* Focused fields stay fully stroke-less — no ring at all (the caret
+           signals focus). Also kills the new-canvas field's 4px focus glow. */
+        .global-prompt select:focus, .global-prompt textarea:focus,
+        .canvas-requirements-textarea:focus, .browse-query:focus,
+        .new-canvas-modal input:focus {
+            border-color: transparent;
+            box-shadow: none;
+        }
+
+        /* The per-component Requirements (flip) button mirrors the canvas
+           Requirements toggle — same surface-1 fill and padding, not the
+           --control fill used by other secondary buttons. */
+        /* Minimize / Requirements meta toggles and the per-component
+           Requirements flip read like the sidebar's Cancel button: a soft,
+           borderless fill that sits distinctly on its surface, with dimmed
+           text. The toggles sit on the desk, so their surface-1 fill stands
+           out there; the flip sits on the white canvas, so a --control fill
+           stands out — exactly like Cancel on the white card. */
+        .canvas-reqs-toggle, .canvas-overview-toggle {
+            color: rgba(var(--fg), 0.7);
+        }
+        .component-flip-button {
+            background: var(--surface-1);   /* same fill as the Spaces / canvas Requirements toggles */
+            padding: 0.45rem 0.9rem;
+            color: rgba(var(--fg), 0.7);
+            border-color: rgba(var(--fg), 0.12);   /* very faint stroke */
+        }
+        .component-flip-button:hover:not(:disabled) {
+            background: var(--surface-1-hover);
+        }
     </style>
 </head>
 <body>
@@ -2223,19 +2424,20 @@
             <form id="global-prompt">
                 <select id="agent-select" class="agent-select" aria-label="Agent"></select>
                 <textarea id="global-text" name="prompt"></textarea>
-                <button type="submit">Send</button>
+                <button type="submit" aria-label="Send">↑</button>
             </form>
         </liquidos-callback>
     </div>
 
     <!-- Top-left meta control: minimizes the canvas to a grid of all canvases.
          Rides with the prompt bar like the top-right Requirements button. -->
-    <button type="button" class="canvas-overview-toggle" id="canvas-overview-toggle" aria-label="Zoom out to all canvases">Minimize</button>
+    <button type="button" class="canvas-overview-toggle" id="canvas-overview-toggle" aria-label="Show all spaces">Spaces</button>
 
     <!-- The minimized / zoomed-out view: a grid of named canvas cards plus a
          "+ New" card. Picking a card switches canvases; "+ New" opens the usual
          browse/new flow. Sits below the prompt bar so the bar stays usable. -->
     <div class="canvas-grid-overlay" id="canvas-grid-overlay" hidden>
+        <div class="canvas-list-heading">Canvases</div>
         <div class="canvas-grid" id="canvas-grid" role="dialog" aria-label="All canvases"></div>
     </div>
 
@@ -4318,7 +4520,7 @@
             newCard.type = 'button';
             newCard.className = 'canvas-grid-card new';
             newCard.id = 'canvas-grid-new';
-            newCard.textContent = '+ New';
+            newCard.textContent = 'Create';
             newCard.setAttribute('aria-label', 'Browse apps or start a new canvas from scratch');
             newCard.addEventListener('click', () => {
                 // Leave the grid open underneath so Escape from the browse
@@ -4380,6 +4582,25 @@
             new ResizeObserver(updateStepInset).observe(globalPromptBar);
         }
         updateStepInset();
+
+        // When the prompt input has grown to its max height (content overflows
+        // the box), mark it data-full so the fill recesses a step darker. The
+        // form clears the textarea on submit without firing 'input', so re-sync
+        // after submit too.
+        const promptTextField = document.getElementById('global-text');
+        const promptFormEl = document.getElementById('global-prompt');
+        if (promptTextField) {
+            const promptSendBtn = promptFormEl?.querySelector('button[type="submit"]');
+            const syncPrompt = () => {
+                promptTextField.toggleAttribute('data-full',
+                    promptTextField.scrollHeight > promptTextField.clientHeight + 1);
+                // Send is disabled until there's something to send.
+                if (promptSendBtn) promptSendBtn.disabled = promptTextField.value.trim().length === 0;
+            };
+            promptTextField.addEventListener('input', syncPrompt);
+            promptFormEl?.addEventListener('submit', () => requestAnimationFrame(syncPrompt));
+            syncPrompt();
+        }
 
         const loadAgentChoices = async () => {
             const response = await fetch('/agents/probe', { cache: 'no-store' });

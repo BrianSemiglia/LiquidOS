@@ -691,7 +691,7 @@ const RECOVERY_PAGE_HTML = `<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     :root { color-scheme: dark; }
-    html, body { width: 100%; height: 100%; margin: 0; background: #111827; }
+    html, body { width: 100%; height: 100%; margin: 0; background: #121212; }
     body {
       display: flex; flex-direction: column; box-sizing: border-box;
       height: 100%; padding: 0 48px; gap: 14px;

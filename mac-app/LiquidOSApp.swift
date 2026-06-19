@@ -506,87 +506,98 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <style>
+            /* Follows the system appearance and matches the harness
+               "blueprint" look: dotted field, flat stroke-less card, soft
+               primary. Default = dark (Slate); prefers-color-scheme:light
+               flips to Mist. */
             :root {
-              color-scheme: dark;
+              color-scheme: light dark;
+              --bg: #1a1c1f;
+              --fg: #edeff2;
+              --card: #23262a;
+              --accent: #d4d7dc;
+              --accent-hover: #e6e8ec;
+              --accent-fg: #1a1c1f;
+              --control: #2a2d31;
+              --control-hover: #31343a;
+              --err: rgba(239, 68, 68, 0.22);
+            }
+            @media (prefers-color-scheme: light) {
+              :root {
+                --bg: #f4f5f7;
+                --fg: #22262c;
+                --card: #ffffff;
+                --accent: #3b4047;
+                --accent-hover: #2c3037;
+                --accent-fg: #ffffff;
+                --control: #eceef2;
+                --control-hover: #e3e6ec;
+                --err: rgba(220, 38, 38, 0.12);
+              }
             }
 
             html, body {
               width: 100%;
               height: 100%;
               margin: 0;
-              background: #111827;
+              background-color: var(--bg);
             }
 
             body {
               display: grid;
               place-items: center;
-              color: rgba(255, 255, 255, 0.9);
+              color: var(--fg);
               font: -apple-system-body;
               -webkit-font-smoothing: antialiased;
               text-rendering: optimizeLegibility;
             }
 
             main {
-              width: min(420px, calc(100vw - 48px));
-              padding: 32px;
-              border: 1px solid rgba(255, 255, 255, 0.12);
-              border-radius: 24px;
-              background: rgba(255, 255, 255, 0.06);
-              box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
-            }
-
-            h1 {
-              margin: 0 0 8px;
-              font-size: 28px;
-              line-height: 1.1;
-            }
-
-            p {
-              margin: 0 0 24px;
-              color: rgba(255, 255, 255, 0.68);
-              line-height: 1.45;
+              width: min(320px, calc(100vw - 48px));
             }
 
             .error {
-              margin: 0 0 18px;
+              margin: 0 0 16px;
               padding: 12px 14px;
-              border-radius: 14px;
-              background: rgba(239, 68, 68, 0.18);
-              color: rgba(255, 255, 255, 0.92);
+              border-radius: 12px;
+              background: var(--err);
+              color: var(--fg);
               line-height: 1.4;
             }
 
             .actions {
               display: grid;
-              gap: 12px;
+              gap: 10px;
             }
 
             button {
               width: 100%;
               padding: 12px 14px;
               border: 0;
-              border-radius: 14px;
-              background: rgba(255, 255, 255, 0.92);
-              color: #111827;
+              border-radius: 10px;
+              background: var(--accent);
+              color: var(--accent-fg);
               font: inherit;
               font-weight: 600;
               cursor: pointer;
             }
 
+            button:hover { background: var(--accent-hover); }
+
             button.secondary {
-              background: rgba(255, 255, 255, 0.12);
-              color: rgba(255, 255, 255, 0.9);
+              background: var(--control);
+              color: var(--fg);
             }
+
+            button.secondary:hover { background: var(--control-hover); }
           </style>
         </head>
         <body>
           <main>
-            <h1>LiquidOS</h1>
-            <p>Open an existing workspace or create a new one.</p>
             \(messageHTML)
             <div class="actions">
-              <button onclick="window.webkit.messageHandlers.liquidosMac.postMessage('open')">Open workspace</button>
-              <button class="secondary" onclick="window.webkit.messageHandlers.liquidosMac.postMessage('create')">Create workspace</button>
+              <button onclick="window.webkit.messageHandlers.liquidosMac.postMessage('open')">Open</button>
+              <button class="secondary" onclick="window.webkit.messageHandlers.liquidosMac.postMessage('create')">Create</button>
             </div>
           </main>
         </body>
@@ -601,21 +612,31 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <style>
+            /* Follows the system appearance, matching the harness blueprint
+               (dotted field). Default dark (Slate); light flips to Mist. */
             :root {
-              color-scheme: dark;
+              color-scheme: light dark;
+              --bg: #1a1c1f;
+              --fg: rgba(237, 239, 242, 0.7);
+            }
+            @media (prefers-color-scheme: light) {
+              :root {
+                --bg: #f4f5f7;
+                --fg: rgba(34, 38, 44, 0.6);
+              }
             }
 
             html, body {
               width: 100%;
               height: 100%;
               margin: 0;
-              background: #111827;
+              background-color: var(--bg);
             }
 
             body {
               display: grid;
               place-items: center;
-              color: rgba(255, 255, 255, 0.88);
+              color: var(--fg);
               font: -apple-system-body;
             }
 
@@ -694,7 +715,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         <head><meta name="viewport" content="width=device-width, initial-scale=1">
           <style>
             :root { color-scheme: dark; }
-            html, body { width: 100%; height: 100%; margin: 0; background: #111827; }
+            html, body { width: 100%; height: 100%; margin: 0; background: #121212; }
             body {
               display: flex; flex-direction: column; box-sizing: border-box;
               height: 100%; padding: 0 48px; gap: 14px;
@@ -753,7 +774,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         webView?.loadHTMLString("""
         <!doctype html>
         <html>
-        <body style="font: -apple-system-body; margin: 48px; color: #111827; background: #f9fafb;">
+        <body style="font: -apple-system-body; margin: 48px; color: #121212; background: #f9fafb;">
           <h1>LiquidOS</h1>
           <pre style="white-space: pre-wrap; line-height: 1.4;">\(Self.escapeHTML(message))</pre>
         </body>
