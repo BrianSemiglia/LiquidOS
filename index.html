@@ -711,30 +711,44 @@
            card is wider since it holds a real textarea, and the textarea
            gets its own styling so it doesn't look like a tiny comment
            field. */
+        /* Canvas-requirements editor — a right-docked panel that slides in/out,
+           overlaying the right edge of the (full) canvas. Mirrors the Spaces
+           panel on the left. */
         .canvas-requirements-overlay {
             position: fixed;
-            inset: 0;
-            z-index: 100;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: var(--canvas-reqs-width);
+            z-index: 19;
             display: flex;
-            align-items: center;
-            justify-content: center;
-            background: var(--scrim);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
+            flex-direction: column;
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             color: rgba(var(--fg), 0.95);
+            transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s;
         }
-        .canvas-requirements-overlay[hidden] { display: none; }
+        /* Closed: slid off the right edge. Kept rendered (override the UA
+           hidden:display:none) so it animates; visibility flips after the slide. */
+        .canvas-requirements-overlay[hidden] {
+            display: flex;
+            transform: translateX(100%);
+            visibility: hidden;
+            transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s 0.28s;
+        }
         .canvas-requirements-card {
-            width: min(36rem, calc(100vw - 2rem));
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
             padding: 1.4rem 1.6rem;
-            border: 1px solid rgba(var(--fg), 0.14);
-            border-radius: 14px;
+            border: none;
+            border-left: 1px solid rgba(var(--fg), 0.1);
+            border-radius: 0;
             background: var(--surface-1);
-            box-shadow: var(--elev-3);
+            box-shadow: none;
             display: flex;
             flex-direction: column;
             gap: 0.85rem;
+            overflow: auto;
         }
         .canvas-requirements-header {
             display: flex;
@@ -905,14 +919,22 @@
             z-index: 19;
             background: var(--surface-1);
             border-right: 1px solid rgba(var(--fg), 0.08);
-            /* Matches the right (Requirements) panel's margin; the extra top
-               clears the macOS title-bar controls that sit over this left edge. */
+            /* Top clearance kept generous so it reads right with no title bar
+               too (fullscreen), not just under the windowed title bar. */
             padding: 2.5rem 1rem 1.4rem;
             overflow: hidden;
             display: flex;
             flex-direction: column;
+            transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s;
         }
-        .canvas-grid-overlay[hidden] { display: none; }
+        /* Closed: slid off the left edge. Kept rendered (override the UA
+           hidden:display:none) so it animates; visibility flips after the slide. */
+        .canvas-grid-overlay[hidden] {
+            display: flex;
+            transform: translateX(calc(-100% - var(--debug-rail-space)));
+            visibility: hidden;
+            transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s 0.28s;
+        }
         .canvas-list-heading {
             padding: 0 0.7rem 0.4rem;
             font-size: 0.7rem;
@@ -979,36 +1001,6 @@
             color: var(--accent-fg);
         }
 
-        /* --- Docked canvas requirements --------------------------------------
-           Opening canvas requirements adds a right-hand column and shrinks the
-           canvas to make room, so the editor sits beside the canvas like a
-           component's requirements view rather than floating over it. The card
-           keeps all its existing ids/markup — only its placement changes. */
-        body[data-canvas-reqs-open="true"] {
-            grid-template-columns: var(--debug-rail-width) minmax(0, 1fr) var(--canvas-reqs-width);
-        }
-        body[data-canvas-reqs-open="true"] .canvas-requirements-overlay {
-            position: relative;
-            inset: auto;
-            grid-column: 3;
-            grid-row: 1;
-            z-index: 19;
-            display: block;
-            background: transparent;
-            backdrop-filter: none;
-            -webkit-backdrop-filter: none;
-            height: 100vh;
-        }
-        body[data-canvas-reqs-open="true"] .canvas-requirements-card {
-            width: 100%;
-            height: 100vh;
-            box-sizing: border-box;
-            border-radius: 0;
-            border: none;
-            border-left: 1px solid rgba(var(--fg), 0.1);
-            box-shadow: -16px 0 48px rgba(0, 0, 0, 0.16);
-            overflow: auto;
-        }
         /* Let the editor fill the docked card's height: the region grows into
            the column and the textarea fills the region (it's wrapped, so
            growing the textarea alone wouldn't reach the card). */

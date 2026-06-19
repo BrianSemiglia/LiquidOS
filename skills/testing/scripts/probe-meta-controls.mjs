@@ -41,14 +41,16 @@ export default async ({ url, page }) => {
 
   // 2. Escape hides the prompt bar → every meta control goes with it.
   await page.keyboard.press('Escape');
-  await offScreen('Send').catch(() => { throw new Error('prompt bar did not hide on Escape'); });
+  // The prompt bar's Send control is a glyph button ("↑") — its presence on
+  // screen is the prompt bar being up.
+  await offScreen('↑').catch(() => { throw new Error('prompt bar did not hide on Escape'); });
   await offScreen('Requirements').catch(() => {
     throw new Error('meta controls still visible after the prompt bar was hidden');
   });
 
   // 3. Escape again restores the prompt bar and the meta controls.
   await page.keyboard.press('Escape');
-  await onScreen('Send').catch(() => { throw new Error('prompt bar did not return on Escape'); });
+  await onScreen('↑').catch(() => { throw new Error('prompt bar did not return on Escape'); });
   await onScreen('Requirements').catch(() => { throw new Error('meta controls did not return with the prompt bar'); });
 
   // 4. The top-right canvas button docks the requirements panel beside the
@@ -61,8 +63,8 @@ export default async ({ url, page }) => {
   if (!widgetStillThere) throw new Error('canvas content vanished when the requirements panel docked (should sit beside it)');
 
   // 4b. Focused mode: opening the panel hides the other meta controls — the
-  //     prompt bar ("Send") goes away while the editor is up.
-  await offScreen('Send').catch(() => {
+  //     prompt bar (its "↑" Send glyph) goes away while the editor is up.
+  await offScreen('↑').catch(() => {
     throw new Error('prompt bar still visible while the canvas requirements panel was open');
   });
 
@@ -71,5 +73,5 @@ export default async ({ url, page }) => {
   await offScreen('Build').catch(() => {
     throw new Error('Escape did not close the docked canvas requirements panel');
   });
-  await onScreen('Send').catch(() => { throw new Error('prompt bar should return after closing the panel'); });
+  await onScreen('↑').catch(() => { throw new Error('prompt bar should return after closing the panel'); });
 };

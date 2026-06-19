@@ -22,14 +22,15 @@ export default async ({ url, page }) => {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForSelector('#global-text', { timeout: 20000 });
 
-  // The prompt bar is on screen to start.
-  await onScreen('Send').catch(() => { throw new Error('prompt bar ("Send") not visible on load'); });
+  // The prompt bar is on screen to start. Its Send control is a glyph button
+  // ("↑"), so that's the visible string we track.
+  await onScreen('↑').catch(() => { throw new Error('prompt bar ("↑" Send) not visible on load'); });
 
   // Escape hides it — the bar slides out and leaves the rendered tree.
   await page.keyboard.press('Escape');
-  await offScreen('Send').catch(() => { throw new Error('Escape did not hide the prompt bar ("Send" still visible)'); });
+  await offScreen('↑').catch(() => { throw new Error('Escape did not hide the prompt bar ("↑" still visible)'); });
 
   // Escape again brings it back.
   await page.keyboard.press('Escape');
-  await onScreen('Send').catch(() => { throw new Error('Escape did not bring the prompt bar back ("Send" never returned)'); });
+  await onScreen('↑').catch(() => { throw new Error('Escape did not bring the prompt bar back ("↑" never returned)'); });
 };

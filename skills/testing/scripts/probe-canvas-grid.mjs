@@ -1,17 +1,17 @@
 //
 // probe-canvas-grid.mjs
 //
-// The top-left "Minimize" button zooms the canvas out to a grid of all canvases:
-//   - the grid shows a named card per canvas plus a "+ New" card;
+// The top-left "Spaces" button zooms the canvas out to a grid of all canvases:
+//   - the grid shows a named card per canvas plus a "Create" card;
 //   - the prompt bar stays visible while zoomed out (you can still prompt);
 //   - the top-right canvas Requirements button is hidden while zoomed out;
-//   - "+ New" opens the usual browse / new-from-scratch flow, as a back-stack:
+//   - "Create" opens the usual browse / new-from-scratch flow, as a back-stack:
 //     grid → browse → name modal, with Escape/Cancel stepping back one level;
 //   - picking a canvas card switches to it and closes the grid;
 //   - Escape closes the grid (and the Requirements button comes back).
 //
-// Asserts visible strings (canvas names, the prompt bar's "Send", the browse
-// flow's copy, the "+ New" card) coming and going — never geometry or flags.
+// Asserts visible strings (canvas names, the prompt bar's "↑" Send glyph, the browse
+// flow's copy, the "Create" card) coming and going — never geometry or flags.
 //
 // Run it:  node run-probe.mjs probe-canvas-grid.mjs
 //
@@ -31,25 +31,26 @@ export default async ({ url, page }) => {
   await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
   await sleep(1000);
 
-  // The prompt bar is up to begin with, and the minimize button reads "Minimize".
-  await onScreen('Send').catch(() => { throw new Error('prompt bar not visible at start'); });
-  await onScreen('Minimize').catch(() => { throw new Error('top-left button should read "Minimize"'); });
+  // The prompt bar is up to begin with, and the top-left button reads "Spaces".
+  // The Send control is a glyph button ("↑"); its presence means the bar is up.
+  await onScreen('↑').catch(() => { throw new Error('prompt bar not visible at start'); });
+  await onScreen('Spaces').catch(() => { throw new Error('top-left button should read "Spaces"'); });
   // The canvas Requirements button is present while on a single canvas.
   await page.locator('#canvas-reqs-toggle').waitFor({ state: 'visible', timeout: 5000 });
 
-  // 1. Zoom out → the grid shows a card per canvas (home, other) and "+ New".
+  // 1. Zoom out → the grid shows a card per canvas (home, other) and "Create".
   await page.locator('#canvas-overview-toggle').dispatchEvent('click');
   await page.waitForSelector('.canvas-grid-card[data-canvas="other"]', { timeout: 5000 });
   const cardTexts = await page.locator('.canvas-grid-card').allInnerTexts();
-  for (const expected of ['home', 'other', '+ New']) {
+  for (const expected of ['home', 'other', 'Create']) {
     if (!cardTexts.some(t => t.includes(expected))) {
       throw new Error(`grid card "${expected}" missing; saw: ${cardTexts.join(' | ')}`);
     }
   }
-  console.log('  ok  zoom-out shows a card per canvas plus "+ New"');
+  console.log('  ok  zoom-out shows a card per canvas plus "Create"');
 
   // 2. The prompt bar stays visible while zoomed out.
-  await onScreen('Send').catch(() => { throw new Error('prompt bar should stay visible in the grid view'); });
+  await onScreen('↑').catch(() => { throw new Error('prompt bar should stay visible in the grid view'); });
   console.log('  ok  the prompt bar stays visible in the grid view');
 
   // 2b. The canvas Requirements button is hidden while zoomed out.
@@ -63,9 +64,9 @@ export default async ({ url, page }) => {
   const BROWSE = 'Create an empty canvas and build it with the agent';
   const NAME_MODAL = 'New Canvas';
 
-  // "+ New" opens the browse overlay (grid stays underneath).
+  // "Create" opens the browse overlay (grid stays underneath).
   await page.locator('#canvas-grid-new').dispatchEvent('click');
-  await onScreen(BROWSE).catch(() => { throw new Error('"+ New" did not open the browse flow'); });
+  await onScreen(BROWSE).catch(() => { throw new Error('"Create" did not open the browse flow'); });
 
   // "from scratch" opens the name modal (browse stays underneath).
   await page.locator('#browse-from-scratch').dispatchEvent('click');
@@ -96,14 +97,14 @@ export default async ({ url, page }) => {
   // 4. The grid is still open — pick "other" → switches canvases and closes it.
   await page.locator('.canvas-grid-card[data-canvas="other"]').dispatchEvent('click');
   await page.waitForFunction(() => document.body.dataset.currentCanvas === 'other', { timeout: 6000 });
-  await offScreen('+ New').catch(() => { throw new Error('picking a canvas did not close the grid'); });
+  await offScreen('Create').catch(() => { throw new Error('picking a canvas did not close the grid'); });
   console.log('  ok  picking a canvas switches to it and closes the grid');
 
   // 5. Re-open, then Escape closes the grid.
   await page.locator('#canvas-overview-toggle').dispatchEvent('click');
-  await onScreen('+ New').catch(() => { throw new Error('grid did not reopen'); });
+  await onScreen('Create').catch(() => { throw new Error('grid did not reopen'); });
   await page.keyboard.press('Escape');
-  await offScreen('+ New').catch(() => { throw new Error('Escape did not close the grid'); });
+  await offScreen('Create').catch(() => { throw new Error('Escape did not close the grid'); });
   // ...and the canvas Requirements button comes back once we're on one canvas.
   await page.locator('#canvas-reqs-toggle').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
     throw new Error('canvas Requirements button should return after the grid closes');

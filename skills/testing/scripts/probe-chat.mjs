@@ -3,7 +3,7 @@
 //
 // The chat skill: scaffold a chat with skills/chat/scripts/create-chat.sh, then
 // prove it works the way a user would use it — the chat shows up, you type a
-// message, hit Send, and your message plus a reply land in the log.
+// message, hit the "↑" Send button, and your message plus a reply land in the log.
 //
 // A deterministic chat-stub agent stands in for the real one: it reads the
 // message out of the composer's dispatch and appends the two bubbles. The probe
@@ -65,8 +65,9 @@ export default async ({ browser }) => {
         if (!await waitForOnScreen(page, 'Chat with LiquidOS')) {
             throw new Error('the chat never rendered on screen');
         }
-        if (!await onScreen(page, 'Send')) {
-            throw new Error('the chat composer (Send) is not on screen');
+        // The composer's Send control is a glyph button ("↑", aria-label "Send").
+        if (!await onScreen(page, '↑')) {
+            throw new Error('the chat composer ("↑" Send) is not on screen');
         }
         console.log('  ok  create-chat.sh puts a working chat on screen');
 
