@@ -71,9 +71,11 @@ export default async ({ browser }) => {
         }
         console.log('  ok  create-chat.sh puts a working chat on screen');
 
-        // 2. Drive it like a user: type a message and send it.
+        // 2. Drive it like a user: type a message and send it. The composer is
+        // a <textarea name="message"> (it grows with content, like the prompt
+        // bar), not an <input>.
         const message = 'hello from the probe';
-        await page.fill('input[name="message"]', message);
+        await page.fill('textarea[name="message"]', message);
         await page.click('button[type="submit"]');
 
         // 3. The user's message and a reply land in the log.
