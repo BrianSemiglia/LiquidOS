@@ -99,7 +99,17 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         webView?.uiDelegate = self
         webView?.navigationDelegate = self
         webView?.allowsBackForwardNavigationGestures = true
-        
+        // Until a page paints, WKWebView draws its own opaque (white) backing on
+        // top of the window — a flash of white on launch (before the chooser
+        // even loads) and between page swaps, worst in dark mode. Stop it from
+        // drawing a background so the window's opaque desk-colored backing shows
+        // through any unpainted area; underPageBackgroundColor tints overscroll
+        // to match. Both follow the system light/dark via the dynamic deskColor.
+        webView?.setValue(false, forKey: "drawsBackground")
+        if #available(macOS 12.0, *) {
+            webView?.underPageBackgroundColor = Self.deskColor
+        }
+
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 840),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
