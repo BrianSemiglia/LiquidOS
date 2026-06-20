@@ -184,6 +184,11 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
             // and WKWebView's own HTML-fullscreen window get their own window,
             // so Escape still cancels them / exits video fullscreen natively.
             guard event.window === self.window else { return event }
+            // One action per physical press. Holding Escape makes macOS fire
+            // repeat key-downs; acting on each would flip the prompt bar
+            // rapidly. Still swallow the repeats so the canvas never sees a
+            // stray Escape — just don't re-trigger the handler.
+            if event.isARepeat { return nil }
             self.webView?.evaluateJavaScript("window.liquidos?.handleEscape?.()")
             return nil   // swallow: the web view (and the canvas) never see it
         }

@@ -5569,6 +5569,11 @@
             // preventDefault — browser-native Escape (e.g. exiting an element
             // fullscreen) should still happen.
             event.stopImmediatePropagation();
+            // One action per physical press: a held Escape auto-repeats keydown,
+            // which would toggle the prompt bar rapidly. Keep owning the key on
+            // repeats (above) so canvas content can't act on them either; just
+            // don't re-trigger the handler.
+            if (event.repeat) return;
             window.liquidos.handleEscape();
         }, true);
 
