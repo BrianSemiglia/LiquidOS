@@ -12,7 +12,8 @@ set -euo pipefail
 #   component.html   chat frame: header, an empty #chat-log, and a composer
 #                    wired to a <liquidos-callback on="submit"> whose prompt
 #                    feeds the user's message back to you to answer
-#   scroll.js        keeps #chat-log pinned to the newest message
+#   chat.js          composer behavior (echo the user's message on send, clear
+#                    the field) and keeps #chat-log pinned to the newest message
 #   feature-requirements.txt, diagnostics/status.json, tests/, data/
 # and registers it in the canvas input.json.
 #
@@ -21,8 +22,9 @@ set -euo pipefail
 # detail; reach for this whenever you need to say something to the user.)
 #
 # After running it, stream your opening line in as a .msg--bot bubble appended
-# to #chat-log. Every later user message arrives back as a prompt; append their
-# .msg--user bubble and your .msg--bot reply to #chat-log.
+# to #chat-log. Every later user message arrives back as a prompt; the chat has
+# already shown the user's own .msg--user bubble, so you only append your
+# .msg--bot reply to #chat-log.
 #
 # Output: one-line JSON describing the new chat.
 #
@@ -214,22 +216,26 @@ cat > "$component_dir/component.html" <<HTML
     <div class="chat">
         <div class="chat__header">Chat with LiquidOS</div>
         <div class="chat__log" id="chat-log"></div>
-        <liquidos-callback on="submit" scope="components/${safe_name}" values="message" prompt="The user sent this message in the chat: {{message}}. FIRST, before doing anything else, append two bubbles to #chat-log: their message as a .msg--user bubble, then a placeholder .msg--bot bubble containing only '…' to show you're working on a reply. THEN read the whole conversation in #chat-log for context (including any 'this/that' references) and, if the message asks to change the canvas or workspace, make that change. FINALLY, replace the '…' in the placeholder .msg--bot bubble with your actual reply (for a change, a short note saying what changed).">
+        <liquidos-callback on="submit" scope="components/${safe_name}" values="message" prompt="The user sent this message in the chat: {{message}}. Their own message is already shown in #chat-log — do not add it yourself. Read the whole conversation in #chat-log for context (including any 'this/that' references) and, if the message asks to change the canvas or workspace, make that change. Then append your reply as a new .msg--bot bubble to #chat-log (for a change, a short note saying what changed).">
             <form class="chat__composer" autocomplete="off">
                 <textarea name="message" aria-label="Message" rows="1" required></textarea>
                 <button type="submit" aria-label="Send">↑</button>
             </form>
         </liquidos-callback>
-        <liquidos-file path="components/${safe_name}/scroll.js" script></liquidos-file>
+        <liquidos-file path="components/${safe_name}/chat.js" script></liquidos-file>
     </div>
 </liquidos-component>
 HTML
 
-# scroll.js -----------------------------------------------------------------
-cat > "$component_dir/scroll.js" <<'JS'
-// Auto-follows new messages, but only when the user is already at the bottom:
-// scrolls to the newest bubble (and tracks streaming text) as long as they
-// haven't scrolled up to read history. Starts pinned on mount.
+# chat.js -------------------------------------------------------------------
+# Client behavior for the chat: the composer (echo the user's message on send,
+# clear the field, Enter/Shift+Enter) and auto-scroll.
+cat > "$component_dir/chat.js" <<'JS'
+// The chat's client behavior, in two parts:
+//   1. Auto-follow new messages — keep #chat-log pinned to the newest bubble
+//      (and track streaming text) as long as the user hasn't scrolled up.
+//   2. The composer — echo the user's message into the log on send and clear
+//      the field; the agent only appends its own reply.
 export function mount(surface) {
     const log = surface.querySelector('#chat-log');
     if (!log) return;
@@ -247,21 +253,14 @@ export function mount(surface) {
     // The user scrolling up unpins; scrolling back to the bottom re-pins.
     log.addEventListener('scroll', () => { pinned = atBottom(); });
 
-    // Composer: Send is disabled until there's text, and the input clears once
-    // the agent's reply lands — kept until then so a failed turn doesn't lose
-    // what the user typed.
+    // Composer: Send is disabled until there's text. On send the chat owns the
+    // user's side of the conversation — it echoes the typed message into the log
+    // as a .msg--user bubble and clears the field; the agent only appends its own
+    // .msg--bot reply. The clear is deferred to the next frame so the wrapping
+    // <liquidos-callback> still reads the message off the form first.
     const input = surface.querySelector('.chat__composer textarea');
     const sendBtn = surface.querySelector('.chat__composer button[type="submit"]');
-    let awaitingReply = false;
     const syncSend = () => { if (input && sendBtn) sendBtn.disabled = input.value.trim().length === 0; };
-    const clearWhenReplied = () => {
-        if (!awaitingReply || !input) return;
-        const bots = log.querySelectorAll('.msg--bot');
-        const last = bots[bots.length - 1];
-        const text = last ? last.textContent.trim() : '';
-        // The reply starts as a "…" placeholder; clear once real text replaces it.
-        if (text && text !== '…') { input.value = ''; awaitingReply = false; syncSend(); }
-    };
     if (input && sendBtn) {
         input.addEventListener('input', syncSend);
         // The composer is a textarea so it can grow with content (like the prompt
@@ -272,11 +271,20 @@ export function mount(surface) {
                 if (input.form && !sendBtn.disabled) input.form.requestSubmit();
             }
         });
-        if (input.form) input.form.addEventListener('submit', () => { awaitingReply = true; });
+        if (input.form) input.form.addEventListener('submit', () => {
+            const text = input.value.trim();
+            if (!text) return;
+            const bubble = document.createElement('div');
+            bubble.className = 'msg msg--user';
+            bubble.textContent = text;
+            log.appendChild(bubble);
+            if (pinned) toBottom();
+            requestAnimationFrame(() => { input.value = ''; syncSend(); });
+        });
         syncSend();
     }
 
-    const observer = new MutationObserver(() => { if (pinned) toBottom(); clearWhenReplied(); });
+    const observer = new MutationObserver(() => { if (pinned) toBottom(); });
     observer.observe(log, { childList: true, subtree: true, characterData: true });
 
     return () => observer.disconnect();

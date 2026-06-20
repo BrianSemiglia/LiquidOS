@@ -5,10 +5,10 @@
 // prove it works the way a user would use it — the chat shows up, you type a
 // message, hit the "↑" Send button, and your message plus a reply land in the log.
 //
-// A deterministic chat-stub agent stands in for the real one: it reads the
-// message out of the composer's dispatch and appends the two bubbles. The probe
-// asserts only what's on screen (the rendered text), never the DOM shape, the
-// wire protocol, or files on disk.
+// The chat echoes the user's own message into the log on send; a deterministic
+// chat-stub agent stands in for the real one and appends only its .msg--bot
+// reply. The probe asserts only what's on screen (the rendered text), never the
+// DOM shape, the wire protocol, or files on disk.
 //
 // Run it:  node run-probe.mjs probe-chat.mjs
 //
@@ -86,6 +86,19 @@ export default async ({ browser }) => {
             throw new Error('the reply never appeared in the chat log');
         }
         console.log('  ok  sending a message shows the message and a reply in the log');
+
+        // 4. Both survive a reload. The chat echoes the user's bubble straight
+        //    into the DOM on send; this proves it actually persisted (carried
+        //    into component.html when the agent's reply op landed), not just
+        //    painted for the session.
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+        if (!await waitForOnScreen(page, message)) {
+            throw new Error('the user message did not survive a reload (not persisted)');
+        }
+        if (!await waitForOnScreen(page, CHAT_STUB_REPLY)) {
+            throw new Error('the reply did not survive a reload (not persisted)');
+        }
+        console.log('  ok  the conversation survives a reload');
     } finally {
         try { sandbox.teardown(); } catch {}
         try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}

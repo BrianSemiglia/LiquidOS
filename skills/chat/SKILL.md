@@ -20,7 +20,7 @@ It builds a styled message log (`#chat-log`), a composer wired to a `<liquidos-c
 Then:
 
 - **Open the conversation** — stream your first line in as a `.msg--bot` bubble appended to `#chat-log` (one bubble per patch).
-- **Each later user message** arrives as a prompt. Append their `.msg--user` bubble and your `.msg--bot` reply to `#chat-log`. The whole conversation lives in `#chat-log` — read it for context (including "this/that" references) before replying.
+- **Each later user message** arrives as a prompt. The chat already echoed the user's own `.msg--user` bubble into `#chat-log` on send, so you only append your `.msg--bot` reply. The whole conversation lives in `#chat-log` — read it for context (including "this/that" references) before replying.
 - **A message can be a request** to change the canvas or workspace. Do the work, then append a short `.msg--bot` bubble saying what changed.
 
 A chat is implemented as an ordinary component under `components/<name>/`, so the component skill applies (streaming rules, diagnostics, portability) — but that's a detail. Reach for this whenever you need to talk to the user.
