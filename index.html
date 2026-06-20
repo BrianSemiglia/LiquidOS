@@ -1467,6 +1467,7 @@
            otherwise. */
         .agent-activity-row {
             grid-area: activity;
+            position: relative;
             display: flex;
             align-items: center;
             gap: 0.55rem;
@@ -1508,16 +1509,36 @@
 
         /* The heartbeat label — just text now; the pill chrome is on the row.
            The agent owns its content via <lqpatch target="#agent-activity">.
-           It takes priority for space: sized to its full content and never
-           shrinks, so the message is shown in full (the waveform yields the
-           space). */
+           It is taken out of flow and overlaid on top of the waveform, anchored
+           where the line begins (just past the dot), so a message appearing
+           never pushes the line sideways — it sits over it. Its opaque
+           background (the desk color behind the bar) occludes the line beneath
+           the text instead of letting it show through. */
         .agent-activity {
-            flex: 0 0 auto;
-            min-width: 3rem;
+            position: absolute;
+            /* Sit above the waveform canvas. The canvas is a flex item, and
+               flex items paint like z-index:auto positioned boxes in document
+               order — since the canvas follows this label in the DOM it would
+               otherwise paint on top, showing the line/spikes through the
+               label. An explicit z-index lifts the label back above it. */
+            z-index: 1;
+            left: calc(0.7rem + 6px + 0.55rem);
+            /* Span the FULL row height (not just the text line) so the opaque
+               background covers the whole waveform vertically — tall output
+               spikes are taller than the text, and a text-height background
+               would let their tips poke out above and below it. */
+            top: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            max-width: calc(100% - 0.7rem - 6px - 0.55rem - 0.7rem);
+            background: var(--bg);
+            padding-right: 0.45rem;
             font-size: 0.8rem;
             color: rgba(var(--fg), 0.78);
             line-height: 1.2;
             white-space: nowrap;
+            overflow: hidden;
         }
         .agent-activity[data-empty="true"] {
             display: none;
@@ -1525,9 +1546,9 @@
 
         /* Output waveform — a scrolling readout where each moment of the
            agent's output stream becomes a spike, moving right-to-left like an
-           audio recording. Only present while output is actually streaming, and
-           it yields space to the message: it fills the leftover room and shrinks
-           toward nothing when the message needs the width. */
+           audio recording. Only present while output is actually streaming. It
+           fills the full width past the dot and stays put; the message overlays
+           on top of it rather than displacing it. */
         .agent-activity-viz {
             flex: 1 1 0;
             min-width: 0;
