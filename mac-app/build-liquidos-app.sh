@@ -176,6 +176,12 @@ fi
 
 chmod +x "$MACOS/LiquidOS"
 
+# Ad-hoc code signature. macOS won't register an unsigned bundle with the
+# notification system, so UNUserNotificationCenter.requestAuthorization fails
+# silently and the app never appears in System Settings → Notifications. A
+# local ad-hoc signature ("-") is enough to make notifications work.
+codesign --force --deep --sign - "$APP"
+
 if command -v otool >/dev/null 2>&1; then
   BINARY_MINOS="$(otool -l "$MACOS/LiquidOS" | awk '/LC_BUILD_VERSION/{seen=1} seen && /minos/{print $2; exit}')"
   if [ "$BINARY_MINOS" != "13.0" ]; then

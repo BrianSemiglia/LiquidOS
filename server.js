@@ -875,8 +875,8 @@ const processOutputJob = async job => {
         });
 
         emitNativeNotification({
-            title: 'Agent finished',
-            body: canvasName(jobCanvasPath)
+            title: 'Finished',
+            body: job.prompt
         });
     } catch (error) {
         const activityRecord = activityPersistence.persistActivity({
@@ -908,8 +908,8 @@ const processOutputJob = async job => {
         });
 
         emitNativeNotification({
-            title: 'Agent failed',
-            body: canvasName(jobCanvasPath)
+            title: 'Failed',
+            body: job.prompt
         });
 
     } finally {
