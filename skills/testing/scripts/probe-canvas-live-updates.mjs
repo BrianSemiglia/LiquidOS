@@ -361,7 +361,7 @@ export default async ({ url, workspace, page, browser }) => {
     // include it.
     await test('agent creates canvas folder → grid lists it', async () => {
         const name = 'probe-canvas-' + Date.now();
-        agentWrite(name + '/input.json', { components: [] });
+        agentWrite(name + '/index.json', { components: [] });
         agentWrite(name + '/canvas.js', "import { cssLayout } from '/lib/css-layout.js'; export default cssLayout('');");
         const present = await page.waitForFunction(
             value => Array.from(document.querySelectorAll('.canvas-grid-card[data-canvas]'))
@@ -373,34 +373,34 @@ export default async ({ url, workspace, page, browser }) => {
         return 'grid card present: ' + name;
     });
 
-    // Agent adds a component to input.json — new component should appear.
+    // Agent adds a component to index.json — new component should appear.
     await test('agent adds component → new component appears in DOM', async () => {
         const newName = 'probe-new-' + Date.now();
         const rel = 'home/components/' + newName;
         agentWriteComponent(rel + '/component.html', 'components/' + newName,
             '<p data-new="' + newName + '">' + newName + '</p>');
-        const input = JSON.parse(agentRead('home/input.json'));
+        const input = JSON.parse(agentRead('home/index.json'));
         input.components.push('components/' + newName + '/component.html');
-        agentWrite('home/input.json', input);
+        agentWrite('home/index.json', input);
         const present = await page.waitForFunction(suffix =>
             Array.from(document.querySelectorAll('main .item'))
                 .some(item => (item.dataset.componentPath || '').includes('/' + suffix)),
             newName, { timeout: 15000 }
         ).then(() => true).catch(() => false);
-        if (!present) throw new Error('new component not in DOM after input.json append');
+        if (!present) throw new Error('new component not in DOM after index.json append');
         return 'component present: ' + newName;
     });
 
     // Agent removes a component — component should disappear.
     await test('agent removes component → component disappears from DOM', async () => {
         // Settle from the previous test's write before the next one — too-close
-        // writes to input.json can coalesce in the watcher and the canvas only
+        // writes to index.json can coalesce in the watcher and the canvas only
         // sees the second state, missing whatever was added in between.
         await sleep(800);
-        const input = JSON.parse(agentRead('home/input.json'));
+        const input = JSON.parse(agentRead('home/index.json'));
         const dropped = input.components.pop();
         const droppedName = path.basename(path.dirname(dropped));
-        agentWrite('home/input.json', input);
+        agentWrite('home/index.json', input);
         const gone = await page.waitForFunction(suffix =>
             !Array.from(document.querySelectorAll('main .item'))
                 .some(item => (item.dataset.componentPath || '').includes('/' + suffix)),

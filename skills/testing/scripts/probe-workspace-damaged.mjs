@@ -1,7 +1,7 @@
 //
 // probe-workspace-damaged.mjs
 //
-// Workspace is already broken when the server boots — input.json is
+// Workspace is already broken when the server boots — index.json is
 // invalid JSON. The user shouldn't land on a dead UI: the canvas-level
 // Repair card surfaces just like it does when the file is corrupted
 // mid-session (probe-canvas-damaged).

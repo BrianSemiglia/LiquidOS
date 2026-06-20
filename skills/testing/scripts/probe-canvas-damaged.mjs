@@ -1,8 +1,8 @@
 //
 // probe-canvas-damaged.mjs
 //
-// A malformed input.json on the active canvas surfaces a "Repair" button
-// the user can see. The probe writes a bad input.json into the sandbox
+// A malformed index.json on the active canvas surfaces a "Repair" button
+// the user can see. The probe writes a bad index.json into the sandbox
 // after boot (so the harness sees the change), then asserts on what
 // appears on screen.
 //
@@ -32,9 +32,9 @@ export default async ({ url, workspace, page }) => {
         throw new Error('"Repair" was already visible before damage');
     });
 
-    // Corrupt input.json mid-session — the watcher sees the change.
-    const inputPath = path.join(workspace, 'home', 'input.json');
-    fs.writeFileSync(inputPath, '{ this is not valid JSON', 'utf8');
+    // Corrupt index.json mid-session — the watcher sees the change.
+    const indexPath = path.join(workspace, 'home', 'index.json');
+    fs.writeFileSync(indexPath, '{ this is not valid JSON', 'utf8');
 
     // "Repair" surfaces — the user sees a broken canvas and can act on it.
     await onScreen('Repair').catch(() => {

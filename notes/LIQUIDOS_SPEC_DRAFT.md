@@ -137,7 +137,7 @@ items?
 
 **Workspace recognition**
 - Treats a `.liquidos` folder as a workspace
-- Treats any direct subdir with `input.json` as a canvas
+- Treats any direct subdir with `index.json` as a canvas
 - Treats any subdir under `<canvas>/components/` as a component
 - Detects canvases / components added or removed live
 
@@ -530,7 +530,7 @@ liquidos/
     - created by the user from scratch (named), by the agent, or installed from a peer
     - has plain-text intent (feature-requirements.txt) the user can edit
     - has a presentation module (canvas.js) the agent may rewrite
-    - holds zero or more components, ordered by input.json
+    - holds zero or more components, ordered by index.json
     - components can be added or removed by the agent
     - renders live as its files change
     - one canvas is active at a time; the user can switch

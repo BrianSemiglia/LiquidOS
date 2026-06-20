@@ -46,7 +46,7 @@ export default async ({ browser }) => {
     const ws = path.join(tmp, 'probe-chat.liquidos');
     const canvasDir = path.join(ws, 'home');
     fs.mkdirSync(canvasDir, { recursive: true });
-    fs.writeFileSync(path.join(canvasDir, 'input.json'), '{ "components": [] }\n');
+    fs.writeFileSync(path.join(canvasDir, 'index.json'), '{ "components": [] }\n');
     fs.writeFileSync(path.join(canvasDir, 'canvas.js'), "import { cssLayout } from '/lib/css-layout.js';\nexport default cssLayout('');\n");
 
     const scaffold = spawnSync('bash', [createChat, canvasDir], { encoding: 'utf8' });

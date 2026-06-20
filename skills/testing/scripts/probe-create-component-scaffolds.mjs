@@ -4,7 +4,7 @@
 // Scaffold a canvas, run skills/component/scripts/create-component.sh,
 // boot the workspace, and assert the new component renders in the
 // browser. If the scaffold puts files in the wrong place or appends
-// the wrong path to input.json, the component never reaches the DOM
+// the wrong path to index.json, the component never reaches the DOM
 // and the probe times out.
 //
 // Run it:  node run-probe.mjs probe-create-component-scaffolds.mjs
@@ -37,7 +37,7 @@ export default async ({ browser }) => {
     fs.mkdirSync(ws, { recursive: true });
     const canvasDir = path.join(ws, 'home');
     fs.mkdirSync(canvasDir, { recursive: true });
-    fs.writeFileSync(path.join(canvasDir, 'input.json'), '{ "components": [] }\n');
+    fs.writeFileSync(path.join(canvasDir, 'index.json'), '{ "components": [] }\n');
     fs.writeFileSync(path.join(canvasDir, 'canvas.js'), "import { cssLayout } from '/lib/css-layout.js';\nexport default cssLayout('');\n");
 
     // Run the scaffolder.
@@ -59,7 +59,7 @@ export default async ({ browser }) => {
         // with no inline content. Asserting that the element mounted proves
         // the script did its three real jobs — wrote a parseable
         // component.html, wrote feature-requirements.txt, and registered the
-        // path in input.json. Diagnostics check below covers the "no Repair"
+        // path in index.json. Diagnostics check below covers the "no Repair"
         // half (the chrome's Repair callback is always in the DOM but hidden
         // unless status.json records an error, so we can't tell from DOM
         // alone — we check the file).

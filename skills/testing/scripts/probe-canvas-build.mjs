@@ -3,7 +3,7 @@
 //
 // User edits feature-requirements.txt + clicks Build → /canvas/requirements
 // writes the file and dispatches the agent → test agent adds the
-// pre-staged probe-built component to input.json → harness re-renders
+// pre-staged probe-built component to index.json → harness re-renders
 // with the new component → probe observes the [data-canvas-build-marker]
 // element in the DOM.
 //
@@ -34,7 +34,7 @@ export default async ({ url, page }) => {
     await page.locator('#canvas-requirements-save').dispatchEvent('click');
 
     // The harness's input watcher re-renders the canvas after the agent
-    // writes input.json; wait for the new component's marker to appear.
+    // writes index.json; wait for the new component's marker to appear.
     try {
         await page.waitForSelector('[data-canvas-build-marker]', { timeout: 10000 });
         const markerText = (await page.locator('[data-canvas-build-marker]').textContent() || '').trim();

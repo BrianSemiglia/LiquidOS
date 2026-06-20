@@ -76,7 +76,7 @@ const scaffold = () => {
     const svc = path.join(home, 'svc');
     fs.mkdirSync(svc, { recursive: true });
     fs.writeFileSync(path.join(ws, 'active-canvas.json'), JSON.stringify({ canvas: 'home' }));
-    fs.writeFileSync(path.join(home, 'input.json'), JSON.stringify({ components: [] }));
+    fs.writeFileSync(path.join(home, 'index.json'), JSON.stringify({ components: [] }));
     fs.writeFileSync(path.join(home, 'canvas.js'),
         'export default (root) => ({ place() {}, teardown() { root.innerHTML = ""; } });\n');
     // worker.js: a long-lived process that spawns ONE child copy, so /spawn

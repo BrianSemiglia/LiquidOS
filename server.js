@@ -266,7 +266,7 @@ const canvasNameFromPath = canvasPath =>
     path.relative(WORKSPACE_PATH, canvasPath) || path.basename(canvasPath);
 
 let CANVAS_PATH = path.join(WORKSPACE_PATH, activeCanvasNameFromFile());
-let INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
+let INDEX_PATH = path.join(CANVAS_PATH, 'index.json');
 let ACTIVE_AGENT_KIND = activeAgentKindFromFile();
 // The agent runs with the workspace as its CWD. Each agent's discovery
 // dir (.claude/, .codex/, .hermes/, .pi/, .agents/) and the system-prompt
@@ -321,9 +321,9 @@ const streamCanvasFile = (req, res, file, type) => {
 
 fs.mkdirSync(WORKSPACE_PATH, { recursive: true });
 
-if (!fs.existsSync(path.join(CANVAS_PATH, 'input.json'))) {
+if (!fs.existsSync(path.join(CANVAS_PATH, 'index.json'))) {
     CANVAS_PATH = DEFAULT_CANVAS_PATH;
-    INPUT_PATH = path.join(CANVAS_PATH, 'input.json');
+    INDEX_PATH = path.join(CANVAS_PATH, 'index.json');
     writeActiveCanvasName(DEFAULT_CANVAS_NAME);
 }
 
@@ -559,7 +559,7 @@ const canvasFiles = createCanvasFiles({
 const canvasGraph = createCanvasGraph({
     fs,
     getCanvasPath: () => CANVAS_PATH,
-    getInputPath: () => INPUT_PATH,
+    getIndexPath: () => INDEX_PATH,
     readJson,
     resolveCanvasReference
 });
@@ -567,14 +567,14 @@ const canvasGraph = createCanvasGraph({
 canvasFiles.ensureCanvasDefaults('home');
 
 const ensureActiveCanvasFiles = () => {
-    if (!fs.existsSync(INPUT_PATH)) {
-        throw new Error('Canvas input.json not found: ' + INPUT_PATH);
+    if (!fs.existsSync(INDEX_PATH)) {
+        throw new Error('Canvas index.json not found: ' + INDEX_PATH);
     }
 };
 
 const applyCanvasRuntime = runtime => {
     CANVAS_PATH = runtime.canvasPath;
-    INPUT_PATH = runtime.inputPath;
+    INDEX_PATH = runtime.indexPath;
     return runtime;
 };
 
@@ -583,7 +583,7 @@ const createCanvasRuntime = canvasPath => {
 
     return {
         canvasPath: resolvedCanvasPath,
-        inputPath: path.join(resolvedCanvasPath, 'input.json'),
+        indexPath: path.join(resolvedCanvasPath, 'index.json'),
         started: false,
 
         start() {
@@ -833,7 +833,7 @@ const processOutputJob = async job => {
         agentResponse = await runQueuedAgentJob(buildAgentPrompt({ ...job, id: jobId, componentPath }), {
             job: outputQueue.outputJobSummary({ ...job, id: jobId, componentPath, status: 'running' }),
             canvasPath: jobCanvasPath,
-            inputPath: path.join(jobCanvasPath, 'input.json'),
+            indexPath: path.join(jobCanvasPath, 'index.json'),
             workingDirectory: WORKSPACE_PATH,
             systemPromptPath: AGENTS_RUNTIME_PATH
         });
@@ -963,7 +963,7 @@ const broadcastQueueState = (componentPath = '', completed = null) => {
     broadcast(queueStatePayload(componentPath, completed));
 };
 
-// Structural files (canvas.js, input.json, relationships/) have no element
+// Structural files (canvas.js, index.json, relationships/) have no element
 // on the page watching them — they re-render through the graph. Coalesce a
 // burst of them (an install copying many files, an agent's multi-file edit)
 // into one re-read + one generic update so the client runs load() once, not
@@ -1076,11 +1076,11 @@ const dispatchWorkspaceEvent = absPath => {
     broadcast({ type: 'workspace-file', path: rel });
 
     // canvas.js (presentation), the relationships under relationships/, and
-    // input.json (the component list) have no element watching them — they
+    // index.json (the component list) have no element watching them — they
     // re-render through the graph.
     return rel === activeName + '/canvas.js'
         || rel.startsWith(activeName + '/relationships/')
-        || rel === activeName + '/input.json';
+        || rel === activeName + '/index.json';
 };
 
 const startWorkspaceWatch = () => {
@@ -1292,7 +1292,7 @@ const canvasRequirementsPrompt = ({ canvasName, canvasScope, before, after }) =>
     after || '(none)',
     '',
     'Reconcile the canvas to match the updated requirements:',
-    '- Add, remove, or modify components in input.json as the prose dictates.',
+    '- Add, remove, or modify components in index.json as the prose dictates.',
     '- Add, remove, or modify relationships under ' + canvasScope + '/relationships/ (see skills/relationships).',
     '- Update individual components\' feature-requirements.txt files when canvas-level intent changes their roles.',
     'Keep feature-requirements.txt user-facing, plain-language, and faithful to what the canvas is for. Write the requirements as bullets, each line beginning with "- ".',
@@ -2175,7 +2175,7 @@ const server = http.createServer(async (req, res) => {
                         // feature-requirements.txt, feature-requirements.txt).
                         // Anything else is JSON-encodable structured data and
                         // gets pretty-printed (canvas/component state.json,
-                        // view.json, input.json, etc.).
+                        // view.json, index.json, etc.).
                         const body = typeof write.content === 'string'
                             ? write.content
                             : JSON.stringify(write.content, null, 2) + '\n';
@@ -2419,7 +2419,7 @@ server.listen(PORT, '127.0.0.1', () => {
     console.log('Build: ' + SERVER_BUILD);
     console.log('Server at http://127.0.0.1:' + resolvedPort);
     console.log('Canvas: ' + CANVAS_PATH);
-    console.log('Input: ' + INPUT_PATH);
+    console.log('Input: ' + INDEX_PATH);
 
     // The workspace booted. If a crash left work owed, dispatch it: Phase 1
     // (make it bootable) when a crash marker is present, otherwise Phase 2 (the

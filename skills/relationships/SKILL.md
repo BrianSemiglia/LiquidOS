@@ -9,7 +9,7 @@ triggers:
 
 # Relationships
 
-A *relationship* is a small unit of wiring that subscribes to one component's output and forwards data — possibly transformed — into another component's input. It lives under `<canvas>/relationships/<name>/`, is discovered by the server scanning that folder, and is **not** listed in `input.json`. The harness mounts each one onto a hidden surface and runs its `connect()` once with a map of every peer.
+A *relationship* is a small unit of wiring that subscribes to one component's output and forwards data — possibly transformed — into another component's input. It lives under `<canvas>/relationships/<name>/`, is discovered by the server scanning that folder, and is **not** listed in `index.json`. The harness mounts each one onto a hidden surface and runs its `connect()` once with a map of every peer.
 
 ## Where things live
 
@@ -224,8 +224,8 @@ bash skills/relationships/scripts/delete-relationship.sh <canvas-path> <name>
 bash skills/relationships/scripts/delete-relationship.sh <canvas-path> <from> <to>
 ```
 
-The endpoints are left untouched, and no `input.json` edit is required.
+The endpoints are left untouched, and no `index.json` edit is required.
 
 ## When a relationship grows UI
 
-If a relationship needs visible UI (a knob, a visualizer, controls), it stops being a relationship — move the folder under `<canvas>/components/`, list it in `input.json`, and treat it as a regular component. Its `connect()` still works the same way; everything else in the [component](../component/SKILL.md) contract starts to apply because there's now something to render.
+If a relationship needs visible UI (a knob, a visualizer, controls), it stops being a relationship — move the folder under `<canvas>/components/`, list it in `index.json`, and treat it as a regular component. Its `connect()` still works the same way; everything else in the [component](../component/SKILL.md) contract starts to apply because there's now something to render.

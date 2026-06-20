@@ -1,8 +1,8 @@
-input.json
+index.json
 output.json
 # Fixture workspaces under skills/testing must keep their input/output.json
 # so the bundled probes have known-good starting state.
-!skills/testing/fixtures/**/input.json
+!skills/testing/fixtures/**/index.json
 !skills/testing/fixtures/**/output.json
 node_modules/
 package.json

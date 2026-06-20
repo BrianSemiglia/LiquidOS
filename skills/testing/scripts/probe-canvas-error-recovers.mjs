@@ -2,7 +2,7 @@
 // probe-canvas-error-recovers.mjs
 //
 // Canvas boots damaged → user sees "Repair" on screen. The probe then
-// rewrites input.json to a valid state (the "agent's fix"). The
+// rewrites index.json to a valid state (the "agent's fix"). The
 // harness's canvasError clears, the canvas should paint its
 // components fresh ("canvas repaired" is visible), and "Repair"
 // must leave the screen. Without that, restarting the app is the
@@ -25,15 +25,15 @@ export default async ({ url, workspace, page }) => {
     const offScreen = (text) => page.waitForFunction(
         t => !document.body.innerText.includes(t), text, { timeout: 5000 });
 
-    // The fixture boots with a broken input.json → "Repair" appears.
+    // The fixture boots with a broken index.json → "Repair" appears.
     await onScreen('Repair').catch(() => {
         throw new Error('"Repair" never appeared on screen for the damaged canvas');
     });
 
-    // Simulate the agent's fix: rewrite input.json to point at the
+    // Simulate the agent's fix: rewrite index.json to point at the
     // pre-staged repaired component.
-    const inputPath = path.join(workspace, 'home', 'input.json');
-    fs.writeFileSync(inputPath, JSON.stringify({
+    const indexPath = path.join(workspace, 'home', 'index.json');
+    fs.writeFileSync(indexPath, JSON.stringify({
         components: ['components/canvas-repaired/component.html']
     }, null, 2) + '\n');
 

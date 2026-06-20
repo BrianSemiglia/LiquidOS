@@ -43,7 +43,7 @@ export default async ({ browser }) => {
     fs.mkdirSync(sourceDir, { recursive: true });
     fs.mkdirSync(sinkDir, { recursive: true });
 
-    fs.writeFileSync(path.join(canvasDir, 'input.json'), JSON.stringify({
+    fs.writeFileSync(path.join(canvasDir, 'index.json'), JSON.stringify({
         components: ['components/source/component.html', 'components/sink/component.html']
     }, null, 2) + '\n');
     fs.writeFileSync(path.join(canvasDir, 'canvas.js'), "import { cssLayout } from '/lib/css-layout.js';\nexport default cssLayout('');\n");

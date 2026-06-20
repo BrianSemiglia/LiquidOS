@@ -2,7 +2,7 @@
 //
 // Real agent's job for a canvas-scoped prompt typed in the bottom bar:
 // "do what the user said, on this canvas." Test agent does the
-// smallest deterministic thing: edits input.json to include the
+// smallest deterministic thing: edits index.json to include the
 // pre-staged probe-built component so the probe can observe the new
 // component in the DOM.
 
@@ -38,8 +38,8 @@ const PromptBarTestAgent = () => {
             if (!canvasFolder) { reject(new Error(KIND + ': could not extract canvas scope')); return; }
             setStatus({ status: 'running', cwd: workingDirectory });
             try {
-                const inputPath = path.join(canvasFolder, 'input.json');
-                fs.writeFileSync(inputPath, JSON.stringify({ components: ['components/probe-built/component.html'] }, null, 2) + '\n');
+                const indexPath = path.join(canvasFolder, 'index.json');
+                fs.writeFileSync(indexPath, JSON.stringify({ components: ['components/probe-built/component.html'] }, null, 2) + '\n');
                 setStatus({ status: 'waiting' });
                 resolve('ok');
             } catch (error) {

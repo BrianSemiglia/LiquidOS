@@ -2,7 +2,7 @@
 //
 // Simulates what a real agent would do for a canvas reconcile prompt:
 // add a component to the canvas. The fixture pre-stages a
-// `components/probe-built/` folder; this agent just edits input.json
+// `components/probe-built/` folder; this agent just edits index.json
 // to reference it. The harness's file watcher re-renders the canvas,
 // the new component surfaces with a [data-canvas-build-marker] element the
 // probe asserts on.
@@ -36,7 +36,7 @@ const CanvasBuildTestAgent = () => {
             if (!workingDirectory) { reject(new Error(KIND + ': run requires workingDirectory')); return; }
             // The reconcile prompt's scope is the canvas folder. The probe-
             // built component is pre-staged in the fixture, so this agent
-            // just adds it to input.json.
+            // just adds it to index.json.
             const canvasFolder = (extractScope(prompt) || '').replace(/\/$/, '');
             if (!canvasFolder) {
                 reject(new Error(KIND + ': could not extract canvas scope from prompt'));
@@ -44,8 +44,8 @@ const CanvasBuildTestAgent = () => {
             }
             setStatus({ status: 'running', cwd: workingDirectory });
             try {
-                const inputPath = path.join(canvasFolder, 'input.json');
-                fs.writeFileSync(inputPath, JSON.stringify({ components: ['components/probe-built/component.html'] }, null, 2) + '\n');
+                const indexPath = path.join(canvasFolder, 'index.json');
+                fs.writeFileSync(indexPath, JSON.stringify({ components: ['components/probe-built/component.html'] }, null, 2) + '\n');
                 setStatus({ status: 'waiting' });
                 resolve('ok');
             } catch (error) {

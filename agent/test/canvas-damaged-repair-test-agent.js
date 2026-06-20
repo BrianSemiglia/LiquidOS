@@ -1,11 +1,11 @@
 // Test agent for the canvas-damaged Repair click probe.
 //
 // Receives the dispatch fired when the user clicks Repair on a "Canvas
-// is damaged" card. The fixture has a broken input.json (entries point
+// is damaged" card. The fixture has a broken index.json (entries point
 // at components without a component.html file) and a pre-staged
 // "canvas-repaired" component carrying [data-canvas-repair-marker].
 // The agent's "repair" is rewriting the component's component.html and
-// input.json to reference the repaired component so the canvas can
+// index.json to reference the repaired component so the canvas can
 // render again.
 
 const fs = require('fs');
@@ -61,7 +61,7 @@ const CanvasDamagedRepairTestAgent = () => {
                         '<p>contract failed: ' + escape(failed.map(f => f.name).join(', ')) + '</p>' +
                         '<pre data-prompt-received>' + escape(prompt) + '</pre>' +
                         '</div>';
-                    // Surface the failure: rewrite input.json to point at the
+                    // Surface the failure: rewrite index.json to point at the
                     // pre-staged component AND replace its component.html with
                     // the failure HTML, so the probe sees the diagnostic.
                     fs.writeFileSync(repairedCompHtmlPath, `<liquidos-component path="components/canvas-repaired">\n    ${html}\n</liquidos-component>\n`);
@@ -70,8 +70,8 @@ const CanvasDamagedRepairTestAgent = () => {
                     // marker (in case a prior run left a failure HTML).
                     fs.writeFileSync(repairedCompHtmlPath, `<liquidos-component path="components/canvas-repaired">\n    <p data-canvas-repair-marker>canvas repaired</p>\n</liquidos-component>\n`);
                 }
-                const inputPath = path.join(scope, 'input.json');
-                fs.writeFileSync(inputPath, JSON.stringify({
+                const indexPath = path.join(scope, 'index.json');
+                fs.writeFileSync(indexPath, JSON.stringify({
                     components: ['components/canvas-repaired/component.html']
                 }, null, 2) + '\n');
                 setStatus({ status: 'waiting' });

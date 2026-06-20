@@ -18,7 +18,7 @@ set -euo pipefail
 #     down on the next refresh. The client's reactive wiring drops the peer
 #     when the surface goes away — no stale subscription.
 #   - Removes relationships/ entirely if it's now empty.
-#   - Does NOT touch input.json (relationships are not listed there).
+#   - Does NOT touch index.json (relationships are not listed there).
 #
 # Output: one-line JSON describing what was removed.
 #
@@ -44,8 +44,8 @@ fi
 
 canvas_dir="${positional[0]}"
 
-if [ ! -d "$canvas_dir" ] || [ ! -f "$canvas_dir/input.json" ]; then
-    echo "Error: not a canvas (no input.json): $canvas_dir" >&2
+if [ ! -d "$canvas_dir" ] || [ ! -f "$canvas_dir/index.json" ]; then
+    echo "Error: not a canvas (no index.json): $canvas_dir" >&2
     exit 1
 fi
 canvas_dir="$(cd "$canvas_dir" && pwd)"

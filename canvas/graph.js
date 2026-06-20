@@ -3,7 +3,7 @@ const path = require('path');
 const createCanvasGraph = ({
     fs,
     getCanvasPath,
-    getInputPath,
+    getIndexPath,
     readJson,
     resolveCanvasReference
 }) => {
@@ -159,15 +159,15 @@ const createCanvasGraph = ({
     });
 
     const inputEntries = () => {
-        const input = readJson(getInputPath());
+        const input = readJson(getIndexPath());
 
         if (!Array.isArray(input.components)) {
-            throw new Error('input.json must contain { "components": [...] }');
+            throw new Error('index.json must contain { "components": [...] }');
         }
 
         return input.components.map((componentPath, index) => {
             if (typeof componentPath !== 'string') {
-                throw new Error('input.json components[' + index + '] must be a string path');
+                throw new Error('index.json components[' + index + '] must be a string path');
             }
 
             return {
@@ -233,7 +233,7 @@ const createCanvasGraph = ({
 
     // Relationships are component-shaped folders under <canvas>/relationships/.
     // The harness mounts them invisibly and wires them to the canvas's regular
-    // components via the I/O contract (surface.__io). They are NOT in input.json
+    // components via the I/O contract (surface.__io). They are NOT in index.json
     // and don't render UI of their own — they're the connective tissue.
     const relationshipsDir = () => path.join(getCanvasPath(), 'relationships');
 
@@ -298,10 +298,10 @@ const createCanvasGraph = ({
 
     const renderedInput = () => {
         try {
-            const input = readJson(getInputPath());
+            const input = readJson(getIndexPath());
 
             if (!Array.isArray(input.components)) {
-                throw new Error('input.json must contain { "components": [...] }');
+                throw new Error('index.json must contain { "components": [...] }');
             }
 
             // Each entry must resolve to an existing file. Folder paths
@@ -313,7 +313,7 @@ const createCanvasGraph = ({
                     !fs.existsSync(componentPath) || !fs.statSync(componentPath).isFile());
             if (missing.length > 0) {
                 const names = missing.map(m => input.components[m.index]).join(', ');
-                throw new Error('input.json references components without a valid entry file: ' + names);
+                throw new Error('index.json references components without a valid entry file: ' + names);
             }
 
             const leaves = leafComponents();
@@ -350,7 +350,7 @@ const createCanvasGraph = ({
     };
 
     const validateCanvasConfig = () => {
-        const input = readJson(getInputPath());
+        const input = readJson(getIndexPath());
 
         if (!Array.isArray(input.components)) {
             throw new Error('Canvas config must contain a components array');

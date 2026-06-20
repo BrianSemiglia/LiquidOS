@@ -2,7 +2,7 @@
 // probe-canvas-damaged-repair-click.mjs
 //
 // Clicking the Repair button on a "Canvas is damaged" card dispatches
-// the agent scoped to the canvas. The stub agent rewrites input.json
+// the agent scoped to the canvas. The stub agent rewrites index.json
 // to point at a pre-staged repaired component (carrying a known DOM
 // marker). The probe asserts the marker appears — proof that the
 // Repair click actually drove the canvas back to a healthy state.

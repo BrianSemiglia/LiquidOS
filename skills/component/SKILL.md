@@ -139,7 +139,7 @@ Starting markup (interactive):
 
 `bash skills/component/scripts/delete-component.sh <canvas-path> <name>` — removes the component and any relationships that wire it. Idempotent.
 
-If the user asked to hide rather than delete, drop the entry from `input.json` and leave the folder.
+If the user asked to hide rather than delete, drop the entry from `index.json` and leave the folder.
 
 ## Offer actions, don't just display state
 

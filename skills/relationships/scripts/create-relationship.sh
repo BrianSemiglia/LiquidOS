@@ -22,7 +22,7 @@ set -euo pipefail
 #     at the relationship folder root. No view.json — relationships
 #     don't render, so the harness synthesizes their component shape
 #     from convention.
-#   - Does NOT touch input.json. The server discovers relationships by
+#   - Does NOT touch index.json. The server discovers relationships by
 #     scanning <canvas>/relationships/.
 #
 # Output: one-line JSON describing the new relationship.
@@ -68,8 +68,8 @@ if [ ! -d "$canvas_dir" ]; then
     exit 1
 fi
 
-if [ ! -f "$canvas_dir/input.json" ]; then
-    echo "Error: $canvas_dir/input.json not found (is this a canvas?)" >&2
+if [ ! -f "$canvas_dir/index.json" ]; then
+    echo "Error: $canvas_dir/index.json not found (is this a canvas?)" >&2
     exit 1
 fi
 

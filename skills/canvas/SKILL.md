@@ -6,7 +6,7 @@ triggers:
   - User wants to change how components are arranged or presented (stack, grid, 3D, etc.)
   - User wants components to behave as a group (scroll-linked animation, snap, swipe-to-dismiss)
   - User wants canvas-level input (custom scroll, keyboard shortcuts, gestures)
-  - Canvas-level Repair: input.json, canvas.js, or anything else flagged as a damaged canvas
+  - Canvas-level Repair: index.json, canvas.js, or anything else flagged as a damaged canvas
 ---
 
 # Canvas
@@ -19,16 +19,16 @@ Land here when the work is about *how components are presented and navigated*, n
 
 ```text
 <canvas>/
-  input.json                  — manifest: { "components": ["components/<name>/component.html", ...] }
+  index.json                  — manifest: { "components": ["components/<name>/component.html", ...] }
   canvas.js                   — presentation, input, group behavior
   feature-requirements.txt    — plain-text intent: what this canvas is for
   components/                 — component folders (see Component Skill)
   relationships/              — wires between components (see Relationship Skill)
 ```
 
-Each entry in `input.json`'s `components` array is a canvas-relative path to a component's `component.html` entry file. Folder-only paths (`"components/<name>"`) won't render — the harness flags the canvas as damaged and surfaces a Repair affordance.
+Each entry in `index.json`'s `components` array is a canvas-relative path to a component's `component.html` entry file. Folder-only paths (`"components/<name>"`) won't render — the harness flags the canvas as damaged and surfaces a Repair affordance.
 
-Add or remove components by editing `input.json`. Change arrangement, navigation, or group behavior by editing `canvas.js`. Update intent in `feature-requirements.txt`.
+Add or remove components by editing `index.json`. Change arrangement, navigation, or group behavior by editing `canvas.js`. Update intent in `feature-requirements.txt`.
 
 ## feature-requirements.txt
 

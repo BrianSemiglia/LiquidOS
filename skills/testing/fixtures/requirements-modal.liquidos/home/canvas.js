@@ -31,7 +31,7 @@ export default (root, context = {}) => {
     stage.appendChild(world);
     root.appendChild(stage);
 
-    const INPUT_PATH = canvasName + '/input.json';
+    const INDEX_PATH = canvasName + '/index.json';
     let lastItems = [];
 
     const wrappersByPath = new Map();
@@ -66,7 +66,7 @@ export default (root, context = {}) => {
 
     const loadInput = async () => {
         if (typeof fetchJson !== 'function') return;
-        const json = await fetchJson(INPUT_PATH);
+        const json = await fetchJson(INDEX_PATH);
         lastItems = Array.isArray(json?.components) ? json.components.map(String) : [];
         applyPlacement();
     };

@@ -17,7 +17,7 @@ The skill content would be the smallest possible description of the workspace
 contract. Roughly:
 
 > A LiquidOS workspace is a `.liquidos` folder containing one or more canvases.
-> Each canvas is a subfolder with `input.json` (component manifest), `canvas.js`
+> Each canvas is a subfolder with `index.json` (component manifest), `canvas.js`
 > (presentation), and `feature-requirements.txt` (what the canvas is for).
 > Components live under `<canvas>/components/<name>/` and have a
 > `presented/feature-requirements.txt` plus the files needed to render them.

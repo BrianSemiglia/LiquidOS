@@ -5,8 +5,8 @@
 // the agent enough context to act without guessing. Skill discovery is
 // LLM-decided and unreliable — the prompt is the only signal we
 // control. The probe asserts the canvas-Repair callback's prompt names
-// the contract (input.json entries must end in component.html, the
-// agent must write the file AND update input.json), so a dispatched
+// the contract (index.json entries must end in component.html, the
+// agent must write the file AND update index.json), so a dispatched
 // agent has the recipe without needing to find any specific skill.
 //
 // Run it:  node run-probe.mjs probe-canvas-damaged-prompt-points-at-skill.mjs

@@ -3,7 +3,7 @@
 //
 // User types into the bottom prompt bar and submits → harness fires the
 // globalSubmitCallback with the canvas-scoped prompt → server queue
-// dispatches the agent → test agent edits input.json to add the pre-
+// dispatches the agent → test agent edits index.json to add the pre-
 // staged probe-built component → harness re-renders → probe observes
 // the [data-canvas-build-marker] in the DOM.
 //

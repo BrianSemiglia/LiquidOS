@@ -42,10 +42,10 @@ if [ ! -d "$CANVAS_DIR" ]; then
     exit 1
 fi
 
-INPUT_PATH="$CANVAS_DIR/input.json"
+INDEX_PATH="$CANVAS_DIR/index.json"
 
-if [ ! -f "$INPUT_PATH" ]; then
-    echo "Error: canvas has no input.json: $INPUT_PATH" >&2
+if [ ! -f "$INDEX_PATH" ]; then
+    echo "Error: canvas has no index.json: $INDEX_PATH" >&2
     exit 1
 fi
 
@@ -68,7 +68,7 @@ else
     : > "$CANVAS_REQ_DEST"
 fi
 
-# Component requirements: walk input.json.components, copy each
+# Component requirements: walk index.json.components, copy each
 # component's feature-requirements.txt under its leaf name.
 COMPONENT_PATHS=()
 while IFS= read -r line; do
@@ -80,7 +80,7 @@ const components = Array.isArray(input.components) ? input.components : [];
 for (const c of components) {
     if (typeof c === "string") process.stdout.write(c + "\n");
 }
-' "$INPUT_PATH")
+' "$INDEX_PATH")
 
 for COMPONENT_REL in "${COMPONENT_PATHS[@]+"${COMPONENT_PATHS[@]}"}"; do
     COMPONENT_DIR="$(dirname "$COMPONENT_REL")"

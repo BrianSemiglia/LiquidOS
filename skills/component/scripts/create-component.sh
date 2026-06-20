@@ -14,7 +14,7 @@ set -euo pipefail
 #       component.html         (an empty <liquidos-component> wrapper)
 #       feature-requirements.txt
 #       diagnostics/status.json
-#   - Appends components/<name>/component.html to the canvas input.json's
+#   - Appends components/<name>/component.html to the canvas index.json's
 #     components array.
 #
 # That's the whole scaffold. The agent fills in component.html with its
@@ -53,8 +53,8 @@ if [ ! -d "$canvas_dir" ]; then
     exit 1
 fi
 
-if [ ! -f "$canvas_dir/input.json" ]; then
-    echo "Error: $canvas_dir/input.json not found (is this a canvas?)" >&2
+if [ ! -f "$canvas_dir/index.json" ]; then
+    echo "Error: $canvas_dir/index.json not found (is this a canvas?)" >&2
     exit 1
 fi
 
@@ -106,15 +106,15 @@ cat > "$component_dir/feature-requirements.txt" <<TXT
 - Describe the first thing this component should do.
 TXT
 
-# Append components/<name>/component.html to canvas input.json (preserve every
+# Append components/<name>/component.html to canvas index.json (preserve every
 # other key and entry; skip if already present).
 node -e '
 const fs = require("fs");
-const [inputPath, componentPath] = process.argv.slice(1);
-const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
+const [indexPath, componentPath] = process.argv.slice(1);
+const input = JSON.parse(fs.readFileSync(indexPath, "utf8"));
 if (!Array.isArray(input.components)) input.components = [];
 if (!input.components.includes(componentPath)) input.components.push(componentPath);
-fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + "\n");
-' "$canvas_dir/input.json" "components/$safe_name/component.html"
+fs.writeFileSync(indexPath, JSON.stringify(input, null, 2) + "\n");
+' "$canvas_dir/index.json" "components/$safe_name/component.html"
 
 printf '{"component":"%s","path":"%s"}\n' "$safe_name" "$component_dir"

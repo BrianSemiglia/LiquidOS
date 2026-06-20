@@ -43,7 +43,7 @@ export default async () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'force-quit-'));
     const workspace = path.join(tmpRoot, 'force-quit.liquidos');
     fs.mkdirSync(path.join(workspace, 'home'), { recursive: true });
-    fs.writeFileSync(path.join(workspace, 'home', 'input.json'), JSON.stringify({ components: [] }, null, 2) + '\n');
+    fs.writeFileSync(path.join(workspace, 'home', 'index.json'), JSON.stringify({ components: [] }, null, 2) + '\n');
     const markerPath = path.join(workspace, '.crash-report.json');
 
     let proc = null;

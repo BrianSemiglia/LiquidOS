@@ -150,7 +150,7 @@ export default async () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'crash-recovery-'));
     const workspace = path.join(tmpRoot, 'recovery.liquidos');
     fs.mkdirSync(path.join(workspace, 'home'), { recursive: true });
-    fs.writeFileSync(path.join(workspace, 'home', 'input.json'), JSON.stringify({ components: [] }, null, 2) + '\n');
+    fs.writeFileSync(path.join(workspace, 'home', 'index.json'), JSON.stringify({ components: [] }, null, 2) + '\n');
 
     const procs = [];
     let agentStream = null;

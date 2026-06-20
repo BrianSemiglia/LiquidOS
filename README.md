@@ -28,10 +28,10 @@ The server expects the `.liquidos` workspace itself to be the canvas root. Each 
 Workspace.liquidos/
   active-canvas.json
   home/
-    input.json
+    index.json
     components/
   <other-canvas>/
-    input.json
+    index.json
     components/
 ```
 

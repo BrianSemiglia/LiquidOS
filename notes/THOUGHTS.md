@@ -22,7 +22,7 @@ updates:
   - agent can poll truth when needed
   - register specific component for updates so can be done programatically without delay of agent intercept 🚨
 
-// make harness boot/kill services on add/remove from input.json?
+// make harness boot/kill services on add/remove from index.json?
 //   - or let agent manage that in case we want to support background running
 //   - no, views should minimize instead if want to keep alive
 

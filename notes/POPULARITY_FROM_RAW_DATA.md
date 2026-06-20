@@ -412,7 +412,7 @@ Critically: **the protocol doesn't change for this.** Bundles already carry `can
 
 - Two-level histogram instead of flat. Outer: component types (clustered by normalized name, just like bullets are clustered by normalized text — same primitive). Inner: bullets within each type.
 - UI is tree-shaped. Each component type is a section the user can check or uncheck; inside, bullet checkboxes default to popular ones. Tier thresholds (outer and inner) are the recipient's call — agent or user.
-- Build assembles a real canvas: creates each checked component with its checked bullets as `feature-requirements.txt`, lists them in `input.json`, hands the whole thing to the agent to materialize. The agent picks the canvas name. The component names come straight from the popular clusters.
+- Build assembles a real canvas: creates each checked component with its checked bullets as `feature-requirements.txt`, lists them in `index.json`, hands the whole thing to the agent to materialize. The agent picks the canvas name. The component names come straight from the popular clusters.
 
 The component-name clustering has the same wording-variation problem as bullet clustering ("restaurants" vs "restaurant-list" vs "RestaurantList"), with the same answer — normalize first, MinHash or LLM-rename if needed. Same recipient choice, same protocol-stays-dumb shape.
 

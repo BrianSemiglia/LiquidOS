@@ -49,8 +49,8 @@ if (path.extname(sourceWorkspace) !== '.liquidos') {
   fail(`workspace must be the .liquidos folder, not a canvas/home folder: ${sourceWorkspace}`);
 }
 
-if (!fs.existsSync(path.join(sourceWorkspace, 'home', 'input.json'))) {
-  fail(`workspace is missing home/input.json: ${sourceWorkspace}`);
+if (!fs.existsSync(path.join(sourceWorkspace, 'home', 'index.json'))) {
+  fail(`workspace is missing home/index.json: ${sourceWorkspace}`);
 }
 
 if (!fs.existsSync(appDirectory) || !fs.statSync(appDirectory).isDirectory()) {

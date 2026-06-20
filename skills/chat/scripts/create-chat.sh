@@ -15,7 +15,7 @@ set -euo pipefail
 #   chat.js          composer behavior (echo the user's message on send, clear
 #                    the field) and keeps #chat-log pinned to the newest message
 #   feature-requirements.txt, diagnostics/status.json, tests/, data/
-# and registers it in the canvas input.json.
+# and registers it in the canvas index.json.
 #
 # (A chat is implemented as an ordinary component, so the component skill
 # applies — streaming, diagnostics, portability. That's an implementation
@@ -56,8 +56,8 @@ if [ ! -d "$canvas_dir" ]; then
     exit 1
 fi
 
-if [ ! -f "$canvas_dir/input.json" ]; then
-    echo "Error: $canvas_dir/input.json not found (is this a canvas?)" >&2
+if [ ! -f "$canvas_dir/index.json" ]; then
+    echo "Error: $canvas_dir/index.json not found (is this a canvas?)" >&2
     exit 1
 fi
 
@@ -298,15 +298,15 @@ cat > "$component_dir/feature-requirements.txt" <<TXT
 - Ask LiquidOS to change the canvas or workspace from the chat
 TXT
 
-# Append components/<name>/component.html to canvas input.json (preserve every
+# Append components/<name>/component.html to canvas index.json (preserve every
 # other key and entry; skip if already present).
 node -e '
 const fs = require("fs");
-const [inputPath, componentPath] = process.argv.slice(1);
-const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
+const [indexPath, componentPath] = process.argv.slice(1);
+const input = JSON.parse(fs.readFileSync(indexPath, "utf8"));
 if (!Array.isArray(input.components)) input.components = [];
 if (!input.components.includes(componentPath)) input.components.push(componentPath);
-fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + "\n");
-' "$canvas_dir/input.json" "components/$safe_name/component.html"
+fs.writeFileSync(indexPath, JSON.stringify(input, null, 2) + "\n");
+' "$canvas_dir/index.json" "components/$safe_name/component.html"
 
 printf '{"chat":"%s","path":"%s"}\n' "$safe_name" "$component_dir"

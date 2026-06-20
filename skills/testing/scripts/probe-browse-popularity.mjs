@@ -68,7 +68,7 @@ const normalizeBullet = s => s
     .toLowerCase();
 
 // Lay down a component in new shape: component.html at the folder root
-// (referenced from input.json), feature-requirements.txt alongside.
+// (referenced from index.json), feature-requirements.txt alongside.
 // The publisher's UI mounts the component the same way a real canvas would.
 const writeComponent = (workspace, name, bullets, lookup) => {
     const compDir = path.join(workspace, 'home', 'components', name);
@@ -83,12 +83,12 @@ const writeComponent = (workspace, name, bullets, lookup) => {
         '    <div></div>\n' +
         '</liquidos-component>\n'
     );
-    const inputPath = path.join(workspace, 'home', 'input.json');
-    const input = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
+    const indexPath = path.join(workspace, 'home', 'index.json');
+    const input = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
     const compPath = 'components/' + name + '/component.html';
     if (!Array.isArray(input.components)) input.components = [];
     if (!input.components.includes(compPath)) input.components.push(compPath);
-    fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + '\n');
+    fs.writeFileSync(indexPath, JSON.stringify(input, null, 2) + '\n');
 };
 
 export default async ({ url, page, browser }) => {

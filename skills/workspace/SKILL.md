@@ -31,7 +31,7 @@ Workspace.liquidos/
   .liquidos/                  — harness scratch (logs, errors); don't edit
 ```
 
-A canvas is any direct child folder that contains `input.json`.
+A canvas is any direct child folder that contains `index.json`.
 
 ## What the agent does at workspace scope
 
@@ -70,7 +70,7 @@ bash skills/workspace/scripts/set-ui-state.sh <workspace> --engaged --no-compone
 
 ### List canvases
 
-Scan the workspace for direct child folders that contain `input.json`. Each one is a canvas.
+Scan the workspace for direct child folders that contain `index.json`. Each one is a canvas.
 
 ### Create a new canvas
 

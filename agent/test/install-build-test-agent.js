@@ -4,7 +4,7 @@
 // job scoped to the newly-installed canvas. A real agent would read each
 // scaffolded component's feature-requirements.txt and rewrite its
 // view.json with the actual UI. This agent simulates that minimally:
-// for every component referenced from input.json, replace view.json's
+// for every component referenced from index.json, replace view.json's
 // html with a sentinel <p data-install-build-marker>built</p> so the
 // probe can assert the agent ran and the result reached the DOM.
 
@@ -42,8 +42,8 @@ const InstallBuildTestAgent = () => {
             }
             setStatus({ status: 'running', cwd: workingDirectory });
             try {
-                const inputPath = path.join(canvasFolder, 'input.json');
-                const input = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
+                const indexPath = path.join(canvasFolder, 'index.json');
+                const input = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
                 const entries = Array.isArray(input.components) ? input.components : [];
                 for (const entry of entries) {
                     // entry is "components/<name>/component.html"; rewrite that

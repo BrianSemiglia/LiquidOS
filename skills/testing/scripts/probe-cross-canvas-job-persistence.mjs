@@ -4,9 +4,9 @@
 // Locks in the queue-survives-canvas-switch invariant.
 //
 // Setup: workspace with two canvases (home, other), each with a
-// probe-built component pre-staged but not in input.json. Booted with
+// probe-built component pre-staged but not in index.json. Booted with
 // the cross-canvas-persistence-test agent — its run() sleeps 2 seconds
-// before writing input.json so the job is still in flight while the
+// before writing index.json so the job is still in flight while the
 // user navigates.
 //
 // Flow:
@@ -18,7 +18,7 @@
 //      pending job before it could complete.
 //   3. Wait long enough for the agent to finish (~3s).
 //   4. Switch back to home.
-//   5. Assert the agent's writes landed: home's input.json now
+//   5. Assert the agent's writes landed: home's index.json now
 //      references probe-built, and the home marker is in the DOM.
 //
 // While on other, also assert that probe-built is NOT visible there —
@@ -76,7 +76,7 @@ export default async ({ url, workspace, page }) => {
     await sleep(3000);
 
     // While still on other, probe-built must NOT have appeared here
-    // (the agent's input.json write was for home, not other).
+    // (the agent's index.json write was for home, not other).
     const builtOnOther = await page.evaluate(
         () => !!document.querySelector('[data-cross-canvas-built="other"]')
     );

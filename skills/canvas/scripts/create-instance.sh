@@ -52,8 +52,8 @@ if [ -d "$TEMPLATE_DIR" ]; then
     cp -R "$TEMPLATE_DIR/." "$CANVAS_DIR/"
 fi
 
-if [ ! -f "$CANVAS_DIR/input.json" ]; then
-    cat > "$CANVAS_DIR/input.json" <<'JSON'
+if [ ! -f "$CANVAS_DIR/index.json" ]; then
+    cat > "$CANVAS_DIR/index.json" <<'JSON'
 {
   "components": []
 }
@@ -62,12 +62,12 @@ fi
 
 node -e '
 const fs = require("fs");
-const inputPath = process.argv[1];
-const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
+const indexPath = process.argv[1];
+const input = JSON.parse(fs.readFileSync(indexPath, "utf8"));
 if (!Array.isArray(input.components)) input.components = [];
 delete input.presentation;
-fs.writeFileSync(inputPath, JSON.stringify(input, null, 2) + "\n");
-' "$CANVAS_DIR/input.json"
+fs.writeFileSync(indexPath, JSON.stringify(input, null, 2) + "\n");
+' "$CANVAS_DIR/index.json"
 
 if [ ! -f "$CANVAS_DIR/output.json" ]; then
     printf '[]\n' > "$CANVAS_DIR/output.json"

@@ -149,14 +149,14 @@ const isCanvasShared = (workspacePath, canvasName) =>
     readShareFlag(path.join(workspacePath, canvasName, 'share.json')) === true;
 
 // Canvas folders are the non-dotted direct children of the workspace that hold
-// an input.json (mirrors canvas/files.js availableCanvases).
+// an index.json (mirrors canvas/files.js availableCanvases).
 const canvasNames = (workspacePath) => {
     try {
         return fs.readdirSync(workspacePath, { withFileTypes: true })
             .filter(entry =>
                 entry.isDirectory() &&
                 !entry.name.startsWith('.') &&
-                fs.existsSync(path.join(workspacePath, entry.name, 'input.json')))
+                fs.existsSync(path.join(workspacePath, entry.name, 'index.json')))
             .map(entry => entry.name);
     } catch { return []; }
 };

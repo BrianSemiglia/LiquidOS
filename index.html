@@ -2535,7 +2535,7 @@
         let debugState = null;
         let activeLanes = new Set();
         // Both maps key on the component's path (componentPath, absolute).
-        // Path is stable across input.json reorders; the array index is not.
+        // Path is stable across index.json reorders; the array index is not.
         const renderedItemsByPath = new Map();
         const componentMountsByItem = new WeakMap();
         // Relationships: hidden components under <canvas>/relationships/ that wire
@@ -4176,7 +4176,7 @@
             const resourcesChanged = componentResourcesSig(prev) !== componentResourcesSig(component);
             const entryChanged = !prev || prev.entryPath !== component.entryPath;
             // New-shape components are referenced by component.html paths in
-            // input.json — the snapshot's html field is empty since the
+            // index.json — the snapshot's html field is empty since the
             // harness no longer materializes view content server-side. Drop
             // a <liquidos-file> that loads the entry; everything inside
             // (chrome, view.json render, runtime scripts) follows from that.
@@ -4425,7 +4425,7 @@
             // a place() method. Skip the harness's component painting
             // entirely so the agent-managed components don't fight the
             // canvas's own render — except when the canvas itself is
-            // broken (bad input.json, bad canvas.js), in which case the
+            // broken (bad index.json, bad canvas.js), in which case the
             // canvas can't render itself and the harness has to surface
             // the repair affordance.
             // A broken canvas owns nothing on screen — tear down whatever

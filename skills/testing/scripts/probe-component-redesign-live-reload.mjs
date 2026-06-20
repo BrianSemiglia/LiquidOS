@@ -133,11 +133,11 @@ export default async ({ url, workspace, page }) => {
     fs.chmodSync(path.join(workspace, 'home/components/keyboard/service.js'), 0o755);
     agentWrite('home/components/keyboard/functions.js', functionsJs('V1'));
     agentWrite('home/components/keyboard/component.html', componentHtml('KEYBOARD v1'));
-    const input = JSON.parse(agentRead('home/input.json'));
+    const input = JSON.parse(agentRead('home/index.json'));
     if (!input.components.includes('components/keyboard/component.html')) {
         input.components.push('components/keyboard/component.html');
     }
-    agentWrite('home/input.json', input);
+    agentWrite('home/index.json', input);
 
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => document.querySelectorAll('main .item').length > 0, { timeout: 15000 });

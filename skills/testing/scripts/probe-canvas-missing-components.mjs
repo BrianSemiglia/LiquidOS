@@ -1,12 +1,12 @@
 //
 // probe-canvas-missing-components.mjs
 //
-// Canvas's input.json references a component that doesn't have a real
+// Canvas's index.json references a component that doesn't have a real
 // entry file (the foo7-style case: entries are folder paths from the
 // old shape, the new shape needs component.html). The canvas is broken
 // from the user's perspective — the user should see the canvas-level
 // Repair card (same one probe-canvas-damaged exercises for malformed
-// input.json), not a silently empty canvas.
+// index.json), not a silently empty canvas.
 //
 // Run it:  node run-probe.mjs probe-canvas-missing-components.mjs
 //

@@ -1,7 +1,7 @@
 // Test agent for the cross-canvas job persistence probe.
 //
 // Simulates a real agent's "think time" with a 2-second delay before
-// writing input.json. The delay gives the probe room to:
+// writing index.json. The delay gives the probe room to:
 //   1. dispatch a prompt on canvas A,
 //   2. switch to canvas B while the job is still queued/running,
 //   3. switch back to canvas A,
@@ -46,8 +46,8 @@ const CrossCanvasPersistenceTestAgent = () => {
             setStatus({ status: 'running', cwd: workingDirectory });
             setTimeout(() => {
                 try {
-                    const inputPath = path.join(canvasFolder, 'input.json');
-                    fs.writeFileSync(inputPath, JSON.stringify({ components: ['components/probe-built/component.html'] }, null, 2) + '\n');
+                    const indexPath = path.join(canvasFolder, 'index.json');
+                    fs.writeFileSync(indexPath, JSON.stringify({ components: ['components/probe-built/component.html'] }, null, 2) + '\n');
                     setStatus({ status: 'waiting' });
                     resolve('ok');
                 } catch (error) {

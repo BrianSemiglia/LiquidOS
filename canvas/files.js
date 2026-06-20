@@ -45,23 +45,23 @@ const createCanvasFiles = ({
     };
 
     const ensureLocalAssetReferences = canvasPath => {
-        const inputPath = path.join(canvasPath, 'input.json');
+        const indexPath = path.join(canvasPath, 'index.json');
 
-        if (!fs.existsSync(inputPath)) {
+        if (!fs.existsSync(indexPath)) {
             return;
         }
 
         try {
-            const input = readJson(inputPath);
+            const input = readJson(indexPath);
 
             if (typeof input.presentation !== 'string' || !input.presentation.trim()) {
-                fs.writeFileSync(inputPath, JSON.stringify({
+                fs.writeFileSync(indexPath, JSON.stringify({
                     ...input,
                     presentation: 'presentations/stack.js'
                 }, null, 2) + '\n');
             }
         } catch (error) {
-            // A damaged input.json is a canvas-level repair case. Startup/default
+            // A damaged index.json is a canvas-level repair case. Startup/default
             // materialization must not throw before the web UI can render that card.
         }
     };
@@ -79,7 +79,7 @@ const createCanvasFiles = ({
         copyLocalAssetDirectory('presentations', canvasPath);
 
         writeDefaultFile(
-            path.join(canvasPath, 'input.json'),
+            path.join(canvasPath, 'index.json'),
             JSON.stringify({
                 components: [],
                 presentation: 'presentations/stack.js'
@@ -96,7 +96,7 @@ const createCanvasFiles = ({
                 .filter(entry =>
                     entry.isDirectory() &&
                     !entry.name.startsWith('.') &&
-                    fs.existsSync(path.join(workspacePath, entry.name, 'input.json'))
+                    fs.existsSync(path.join(workspacePath, entry.name, 'index.json'))
                 )
                 .map(entry => {
                     const canvasPath = path.join(workspacePath, entry.name);
@@ -119,7 +119,7 @@ const createCanvasFiles = ({
 
         const canvasPath = path.join(workspacePath, name);
 
-        if (!fs.existsSync(path.join(canvasPath, 'input.json'))) {
+        if (!fs.existsSync(path.join(canvasPath, 'index.json'))) {
             const error = new Error('Canvas does not exist: ' + name);
             error.statusCode = 404;
             throw error;
