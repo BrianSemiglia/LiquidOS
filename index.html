@@ -3691,7 +3691,15 @@
             document.body.append(overlay);
 
             overlay.addEventListener('click', event => {
-                if (event.target === overlay) closeRequirementsOverlay(item);
+                // Click-outside dismissal. The overlay centers a box larger than
+                // what it paints, so the backdrop, the gap between the live
+                // component (.surface) and the requirements panel (.component-
+                // back), and the empty area of the component's cell below its
+                // surface all read as "outside". (Mirrors the new-shape element
+                // in lib/liquidos-elements/component.js.)
+                if (!event.target.closest('.surface, .component-back')) {
+                    closeRequirementsOverlay(item);
+                }
             });
 
             item.dataset.side = 'back';
