@@ -1402,12 +1402,16 @@
             bottom: 1rem;
             z-index: 20;
             display: grid;
-            grid-template-columns: max-content minmax(0, 1fr);
+            /* Single column: the activity row and the send row both span the
+               full bar width, so their left edges line up with the canvas's
+               left margin exactly as the send button lines up with the right.
+               (There was a vestigial "nav" column here whose column-gap pushed
+               the left content in by 1rem with nothing ever filling it.) */
+            grid-template-columns: minmax(0, 1fr);
             grid-template-areas:
-                ".        activity"
-                "nav      send";
+                "activity"
+                "send";
             row-gap: 0;
-            column-gap: 1rem;
             align-items: center;
             width: min(calc(100vw - var(--debug-rail-space) - 2rem), 58rem);
             /* No container padding: the controls sit flush so the bottom row's
@@ -1478,7 +1482,10 @@
                the waveform comes and goes mid-turn. */
             height: 0;
             margin-bottom: 0;
-            padding: 0 0.7rem;
+            /* Inset 0.5rem each side so the activity row + waveform sit a touch
+               narrower than the send row below, rather than spanning edge to
+               edge. */
+            padding: 0 0.5rem;
             opacity: 0;
             overflow: hidden;
             transition: height 200ms ease, margin-bottom 200ms ease,
@@ -1522,7 +1529,7 @@
                otherwise paint on top, showing the line/spikes through the
                label. An explicit z-index lifts the label back above it. */
             z-index: 1;
-            left: calc(0.7rem + 6px + 0.55rem);
+            left: calc(0.5rem + 6px + 0.55rem);
             /* Span the FULL row height (not just the text line) so the opaque
                background covers the whole waveform vertically — tall output
                spikes are taller than the text, and a text-height background
@@ -1531,7 +1538,7 @@
             bottom: 0;
             display: flex;
             align-items: center;
-            max-width: calc(100% - 0.7rem - 6px - 0.55rem - 0.7rem);
+            max-width: calc(100% - 1rem - 6px - 0.55rem);
             background: var(--bg);
             padding-right: 0.45rem;
             font-size: 0.8rem;
@@ -2220,24 +2227,6 @@
             background: transparent;
         }
 
-        .debug-resizer::before {
-            content: '';
-            position: absolute;
-            top: 1rem;
-            bottom: 1rem;
-            left: 50%;
-            width: 2px;
-            transform: translateX(-50%);
-            border-radius: 999px;
-            background: linear-gradient(180deg, rgba(var(--fg), 0), rgba(var(--fg), 0.65), rgba(var(--fg), 0));
-            opacity: 0.5;
-        }
-
-        .debug-resizer:hover::before,
-        .debug-resizer:active::before {
-            opacity: 1;
-        }
-
         .debug-output-header {
             display: flex;
             align-items: center;
@@ -2567,6 +2556,11 @@
         let latestComponentByPath = new Map();
         // Keep the open requirements editor tied to the component path so rerenders can restore it.
         let openRequirementsComponentPath = '';
+        // Forward declaration: the system-panel state controller (applyUiState)
+        // is wired near the end of this script — it needs every panel's open/close
+        // primitive in scope. Until the wiring runs it's a no-op. See "System-panel
+        // state (persisted to ui-state.json)" below.
+        let applyUiState = () => {};
         let lastCanvasSnapshot = '';
         const scrollKey = canvasName => 'live-edit-scroll:' + (canvasName || 'default');
         const debugRailWidthKey = 'live-edit-debug-rail-width';
@@ -5550,8 +5544,9 @@
         //     content and routes the key through the same owner. In the Mac app
         //     the native monitor swallows Escape, so this listener never fires —
         //     no double handling.
-        // Session-only: the bar always starts shown on load (it's the primary
-        // control, and launch focuses it), so the hidden state isn't persisted.
+        // applyPromptHidden only reflects escape mode (the prompt bar hidden for a
+        // clean canvas) in the DOM. Persistence is handled by the system-panel
+        // controller below — see "System-panel state (persisted to ui-state.json)".
         const applyPromptHidden = (hidden) => {
             if (hidden) document.body.setAttribute('data-prompt-hidden', 'true');
             else        document.body.removeAttribute('data-prompt-hidden');
@@ -5559,7 +5554,7 @@
         };
         const togglePromptBar = () => {
             const next = document.body.getAttribute('data-prompt-hidden') !== 'true';
-            applyPromptHidden(next);
+            applyPromptHidden(next);         // the observer below persists the change
             if (!next) globalText.focus();   // revealing → ready to type
             return !next;                    // returns whether the bar is now shown
         };
@@ -5583,6 +5578,134 @@
         window.liquidos.isPromptHidden = () =>
             document.body.getAttribute('data-prompt-hidden') === 'true';
 
+        // --- System-panel state (persisted to ui-state.json) ------------------
+        // The working surface is in exactly one MODE at a time: 'engaged' (the
+        // normal state — prompt bar up, nothing stepped back) or disengaged into one
+        // of three mutually exclusive surfaces — 'prompt' (escape mode: the prompt
+        // bar hidden for a clean canvas), 'canvasPicker' (the Spaces grid), or
+        // 'canvasRequirements' (the canvas requirements editor). Orthogonal to the
+        // mode, a single component's requirements editor may be open, keyed by its
+        // scope. So the persisted shape is { mode, componentRequirements }.
+        //
+        // readUiPanelState reads the live DOM, so it's blind to which code path
+        // opened a panel — the legacy harness items and the new-shape
+        // <liquidos-component> both end up as body attributes / a body-level
+        // .requirements-overlay. A MutationObserver watches those and persists the
+        // whole object on any change, so every user gesture (whatever opened it)
+        // writes the file; the harness broadcasts it and every client plus the agent
+        // converge. applyUiState drives the panels from an incoming object and is
+        // guarded so it never re-persists — no echo loop.
+        const UI_MODES = ['engaged', 'prompt', 'canvasPicker', 'canvasRequirements'];
+        const openComponentScope = () => {
+            // Both component shapes move the .item into a body-level
+            // .requirements-overlay and tag it with its scope; read it straight off
+            // the DOM so this works regardless of which shape opened it.
+            const overlay = document.querySelector('.requirements-overlay');
+            const item = overlay && overlay.querySelector('[data-component-path]');
+            return item ? (item.dataset.componentPath || '') : '';
+        };
+        // Which mode the DOM is in. The picker and the requirements editor each hide
+        // the prompt bar on their own, so they outrank the bare escape state
+        // (data-prompt-hidden); 'engaged' is none of the above.
+        const readUiMode = () => {
+            if (!canvasGridOverlay.hidden) return 'canvasPicker';
+            if (!canvasReqOverlay.hidden) return 'canvasRequirements';
+            if (document.body.getAttribute('data-prompt-hidden') === 'true') return 'prompt';
+            return 'engaged';
+        };
+        const readUiPanelState = () => ({
+            mode:                  readUiMode(),
+            componentRequirements: openComponentScope(),
+        });
+
+        let applyingUiState = false;   // while true, the observer must not re-persist
+        let lastUiStateJson = null;    // dedupe: skip writes/echoes that don't change state
+
+        const persistUiState = () => {
+            if (applyingUiState || !window.liquidos?.writeFile) return;
+            const next = readUiPanelState();
+            const json = JSON.stringify(next);
+            if (json === lastUiStateJson) return;   // unchanged → no write, no broadcast
+            lastUiStateJson = json;
+            window.liquidos.writeFile('ui-state.json', next).catch(() => {});
+        };
+
+        // Open one component's requirements editor by scope, regardless of shape:
+        // new-shape <liquidos-component> exposes openRequirementsOverlay(); legacy
+        // harness items go through showComponentSide via renderedItemsByPath. If the
+        // component isn't rendered yet, stash the scope so restoreOpenRequirements-
+        // Overlay() opens it after the next render (legacy path).
+        const openComponentRequirements = (scope) => {
+            // Match the new-shape element by scope. A scope with selector-special
+            // characters would make querySelector throw, so guard it — a bad scope
+            // just means "no new-shape match," and we fall through to legacy.
+            let el = null;
+            try { el = document.querySelector('liquidos-component[path="' + scope + '"]'); } catch {}
+            if (el && typeof el.openRequirementsOverlay === 'function') { el.openRequirementsOverlay(); return; }
+            const item = renderedItemsByPath.get(scope);
+            if (item) showComponentSide(item, 'back');
+            else openRequirementsComponentPath = scope;
+        };
+
+        applyUiState = (state) => {
+            state = state && typeof state === 'object' ? state : {};
+            const mode = UI_MODES.includes(state.mode) ? state.mode : 'engaged';
+            applyingUiState = true;
+            try {
+                // The mode is mutually exclusive: close every disengaged surface that
+                // isn't the target first, then open the target. 'engaged' opens none.
+                if (mode !== 'canvasPicker' && !canvasGridOverlay.hidden) closeCanvasGrid();
+                if (mode !== 'canvasRequirements' && !canvasReqOverlay.hidden) closeCanvasRequirements();
+                if (mode === 'canvasPicker' && canvasGridOverlay.hidden) openCanvasGrid();
+                if (mode === 'canvasRequirements' && canvasReqOverlay.hidden) openCanvasRequirements();
+                applyPromptHidden(mode === 'prompt');   // escape mode hides the bar; the picker/editor let CSS do it
+
+                // Component requirements editor — orthogonal to the mode, keyed by scope.
+                const wantComponent = typeof state.componentRequirements === 'string' ? state.componentRequirements : '';
+                if (wantComponent !== openComponentScope()) {
+                    dismissRequirementsOverlay();          // close any currently open one (no-op if none)
+                    if (wantComponent) openComponentRequirements(wantComponent);
+                }
+            } finally {
+                applyingUiState = false;
+                lastUiStateJson = JSON.stringify(readUiPanelState());
+            }
+        };
+
+        // The single persistence trigger: whenever a panel opens or closes, the
+        // body's panel attributes change (prompt bar, picker, canvas requirements)
+        // or a .requirements-overlay is added/removed at body level (component
+        // requirements). Both are mutations on document.body, so one observer
+        // catches every user gesture and persists the whole object — deduped, and
+        // suppressed while applyUiState is applying a remote change.
+        new MutationObserver(() => persistUiState()).observe(document.body, {
+            attributes: true,
+            attributeFilter: ['data-prompt-hidden', 'data-canvas-grid-open', 'data-canvas-reqs-open'],
+            childList: true,
+        });
+
+        // Restore the persisted panel state on load and follow it live. The
+        // window.liquidos file helpers (fetchJson/onWorkspaceEvent) are added by
+        // the deferred module scripts, which run after this classic script — so
+        // gate the wiring until they're present. Then read ui-state.json for the
+        // initial state (absent = everything closed) and watch for changes: the
+        // harness broadcasts whenever the file is written, by a user gesture (the
+        // observer persists it), an agent, or another session. Applying never
+        // re-persists, so there's no loop.
+        const wireUiState = () => {
+            const lq = window.liquidos;
+            if (!lq || !lq.onWorkspaceEvent || !lq.fetchJson) { setTimeout(wireUiState, 30); return; }
+            lq.onWorkspaceEvent(payload => {
+                if (payload && payload.type === 'ui-state') applyUiState(payload.state || {});
+            });
+            lq.fetchJson('ui-state.json').then(state => {
+                applyUiState(state || {});
+                const mode = UI_MODES.includes(state?.mode) ? state.mode : 'engaged';
+                if (mode === 'engaged') globalText.focus();   // engaged → prompt bar up, ready to type
+            }).catch(() => globalText.focus());
+        };
+        wireUiState();
+
         window.addEventListener('keydown', event => {
             if (event.key !== 'Escape') return;
             // Own the key: handleEscape closes any open overlay (harness or
@@ -5598,8 +5721,9 @@
             window.liquidos.handleEscape();
         }, true);
 
-        // Focus the prompt bar on launch so the user can type immediately.
-        globalText.focus();
+        // Launch focus is claimed by wireUiState() above once the persisted state
+        // is read — focusing the prompt bar only when it's shown, so a
+        // persisted-hidden bar isn't focused and then hidden.
 
     </script>
 </body>

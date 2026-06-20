@@ -242,6 +242,26 @@ const writeActiveAgentKind = kind => {
     );
 };
 
+// ui-state.json persists which "system" panels are open: escape mode (the
+// prompt bar hidden for a clean canvas), the Spaces canvas picker, the canvas
+// requirements editor, and a component's requirements editor. Like
+// active-canvas.json it's a workspace pointer file the harness watches. There's
+// no dedicated endpoint and no server-side state to keep in sync: the client
+// writes it through the generic PUT /workspace/ path as panels open and close,
+// an agent can write it to drive them for the user, and either way the watcher
+// broadcasts the new state to every client. Absent file = everything closed.
+const UI_STATE_FILE = path.join(WORKSPACE_PATH, 'ui-state.json');
+
+const uiStateFromFile = () => {
+    try {
+        if (!fs.existsSync(UI_STATE_FILE)) return {};
+        const parsed = JSON.parse(fs.readFileSync(UI_STATE_FILE, 'utf8'));
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+};
+
 const canvasNameFromPath = canvasPath =>
     path.relative(WORKSPACE_PATH, canvasPath) || path.basename(canvasPath);
 
@@ -1025,6 +1045,15 @@ const dispatchWorkspaceEvent = absPath => {
     // /canvas, an agent, or an external editor may write it. Apply it.
     if (rel === 'active-canvas.json') {
         applyActiveCanvasFromFile();
+        return false;
+    }
+
+    // ui-state.json is the source of truth for which system panels are open
+    // (escape mode, the canvas picker, canvas/component requirements). The client
+    // (PUT /workspace/), an agent, or an external editor may write it; push the
+    // new state to every client.
+    if (rel === 'ui-state.json') {
+        broadcast({ type: 'ui-state', state: uiStateFromFile() });
         return false;
     }
 
