@@ -43,29 +43,26 @@ Equivalent HTTP: `POST /canvas` with `{ "name": "<canvas-name>" }`.
 
 ### Show/hide system panels (escape mode, canvas picker, requirements editors)
 
-`ui-state.json` is the source of truth for which system panels are open. The harness watches it and tells every open client to apply the new state live, so you can drive the UI for the user. It's a single object — write it whole; missing or invalid contents mean engaged with nothing open (the default).
+The surface is either **engaged** (normal) or **disengaged** into one of three mutually exclusive surfaces, with a component's requirements editor as an independent layer on top:
 
-The surface is in exactly one **mode** at a time (they're mutually exclusive), with a component's requirements editor as an independent layer on top:
+- `--engaged` — normal: prompt bar up, nothing stepped back
+- `--disengaged prompt` — escape mode: the prompt bar hidden for a clean canvas
+- `--disengaged canvasPicker` — the "Spaces" grid of all canvases
+- `--disengaged canvasRequirements` — the active canvas's requirements editor
+- `--component <scope>` / `--no-component` — independent of the surface: open/close one component's requirements editor, by its scope
 
-```json
-{
-  "mode": "engaged",            // "engaged" (normal) | "prompt" (escape: prompt bar hidden, clean canvas)
-                                //   | "canvasPicker" (the "Spaces" grid) | "canvasRequirements" (canvas requirements editor)
-  "componentRequirements": ""   // independent of mode: one component's requirements editor, by its scope (folder path); "" = none
-}
-```
-
-Examples:
+Drive it with the tool — it merges the two axes, so changing the surface leaves an open component alone and vice versa:
 
 ```bash
-echo '{ "mode": "prompt" }'                      > <workspace>/ui-state.json   # clean canvas (hide prompt bar)
-echo '{ "mode": "canvasPicker" }'                > <workspace>/ui-state.json   # open the Spaces picker
-echo '{ "mode": "canvasRequirements" }'          > <workspace>/ui-state.json   # open the canvas requirements editor
-echo '{ "componentRequirements": "<scope>" }'    > <workspace>/ui-state.json   # open one component's requirements (mode stays engaged)
-echo '{}'                                        > <workspace>/ui-state.json   # engaged, nothing open
+bash skills/workspace/scripts/set-ui-state.sh <workspace> --disengaged prompt            # clean canvas
+bash skills/workspace/scripts/set-ui-state.sh <workspace> --disengaged canvasPicker      # open the Spaces picker
+bash skills/workspace/scripts/set-ui-state.sh <workspace> --disengaged canvasRequirements
+bash skills/workspace/scripts/set-ui-state.sh <workspace> --component <scope>            # open a component's requirements
+bash skills/workspace/scripts/set-ui-state.sh <workspace> --no-component                 # close it
+bash skills/workspace/scripts/set-ui-state.sh <workspace> --engaged --no-component       # back to normal
 ```
 
-`<scope>` is the component's folder path — the same scope string used for agent jobs. An omitted `mode` is treated as `engaged`; an omitted `componentRequirements` as none. Because `mode` is exclusive, switching modes closes whatever else was open.
+`<scope>` is the component's folder path — the same scope string used for agent jobs. The harness watches the resulting `ui-state.json` and every open client applies the new state live.
 
 ### List canvases
 
