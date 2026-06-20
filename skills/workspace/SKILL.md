@@ -1,10 +1,14 @@
 ---
 name: workspace
-description: Workspace-scope work — switching the active canvas, listing/creating/renaming/deleting canvases
+description: Workspace-scope work — switching the active canvas, listing/creating/renaming/deleting canvases, showing/hiding system panels (prompt bar, canvas picker, requirements editors)
 triggers:
   - User wants to switch the active canvas
   - User wants to create, rename, or delete a canvas
   - User asks what canvases exist
+  - User wants to hide or show the prompt bar (a clean canvas / escape mode)
+  - User wants to open or close the canvas picker ("Spaces") or the all-canvases view
+  - User wants to open or close the canvas requirements or a component's requirements editor
+  - User wants to engage or disengage the working surface
 ---
 
 # Workspace
