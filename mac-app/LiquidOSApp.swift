@@ -76,12 +76,25 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         stopServer()
     }
     
-    // The harness "desk" background, matched natively so the title bar and the
-    // web content read as one surface (light = Mist #e9ebf0, dark = Slate #1a1c1f).
+    // The harness "desk" background, matched natively so the unpainted web
+    // backing reads as one surface with the harness desk (light = Mist #e9ebf0,
+    // dark = Slate #1a1c1f).
     private static let deskColor = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             ? NSColor(srgbRed: 0x1a / 255.0, green: 0x1c / 255.0, blue: 0x1f / 255.0, alpha: 1)
             : NSColor(srgbRed: 0xe9 / 255.0, green: 0xeb / 255.0, blue: 0xf0 / 255.0, alpha: 1)
+    }
+
+    // The title bar color — matched in BOTH modes to the escaped-mode canvas
+    // sheet (--surface-1: dark #23262a, light #ffffff) so the bar reads as one
+    // seamless surface with the canvas, not the greyer desk. Painted as a solid
+    // opaque fill in the title bar (see paintTitleBar) rather than via
+    // titlebarAppearsTransparent, which lets the system title-bar material bleed
+    // through and never lands on a flat tone (worst in dark mode).
+    private static let titleBarColor = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(srgbRed: 0x23 / 255.0, green: 0x26 / 255.0, blue: 0x2a / 255.0, alpha: 1)
+            : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
     }
 
     private func showWindow() {
@@ -119,19 +132,41 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         window?.title = ""
         // Shows the workspace name (set in openWorkspace) centered in the bar.
         window?.titleVisibility = .visible
-        // A real title bar tinted to the harness "desk" color so the window
-        // reads as one uniform surface: the web content sits BELOW the bar (no
-        // overlap), and the bar stays draggable. titlebarAppearsTransparent
-        // makes the title bar draw the window's background, which we set to the
-        // desk tone — following the system light/dark just like the harness.
-        window?.titlebarAppearsTransparent = true
+        // A real title bar painted a solid title-bar tone (paintTitleBar) so the
+        // bar reads as one uniform surface with the canvas below it: the web
+        // content sits BELOW the bar (no overlap), and the bar stays draggable.
+        // The window background stays the desk tone so the unpainted web backing
+        // (drawsBackground=false) reads as the harness desk during load flashes.
         window?.isOpaque = true
         window?.backgroundColor = Self.deskColor
         window?.center()
         window?.contentView = webView
         webView?.autoresizingMask = [.width, .height]
         window?.makeKeyAndOrderFront(nil)
+        paintTitleBar()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // Paints the title bar a solid, opaque title-bar tone instead of relying on
+    // titlebarAppearsTransparent (which lets the system title-bar material show
+    // through, so the bar never lands on a flat #23262a in dark mode). A
+    // layer-backed fill is inserted BEHIND the traffic lights and title text,
+    // spanning the whole title bar; its color follows the system appearance via
+    // the dynamic titleBarColor.
+    private var titleBarFill: TitleBarFillView?
+    private func paintTitleBar() {
+        guard let titlebarContainer = window?.standardWindowButton(.closeButton)?.superview else { return }
+        let fill = TitleBarFillView()
+        fill.translatesAutoresizingMaskIntoConstraints = false
+        titlebarContainer.addSubview(fill, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            fill.leadingAnchor.constraint(equalTo: titlebarContainer.leadingAnchor),
+            fill.trailingAnchor.constraint(equalTo: titlebarContainer.trailingAnchor),
+            fill.topAnchor.constraint(equalTo: titlebarContainer.topAnchor),
+            fill.bottomAnchor.constraint(equalTo: titlebarContainer.bottomAnchor),
+        ])
+        fill.fillColor = Self.titleBarColor
+        titleBarFill = fill
     }
 
     // Escape is reserved for the harness: it toggles the prompt bar (and, when
@@ -1034,6 +1069,33 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     }
 }
 
+
+// A solid, opaque fill for the title bar. Layer-backed so it covers the system
+// title-bar material with a flat color, and re-resolves the dynamic fillColor on
+// every appearance change so it tracks system light/dark.
+final class TitleBarFillView: NSView {
+    var fillColor: NSColor? {
+        didSet { needsLayout = true; applyColor() }
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColor()
+    }
+
+    private func applyColor() {
+        wantsLayer = true
+        guard let fillColor = fillColor else { return }
+        // Resolve the dynamic color against THIS view's appearance so dark/light
+        // pick the right tone (cgColor otherwise resolves against whatever
+        // drawing appearance happens to be current).
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = fillColor.cgColor
+        }
+    }
+}
 
 let liquidOSApp = LiquidOSApp()
 NSApplication.shared.delegate = liquidOSApp
