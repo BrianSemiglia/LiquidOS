@@ -24,3 +24,12 @@ For coding agents editing this repo (the LiquidOS harness). The runtime agent's 
 - Skill docs say what and when, not how.
 - Workspaces own their git — never commit a workspace.
 - Own mistakes honestly — "verified" is not "should work."
+
+## Running the UI tests
+
+- Probes live in `skills/testing/scripts/probe-*.mjs`; run one (or several) with `node skills/testing/scripts/run-probe.mjs <probe>...`. The runner boots and tears down its own sandbox and browser per probe.
+- `run-probe.mjs` runs the probes it's given sequentially. To run the whole suite, launch the runner per probe and cap concurrency yourself — **8 at a time** is a good default (each probe owns a sandbox + browser, so don't run them all unbounded):
+
+  ```sh
+  ls skills/testing/scripts/probe-*.mjs | xargs -P8 -n1 node skills/testing/scripts/run-probe.mjs
+  ```
