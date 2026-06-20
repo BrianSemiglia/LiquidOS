@@ -21,21 +21,24 @@ set -euo pipefail
 #                                      folder scope — the same string used for agent jobs)
 #   --no-component                     close the component requirements editor
 #
-# The engaged/disengaged surface and the component editor are orthogonal: this
-# MERGES with the current ui-state.json, so changing one leaves the other alone.
-# Pass an engaged/disengaged flag, a component flag, or both.
+#   --canvas <name>                    switch the active canvas (must already exist)
+#
+# The active canvas, the engaged/disengaged surface, and the component editor are
+# all independent: this MERGES with the current ui-state.json, so changing one
+# leaves the others alone. Pass any combination of flags.
 #
 # Examples:
 #   set-ui-state.sh <ws> --disengaged prompt              # clean canvas
 #   set-ui-state.sh <ws> --disengaged canvasPicker        # open the Spaces picker
 #   set-ui-state.sh <ws> --component home/components/clock # open a component's requirements
 #   set-ui-state.sh <ws> --engaged --no-component         # back to normal, nothing open
+#   set-ui-state.sh <ws> --canvas notes                   # switch to the "notes" canvas
 #
 # Output: one-line JSON of the resulting state.
 #
 
 usage() {
-    sed -n '5,33p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '5,37p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 WORKSPACE_DIR=""
@@ -43,6 +46,8 @@ MODE=""
 MODE_SET=0        # 0 = leave the engaged/disengaged surface as-is
 COMPONENT=""
 COMPONENT_SET=0   # 0 = leave componentRequirements as-is
+CANVAS=""
+CANVAS_SET=0      # 0 = leave the active canvas as-is
 
 set_mode() {
     if [ "$MODE_SET" -eq 1 ]; then
@@ -77,6 +82,9 @@ while [ "$#" -gt 0 ]; do
             ;;
         --no-component)
             COMPONENT=""; COMPONENT_SET=1; shift
+            ;;
+        --canvas)
+            CANVAS="${2:-}"; CANVAS_SET=1; shift 2
             ;;
         -*)
             echo "Error: unknown flag: $1" >&2
@@ -115,16 +123,18 @@ case "$WORKSPACE_DIR" in
         ;;
 esac
 
-if [ "$MODE_SET" -eq 0 ] && [ "$COMPONENT_SET" -eq 0 ]; then
-    echo "Error: nothing to do — pass --engaged / --disengaged and/or --component / --no-component" >&2
+if [ "$MODE_SET" -eq 0 ] && [ "$COMPONENT_SET" -eq 0 ] && [ "$CANVAS_SET" -eq 0 ]; then
+    echo "Error: nothing to do — pass --engaged / --disengaged, --component / --no-component, and/or --canvas" >&2
     exit 1
 fi
 
-# Read-merge-write so the surface and the component editor stay independent: an
-# absent file defaults to engaged with nothing open; only the flags passed change.
+# Read-merge-write so the active canvas, the surface, and the component editor
+# stay independent: an absent file defaults to the home canvas, engaged, with
+# nothing open; only the flags passed change. The canvas key is always preserved
+# (never dropped) so a panel-only change never moves the active canvas.
 node -e '
 const fs = require("fs");
-const [file, mode, modeSet, component, componentSet] = process.argv.slice(1);
+const [file, mode, modeSet, component, componentSet, canvas, canvasSet] = process.argv.slice(1);
 const MODES = ["engaged", "prompt", "canvasPicker", "canvasRequirements"];
 let state = {};
 try { const p = JSON.parse(fs.readFileSync(file, "utf8")); if (p && typeof p === "object") state = p; } catch {}
@@ -132,7 +142,10 @@ let nextMode = MODES.includes(state.mode) ? state.mode : "engaged";
 if (modeSet === "1") nextMode = mode;
 let nextComponent = typeof state.componentRequirements === "string" ? state.componentRequirements : "";
 if (componentSet === "1") nextComponent = component;
+let nextCanvas = typeof state.canvas === "string" ? state.canvas : "";
+if (canvasSet === "1") nextCanvas = canvas;
 const out = { mode: nextMode, componentRequirements: nextComponent };
+if (nextCanvas) out.canvas = nextCanvas;
 fs.writeFileSync(file, JSON.stringify(out, null, 2) + "\n");
 process.stdout.write(JSON.stringify(out) + "\n");
-' "$WORKSPACE_DIR/ui-state.json" "$MODE" "$MODE_SET" "$COMPONENT" "$COMPONENT_SET"
+' "$WORKSPACE_DIR/ui-state.json" "$MODE" "$MODE_SET" "$COMPONENT" "$COMPONENT_SET" "$CANVAS" "$CANVAS_SET"

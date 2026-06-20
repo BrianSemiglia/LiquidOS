@@ -192,7 +192,6 @@ try {
 } catch { /* mkdir / createWriteStream failed — fall back to no file capture */ }
 
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'skills', 'canvas', 'scripts', 'templates');
-const ACTIVE_CANVAS_FILE = path.join(WORKSPACE_PATH, 'active-canvas.json');
 const ACTIVE_AGENT_FILE = path.join(WORKSPACE_PATH, 'active-agent.json');
 const DEFAULT_CANVAS_NAME = 'home';
 const DEFAULT_CANVAS_PATH = path.join(WORKSPACE_PATH, DEFAULT_CANVAS_NAME);
@@ -203,23 +202,6 @@ const validCanvasName = value =>
         && /^[^/][^/]*$/.test(value)
         && !value.startsWith('.')
         && !value.includes('..');
-
-const activeCanvasNameFromFile = () => {
-    try {
-        if (!fs.existsSync(ACTIVE_CANVAS_FILE)) return DEFAULT_CANVAS_NAME;
-        const value = JSON.parse(fs.readFileSync(ACTIVE_CANVAS_FILE, 'utf8'));
-        return validCanvasName(value?.canvas) ? value.canvas : DEFAULT_CANVAS_NAME;
-    } catch {
-        return DEFAULT_CANVAS_NAME;
-    }
-};
-
-const writeActiveCanvasName = name => {
-    fs.writeFileSync(
-        ACTIVE_CANVAS_FILE,
-        JSON.stringify({ canvas: validCanvasName(name) ? name : DEFAULT_CANVAS_NAME }, null, 2) + '\n'
-    );
-};
 
 const validAgentKind = value =>
     typeof value === 'string'
@@ -242,14 +224,17 @@ const writeActiveAgentKind = kind => {
     );
 };
 
-// ui-state.json persists which "system" panels are open: escape mode (the
-// prompt bar hidden for a clean canvas), the Spaces canvas picker, the canvas
-// requirements editor, and a component's requirements editor. Like
-// active-canvas.json it's a workspace pointer file the harness watches. There's
-// no dedicated endpoint and no server-side state to keep in sync: the client
-// writes it through the generic PUT /workspace/ path as panels open and close,
-// an agent can write it to drive them for the user, and either way the watcher
-// broadcasts the new state to every client. Absent file = everything closed.
+// ui-state.json is the single workspace-state file: it names the active canvas
+// AND persists which "system" panels are open — escape mode (the prompt bar
+// hidden for a clean canvas), the Spaces canvas picker, the canvas requirements
+// editor, and a component's requirements editor. It's a plain workspace file the
+// harness watches; there's no dedicated endpoint and no server-side state to
+// keep in sync. The client writes it through the generic PUT /workspace/ path
+// (switching canvas and opening/closing panels), an agent can write it to drive
+// the surface for the user, and either way the watcher applies any canvas switch
+// and broadcasts the new state to every client. Every writer does a full-shape
+// write (or read-merge), so no writer ever drops the canvas key. Absent file =
+// home canvas, everything closed.
 const UI_STATE_FILE = path.join(WORKSPACE_PATH, 'ui-state.json');
 
 const uiStateFromFile = () => {
@@ -262,10 +247,19 @@ const uiStateFromFile = () => {
     }
 };
 
+// The active canvas lives in ui-state.json's `canvas` key. Returns null when the
+// file is absent or the key is missing/invalid so callers can distinguish "no
+// opinion" (keep the current canvas; cold start falls back to home) from a real,
+// validated switch request.
+const activeCanvasNameFromFile = () => {
+    const value = uiStateFromFile().canvas;
+    return validCanvasName(value) ? value : null;
+};
+
 const canvasNameFromPath = canvasPath =>
     path.relative(WORKSPACE_PATH, canvasPath) || path.basename(canvasPath);
 
-let CANVAS_PATH = path.join(WORKSPACE_PATH, activeCanvasNameFromFile());
+let CANVAS_PATH = path.join(WORKSPACE_PATH, activeCanvasNameFromFile() || DEFAULT_CANVAS_NAME);
 let INDEX_PATH = path.join(CANVAS_PATH, 'index.json');
 let ACTIVE_AGENT_KIND = activeAgentKindFromFile();
 // The agent runs with the workspace as its CWD. Each agent's discovery
@@ -322,9 +316,12 @@ const streamCanvasFile = (req, res, file, type) => {
 fs.mkdirSync(WORKSPACE_PATH, { recursive: true });
 
 if (!fs.existsSync(path.join(CANVAS_PATH, 'index.json'))) {
+    // ui-state.json named a canvas that no longer exists (or none at all):
+    // fall back to home in memory. The client rewrites ui-state.json's canvas
+    // key on its next switch; until then the stale key is ignored because
+    // applyActiveCanvasFromFile only acts on a canvas that actually exists.
     CANVAS_PATH = DEFAULT_CANVAS_PATH;
     INDEX_PATH = path.join(CANVAS_PATH, 'index.json');
-    writeActiveCanvasName(DEFAULT_CANVAS_NAME);
 }
 
 if (!fs.existsSync(ACTIVE_AGENT_FILE)) {
@@ -612,12 +609,15 @@ const createCanvasRuntime = canvasPath => {
     };
 };
 
+// Apply a canvas as active in memory (swap the runtime). The active-canvas
+// pointer is not written here: ui-state.json is owned by its writers (the
+// client and agents), and a switch always originates from one of them writing
+// that file — so the file is already correct by the time this runs.
 const setCanvasPath = canvasPath => {
     const nextCanvasPath = resolveConfigPath(canvasPath);
 
     if (activeCanvasRuntime && activeCanvasRuntime.canvasPath === nextCanvasPath) {
         activeCanvasRuntime.start();
-        writeActiveCanvasName(canvasNameFromPath(nextCanvasPath));
         return activeCanvasRuntime;
     }
 
@@ -627,7 +627,6 @@ const setCanvasPath = canvasPath => {
 
     activeCanvasRuntime = createCanvasRuntime(nextCanvasPath);
     activeCanvasRuntime.start();
-    writeActiveCanvasName(canvasNameFromPath(nextCanvasPath));
     return activeCanvasRuntime;
 };
 
@@ -993,21 +992,21 @@ const isCanvasCandidateFilename = filename =>
         && !filename.startsWith('.')
         && !filename.includes('/');
 
-// active-canvas.json is the source of truth for the active canvas. POST
-// /canvas writes it; agents and external editors may also write it
-// directly. In every case the workspace watcher detects the change,
-// diffs the file against in-memory state, and applies. POST stays fast
-// because it updates in-memory state inline; the watcher path is the
-// catch-up for everyone else.
+// ui-state.json's `canvas` key is the source of truth for the active canvas:
+// the client, an agent, or an external editor may write it. The workspace
+// watcher detects the change, diffs the desired canvas against in-memory state,
+// and applies. A missing/invalid key (null) means "no opinion" — leave the
+// current canvas alone, so a panel-only write never moves the canvas.
 const applyActiveCanvasFromFile = () => {
     const name = activeCanvasNameFromFile();
+    if (!name) return;
     const desiredPath = path.join(WORKSPACE_PATH, name);
     if (CANVAS_PATH === desiredPath) return;
     try {
         canvasFiles.switchCanvas(name);
     } catch (error) {
         logHermesError('active-canvas', error, {
-            message: 'active-canvas.json points at missing or invalid canvas: ' + name
+            message: 'ui-state.json names a missing or invalid canvas: ' + name
         });
         return;
     }
@@ -1041,18 +1040,13 @@ const dispatchWorkspaceEvent = absPath => {
     const rel = path.relative(workspaceWatchRoot, absPath).split(path.sep).join('/');
     if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
 
-    // active-canvas.json is the source of truth for the active canvas: POST
-    // /canvas, an agent, or an external editor may write it. Apply it.
-    if (rel === 'active-canvas.json') {
-        applyActiveCanvasFromFile();
-        return false;
-    }
-
-    // ui-state.json is the source of truth for which system panels are open
-    // (escape mode, the canvas picker, canvas/component requirements). The client
-    // (PUT /workspace/), an agent, or an external editor may write it; push the
-    // new state to every client.
+    // ui-state.json is the single source of truth for both the active canvas and
+    // which system panels are open (escape mode, the canvas picker,
+    // canvas/component requirements). The client (PUT /workspace/), an agent, or
+    // an external editor may write it. Apply any canvas switch it requests, then
+    // push the panel state to every client.
     if (rel === 'ui-state.json') {
+        applyActiveCanvasFromFile();
         broadcast({ type: 'ui-state', state: uiStateFromFile() });
         return false;
     }
@@ -1993,44 +1987,26 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        if (req.method === 'POST' && url.pathname === '/canvas') {
-            const body = JSON.parse(await readBody(req));
-
-            // switchCanvas writes active-canvas.json AND flips the in-memory
-            // pointer inline, so the response can report the new canvas. The
-            // workspace watcher will see that write too, but applyActiveCanvas-
-            // FromFile no-ops once the pointer already matches — so this switch
-            // announces itself. Other sessions need canvases-changed to refresh
-            // their switcher; the generic update drives this session's load().
-            canvasFiles.switchCanvas(String(body.name || ''));
-            broadcast({ type: 'canvases-changed' });
-            broadcast();
-            send(res, 200, JSON.stringify({
-                current: canvasName(CANVAS_PATH),
-                canvases: canvasFiles.availableCanvases()
-            }), 'application/json; charset=utf-8');
-            return;
-        }
-
         if (req.method === 'POST' && url.pathname === '/canvases') {
             const body = JSON.parse(await readBody(req));
             const name = canvasFiles.createCanvas(body.name);
 
-            canvasFiles.switchCanvas(name);
+            // Create the folder only — making it active is a ui-state.json write,
+            // which the client does next by switching to the returned name. That
+            // keeps ui-state.json's single-writer story intact (the server never
+            // writes the canvas pointer).
             activityPersistence.persistActivity({
                 event: `User did create canvas with name '${String(name).replace(/[\n\r]+/g, ' ').replace(/'/g, "\\'")}'`,
-                scope: CANVAS_PATH,
+                scope: path.join(WORKSPACE_PATH, name),
                 prompt: '',
                 agentResponse: 'none',
                 mode: 'done'
             });
-            // Same reasoning as /canvas above — fs.watch may miss the
-            // in-process directory mutation, so emit canvases-changed
-            // explicitly.
+            // fs.watch may miss the in-process directory mutation, so emit
+            // canvases-changed explicitly to refresh every switcher.
             broadcast({ type: 'canvases-changed' });
-            broadcast();
             send(res, 201, JSON.stringify({
-                current: canvasName(CANVAS_PATH),
+                name,
                 canvases: canvasFiles.availableCanvases()
             }), 'application/json; charset=utf-8');
             return;

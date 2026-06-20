@@ -26,7 +26,7 @@ The server expects the `.liquidos` workspace itself to be the canvas root. Each 
 
 ```text
 Workspace.liquidos/
-  active-canvas.json
+  ui-state.json
   home/
     index.json
     components/

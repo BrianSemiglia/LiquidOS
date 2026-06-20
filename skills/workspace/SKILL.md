@@ -13,7 +13,7 @@ triggers:
 
 # Workspace
 
-A LiquidOS workspace is a folder whose name ends in `.liquidos`. It holds one or more canvases as direct children, a pointer file naming the active canvas, and an opt-in `.share/` subtree for distribution.
+A LiquidOS workspace is a folder whose name ends in `.liquidos`. It holds one or more canvases as direct children, a single `ui-state.json` that names the active canvas and which system panels are open, and an opt-in `.share/` subtree for distribution.
 
 Workspace files are the source of truth: the harness watches them, and writes from the agent or the HTTP endpoints converge — edit the file, the harness sees it.
 
@@ -21,8 +21,7 @@ Workspace files are the source of truth: the harness watches them, and writes fr
 
 ```text
 Workspace.liquidos/
-  active-canvas.json          — { "canvas": "<canvas-name>" }
-  ui-state.json               — which system panels are open (optional; see below)
+  ui-state.json               — active canvas + which system panels are open (optional; absent = home, nothing open)
   <canvas-name>/              — a canvas folder (see ../canvas/SKILL.md)
   <other-canvas>/
   .share/                     — sharing tree (appears once a bundle is published)
@@ -38,12 +37,10 @@ A canvas is any direct child folder that contains `index.json`.
 ### Switch the active canvas
 
 ```bash
-echo '{ "canvas": "<canvas-name>" }' > <workspace>/active-canvas.json
+bash skills/workspace/scripts/set-ui-state.sh <workspace> --canvas <canvas-name>
 ```
 
-The harness sees the change, validates the canvas exists, tears down the previous canvas runtime, starts the new one, and tells the client to reload. If the named canvas doesn't exist, the file is treated as invalid and active stays where it was.
-
-Equivalent HTTP: `POST /canvas` with `{ "name": "<canvas-name>" }`.
+The active canvas is a key in `ui-state.json`; the tool read-merge-writes it so the panel state is left alone. The harness watches the file, validates the canvas exists, tears down the previous canvas runtime, starts the new one, and tells the client to reload. If the named canvas doesn't exist, the change is ignored and active stays where it was. There is no dedicated endpoint — this goes through the generic `PUT /workspace/ui-state.json` path like every other workspace write.
 
 ### Show/hide system panels (escape mode, canvas picker, requirements editors)
 
@@ -78,17 +75,17 @@ Scan the workspace for direct child folders that contain `index.json`. Each one 
 bash skills/canvas/scripts/create-instance.sh <canvas-name> <workspace.liquidos>
 ```
 
-Lays down the canvas folder structure (see `../canvas/SKILL.md`). Does **not** make the new canvas active — write `active-canvas.json` separately if that's what the user wants.
+Lays down the canvas folder structure (see `../canvas/SKILL.md`). Does **not** make the new canvas active — run `set-ui-state.sh <workspace> --canvas <name>` separately if that's what the user wants.
 
 ### Rename a canvas
 
-Rename the folder. If the renamed canvas is currently active, also rewrite `active-canvas.json` with the new name to avoid a startup error on the next boot.
+Rename the folder. If the renamed canvas is currently active, also switch to the new name (`set-ui-state.sh <workspace> --canvas <new-name>`) to avoid a startup fallback to home on the next boot.
 
 ### Delete a canvas
 
 Destructive — confirm with the user first. Then:
 
-1. If the canvas is currently active, write `active-canvas.json` to point at a remaining canvas.
+1. If the canvas is currently active, switch to a remaining canvas (`set-ui-state.sh <workspace> --canvas <other-name>`).
 2. Remove `<workspace>/<canvas-name>/`.
 
 ### Share a canvas

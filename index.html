@@ -4675,20 +4675,17 @@
         };
 
         const switchCanvas = async name => {
-            const response = await fetch('/canvas', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ name })
-            });
-
-            if (!response.ok) {
-                throw new Error('/canvas returned ' + response.status);
+            // Switching is a ui-state.json write — no dedicated endpoint. Set the
+            // canvas key and let the harness watcher swap the runtime and
+            // broadcast, which drives loadCanvases()/load() via the SSE handlers.
+            // Update the in-memory pointer optimistically so a concurrent panel
+            // write preserves the new canvas instead of reverting it.
+            currentCanvasName = name;
+            document.body.dataset.currentCanvas = name;
+            const ok = await writeUiState({ canvas: name });
+            if (!ok) {
+                throw new Error('failed to persist canvas switch');
             }
-
-            await loadCanvases();
-            await load();
         };
 
         const createCanvas = async name => {
@@ -4704,8 +4701,10 @@
                 throw new Error('/canvases returned ' + response.status);
             }
 
-            await loadCanvases();
-            await load();
+            // The folder now exists; make it active the same way the dropdown
+            // does — by writing ui-state.json.
+            const data = await response.json();
+            await switchCanvas(data.name);
         };
 
         globalText.addEventListener('keydown', event => {
@@ -5621,21 +5620,35 @@
             if (document.body.getAttribute('data-prompt-hidden') === 'true') return 'prompt';
             return 'engaged';
         };
+        // ui-state.json carries the active canvas alongside the panel state, so
+        // every write includes `canvas` — otherwise a panel toggle would drop the
+        // key and the harness would snap back to home. The current canvas is the
+        // one source we read from (the server's truth, via loadCanvases).
         const readUiPanelState = () => ({
             mode:                  readUiMode(),
             componentRequirements: openComponentScope(),
+            canvas:                currentCanvasName || document.body.dataset.currentCanvas || '',
         });
 
         let applyingUiState = false;   // while true, the observer must not re-persist
         let lastUiStateJson = null;    // dedupe: skip writes/echoes that don't change state
 
-        const persistUiState = () => {
-            if (applyingUiState || !window.liquidos?.writeFile) return;
-            const next = readUiPanelState();
+        // The single writer of ui-state.json. Merges any overrides (e.g. a canvas
+        // switch) over the live panel/canvas state, dedupes, and PUTs through the
+        // generic /workspace/ path — the harness watcher applies it. Returns the
+        // write's success so callers (switchCanvas) can surface failures.
+        const writeUiState = (overrides = {}) => {
+            if (!window.liquidos?.writeFile) return Promise.resolve(false);
+            const next = { ...readUiPanelState(), ...overrides };
             const json = JSON.stringify(next);
-            if (json === lastUiStateJson) return;   // unchanged → no write, no broadcast
+            if (json === lastUiStateJson) return Promise.resolve(true);   // unchanged → no write, no broadcast
             lastUiStateJson = json;
-            window.liquidos.writeFile('ui-state.json', next).catch(() => {});
+            return window.liquidos.writeFile('ui-state.json', next);
+        };
+
+        const persistUiState = () => {
+            if (applyingUiState) return;
+            writeUiState().catch(() => {});
         };
 
         // Open one component's requirements editor by scope, regardless of shape:
