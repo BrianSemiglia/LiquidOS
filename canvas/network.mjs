@@ -75,7 +75,12 @@ export const createNetworkNode = async ({ identityPath }) => {
             // kad-dht requires a ping service to probe peer liveness
             // during routing-table maintenance.
             ping: ping(),
-            dht: kadDHT({ clientMode: false })
+            // Client mode: we query the DHT to announce ourselves and find
+            // other LiquidOS peers, but we do NOT serve as a routing node for
+            // the public IPFS network. Server mode (clientMode:false) makes a
+            // desktop app answer routing/provider queries from thousands of
+            // strangers — sustained CPU for no benefit to a sharing app.
+            dht: kadDHT({ clientMode: true })
         }
     });
     return node;
@@ -142,6 +147,25 @@ const readShareFlag = (file) => {
 
 const isCanvasShared = (workspacePath, canvasName) =>
     readShareFlag(path.join(workspacePath, canvasName, 'share.json')) === true;
+
+// Canvas folders are the non-dotted direct children of the workspace that hold
+// an input.json (mirrors canvas/files.js availableCanvases).
+const canvasNames = (workspacePath) => {
+    try {
+        return fs.readdirSync(workspacePath, { withFileTypes: true })
+            .filter(entry =>
+                entry.isDirectory() &&
+                !entry.name.startsWith('.') &&
+                fs.existsSync(path.join(workspacePath, entry.name, 'input.json')))
+            .map(entry => entry.name);
+    } catch { return []; }
+};
+
+// True when any canvas in the workspace has opted into sharing. This is the
+// opt-in signal the harness uses to decide whether networking should run at
+// all: nothing shared ⇒ no node ⇒ no public-DHT CPU.
+export const anyCanvasShared = (workspacePath) =>
+    canvasNames(workspacePath).some(name => isCanvasShared(workspacePath, name));
 
 const isComponentShared = (workspacePath, canvasName, componentName) => {
     if (!isCanvasShared(workspacePath, canvasName)) return false;
@@ -385,6 +409,76 @@ export const startPeerFeedCache = async (node, workspacePath) => {
             clearInterval(provideTimer);
             clearTimeout(initialDiscoverTimer);
             clearInterval(discoverTimer);
+        }
+    };
+};
+
+// --- Network manager -------------------------------------------------------
+//
+// Owns the whole network lifecycle for a workspace: the libp2p node, the peer
+// feed cache, the start latch, and the opt-in/lazy-start policy. The harness
+// holds one of these and never touches the node directly — so "when does the
+// network run" lives here, with sharing, not in the HTTP server.
+//
+// The rule: the node runs only when it's actually needed. shouldAutoStart()
+// is true for a workspace that already shares something (so peers can reach
+// it); otherwise the node stays down until ensure() is called by a networking
+// action (browse, dial, share-on, install). Pure status reads call status(),
+// never ensure(), so an idle non-sharing workspace never joins the DHT.
+export const createNetworkManager = ({ workspacePath, log = console.log, logError = console.error }) => {
+    let node = null;
+    let feed = null;
+    let starting = null;
+
+    const start = async () => {
+        try {
+            node = await createNetworkNode({
+                identityPath: path.join(workspacePath, '.network', 'identity.bin')
+            });
+            registerShareProtocols(node, path.join(workspacePath, '.share'), workspacePath);
+            feed = await startPeerFeedCache(node, workspacePath);
+            log('Network: peer ID', node.peerId.toString());
+            for (const addr of node.getMultiaddrs()) {
+                log('Network: listening on', addr.toString());
+            }
+        } catch (error) {
+            logError('Network: failed to start', error?.message || error);
+            node = null;
+            feed = null;
+        }
+    };
+
+    return {
+        // Start once, on first demand. Idempotent and concurrency-safe:
+        // overlapping callers (a share toggle racing a browse) share one start;
+        // a failed start clears the latch so the next action retries.
+        ensure() {
+            if (node) return Promise.resolve(node);
+            if (!starting) starting = start().finally(() => { starting = null; });
+            return starting.then(() => node);
+        },
+        // Read-only — must never start the node.
+        status() {
+            return statusOf(node);
+        },
+        // Opt-in policy: should the node come up at boot for this workspace?
+        shouldAutoStart() {
+            return anyCanvasShared(workspacePath);
+        },
+        // The per-peer feed cache, or null when the node isn't running.
+        peerFeed() {
+            return feed;
+        },
+        // The live node, or null when not running.
+        node() {
+            return node;
+        },
+        async stop() {
+            try { feed?.stop?.(); } catch { /* best-effort */ }
+            feed = null;
+            const current = node;
+            node = null;
+            await stopNetworkNode(current);
         }
     };
 };

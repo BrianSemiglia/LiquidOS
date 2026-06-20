@@ -1632,6 +1632,11 @@ const server = http.createServer(async (req, res) => {
 
             // --- GET /share — list -------------------------------------
             if (req.method === 'GET' && parts.length === 1) {
+                // Browsing is a networking action: bring the node up (once) so
+                // peer feeds can be discovered. A no-share workspace that never
+                // browses stays dark.
+                const net = await network();
+                await net.ensure();
                 const query = (url.searchParams.get('q') || '').trim().toLowerCase();
                 const matchesQuery = (bundle) => {
                     if (!query) return true;
@@ -1654,8 +1659,9 @@ const server = http.createServer(async (req, res) => {
                         }
                     } catch { /* fall through */ }
                 }
-                if (peerFeedCache) {
-                    for (const [, entry] of peerFeedCache.cache) {
+                const feed = net.peerFeed();
+                if (feed) {
+                    for (const [, entry] of feed.cache) {
                         const bundles = entry.feed && Array.isArray(entry.feed.bundles) ? entry.feed.bundles : [];
                         for (const bundle of bundles) {
                             if (matchesQuery(bundle)) results.push({ ...bundle, peerId: entry.peerId });
@@ -1683,10 +1689,13 @@ const server = http.createServer(async (req, res) => {
                     entry = (feed.bundles || []).find(b => b.hash === hash);
                     if (!entry) { send(res, 404, 'bundle not found in local feed'); return; }
                 } else {
-                    if (!networkNode || !networkModule || !peerFeedCache) {
+                    const net = await network();
+                    await net.ensure();
+                    const feed = net.peerFeed();
+                    if (!net.node() || !feed) {
                         send(res, 503, 'network not running'); return;
                     }
-                    for (const [pid, peerEntry] of peerFeedCache.cache) {
+                    for (const [pid, peerEntry] of feed.cache) {
                         if (pid !== peerId) continue;
                         const bundles = peerEntry.feed && Array.isArray(peerEntry.feed.bundles) ? peerEntry.feed.bundles : [];
                         entry = bundles.find(b => b.hash === hash) || null;
@@ -1772,6 +1781,10 @@ const server = http.createServer(async (req, res) => {
                 if (req.method === 'PUT') {
                     const result = runShareScript('share.sh', [canvasName]);
                     if (!result.ok) { send(res, 500, 'share failed: ' + result.error); return; }
+                    // Sharing opts this workspace in: start the node so peers
+                    // can reach it. Await so it's up (and /network/status
+                    // reports a multiaddr) by the time the toggle resolves.
+                    await (await network()).ensure();
                     send(res, 200, JSON.stringify({ shared: true }), 'application/json; charset=utf-8');
                     return;
                 }
@@ -1811,6 +1824,7 @@ const server = http.createServer(async (req, res) => {
                     writeShareFlag(componentShareFile(componentFolder), sharedValue);
                     if (readShareFlag(canvasShareFile(canvasName)) === true) {
                         runShareScript('share.sh', [canvasName]);
+                        network().then(net => net.ensure());
                     }
                 };
 
@@ -1828,9 +1842,8 @@ const server = http.createServer(async (req, res) => {
         }
 
         if (req.method === 'GET' && url.pathname === '/network/status') {
-            const status = networkModule && networkNode
-                ? networkModule.statusOf(networkNode)
-                : { running: false };
+            // Read-only: report status without ever starting the node.
+            const status = (await network()).status();
             send(res, 200, JSON.stringify(status), 'application/json; charset=utf-8');
             return;
         }
@@ -1841,7 +1854,10 @@ const server = http.createServer(async (req, res) => {
             // the libp2p DHT bootstrap, but in tests with two local
             // nodes we want a direct connection without waiting on the
             // public DHT to route us together.
-            if (!networkNode || !networkModule) { send(res, 503, 'network not running'); return; }
+            const net = await network();
+            await net.ensure();
+            const node = net.node();
+            if (!node) { send(res, 503, 'network not running'); return; }
             let body;
             try { body = JSON.parse(await readBody(req) || '{}'); }
             catch { send(res, 400, 'invalid json'); return; }
@@ -1849,7 +1865,7 @@ const server = http.createServer(async (req, res) => {
             if (!target) { send(res, 400, 'multiaddr required'); return; }
             try {
                 const { multiaddr } = await import('@multiformats/multiaddr');
-                await networkNode.dial(multiaddr(target));
+                await node.dial(multiaddr(target));
                 send(res, 200, JSON.stringify({ ok: true }), 'application/json; charset=utf-8');
             } catch (error) {
                 send(res, 502, 'dial failed: ' + (error?.message || error));
@@ -2281,11 +2297,10 @@ const shutdownCanvasRuntime = reason => {
     commitShutdownState(reason || 'application was shut down');
     stopWorkspaceWatch();
 
-    if (networkNode && networkModule) {
+    if (networkManagerPromise) {
         // Fire-and-forget — shutdown is synchronous from this caller's
         // perspective and we don't want the libp2p stop hanging the exit.
-        networkModule.stopNetworkNode(networkNode).catch(() => {});
-        networkNode = null;
+        networkManagerPromise.then(net => net.stop()).catch(() => {});
     }
 
     if (activeCanvasRuntime) {
@@ -2335,36 +2350,33 @@ process.on('unhandledRejection', reason => {
     process.exit(1);
 });
 
-// libp2p node — created on harness boot, exposed at /network/status. The
-// module is ESM so we load it via dynamic import. Stays null if startup
-// fails so the harness keeps running even when the network is broken.
-let networkNode = null;
-let networkModule = null;
-// Per-peer feed cache: Map<peerId, { peerId, multiaddrs, feed, refreshedAt }>
-// plus a stop() for shutdown.
-let peerFeedCache = null;
-const startNetwork = async () => {
-    try {
-        networkModule = await import('./canvas/network.mjs');
-        networkNode = await networkModule.createNetworkNode({
-            identityPath: path.join(WORKSPACE_PATH, '.network', 'identity.bin')
-        });
-        networkModule.registerShareProtocols(
-            networkNode,
-            path.join(WORKSPACE_PATH, '.share'),
-            WORKSPACE_PATH
-        );
-        peerFeedCache = await networkModule.startPeerFeedCache(
-            networkNode,
-            WORKSPACE_PATH
-        );
-        console.log('Network: peer ID', networkNode.peerId.toString());
-        for (const addr of networkNode.getMultiaddrs()) {
-            console.log('Network: listening on', addr.toString());
-        }
-    } catch (error) {
-        console.error('Network: failed to start', error?.message || error);
+// The network manager owns the libp2p lifecycle and the opt-in/lazy-start
+// policy (see canvas/network.mjs createNetworkManager). network.mjs is ESM, so
+// from this CommonJS file we reach the manager through one lazy dynamic import.
+// That import is cheap and does NOT start the node — only manager.ensure()
+// does — so an idle, non-sharing workspace never joins the public DHT.
+let networkManagerPromise = null;
+const network = () => {
+    if (!networkManagerPromise) {
+        networkManagerPromise = import('./canvas/network.mjs')
+            .then(module => module.createNetworkManager({ workspacePath: WORKSPACE_PATH }))
+            .catch(error => {
+                console.error('Network: failed to load', error?.message || error);
+                networkManagerPromise = null;  // let the next action retry the load
+                // A no-op manager keeps callers safe (status reports not
+                // running, ensure is a no-op) when the module can't load —
+                // the harness keeps running, just without networking.
+                return {
+                    ensure: () => Promise.resolve(null),
+                    status: () => ({ running: false }),
+                    shouldAutoStart: () => false,
+                    peerFeed: () => null,
+                    node: () => null,
+                    stop: () => Promise.resolve()
+                };
+            });
     }
+    return networkManagerPromise;
 };
 
 // Clean up any workers a prior server for this workspace left behind (crash /
@@ -2391,8 +2403,9 @@ server.listen(PORT, '127.0.0.1', () => {
     // owed, runs in the background and doesn't hold the canvas back.)
     emitRecoveryState(recovering ? 'recovering' : 'ready');
 
-    // Kick off the libp2p node in the background. Don't await — the
-    // harness should serve HTTP immediately even if bootstrap to the
-    // DHT takes seconds (which it usually does).
-    startNetwork();
+    // Networking is opt-in; the policy lives in the manager. Auto-start the
+    // node only when this workspace already shares something (so peers can
+    // reach it); otherwise it stays down until a networking action lazily
+    // starts it. Don't await — HTTP serves immediately.
+    network().then(net => { if (net.shouldAutoStart()) net.ensure(); });
 });
