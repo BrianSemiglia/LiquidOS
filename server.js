@@ -29,7 +29,7 @@ const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none
     'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'component-build-test', 'canvas-repair-test',
     'canvas-damaged-repair-test', 'component-runtime-repair-test', 'prompt-bar-single-dispatch-test',
     'prompt-bar-test', 'install-build-test', 'cross-canvas-persistence-test', 'lqpatch-stream-stub',
-    'service-rewrite-stub', 'crash-repair-stub', 'chat-stub']);
+    'service-rewrite-stub', 'crash-repair-stub', 'chat-stub', 'stub-a', 'stub-b']);
 
 const failStartup = message => {
     console.error(message);
@@ -192,7 +192,6 @@ try {
 } catch { /* mkdir / createWriteStream failed — fall back to no file capture */ }
 
 const CANVAS_TEMPLATE_ROOT = path.join(ROOT, 'skills', 'canvas', 'scripts', 'templates');
-const ACTIVE_AGENT_FILE = path.join(WORKSPACE_PATH, 'active-agent.json');
 const DEFAULT_CANVAS_NAME = 'home';
 const DEFAULT_CANVAS_PATH = path.join(WORKSPACE_PATH, DEFAULT_CANVAS_NAME);
 
@@ -207,34 +206,17 @@ const validAgentKind = value =>
     typeof value === 'string'
         && VALID_AGENT_KINDS.has(value.trim().toLowerCase());
 
-const activeAgentKindFromFile = () => {
-    try {
-        if (!fs.existsSync(ACTIVE_AGENT_FILE)) return DEFAULT_AGENT_KIND;
-        const value = JSON.parse(fs.readFileSync(ACTIVE_AGENT_FILE, 'utf8'));
-        return validAgentKind(value?.agent) ? value.agent.trim().toLowerCase() : DEFAULT_AGENT_KIND;
-    } catch {
-        return DEFAULT_AGENT_KIND;
-    }
-};
-
-const writeActiveAgentKind = kind => {
-    fs.writeFileSync(
-        ACTIVE_AGENT_FILE,
-        JSON.stringify({ agent: validAgentKind(kind) ? String(kind).trim().toLowerCase() : DEFAULT_AGENT_KIND }, null, 2) + '\n'
-    );
-};
-
 // ui-state.json is the single workspace-state file: it names the active canvas
-// AND persists which "system" panels are open — escape mode (the prompt bar
-// hidden for a clean canvas), the Spaces canvas picker, the canvas requirements
-// editor, and a component's requirements editor. It's a plain workspace file the
-// harness watches; there's no dedicated endpoint and no server-side state to
-// keep in sync. The client writes it through the generic PUT /workspace/ path
-// (switching canvas and opening/closing panels), an agent can write it to drive
-// the surface for the user, and either way the watcher applies any canvas switch
-// and broadcasts the new state to every client. Every writer does a full-shape
-// write (or read-merge), so no writer ever drops the canvas key. Absent file =
-// home canvas, everything closed.
+// and the active agent, AND persists which "system" panels are open — escape
+// mode (the prompt bar hidden for a clean canvas), the Spaces canvas picker, the
+// canvas requirements editor, and a component's requirements editor. It's a
+// plain workspace file the harness watches; there's no dedicated endpoint and no
+// server-side state to keep in sync. The client writes it through the generic
+// PUT /workspace/ path (switching canvas/agent, opening/closing panels), an
+// agent can write it to drive the surface for the user, and either way the
+// watcher applies any canvas/agent switch and broadcasts the new state to every
+// client. Every writer does a full-shape write (or read-merge), so no writer
+// ever drops a key. Absent file = home canvas, default agent, everything closed.
 const UI_STATE_FILE = path.join(WORKSPACE_PATH, 'ui-state.json');
 
 const uiStateFromFile = () => {
@@ -256,12 +238,21 @@ const activeCanvasNameFromFile = () => {
     return validCanvasName(value) ? value : null;
 };
 
+// The active agent lives in ui-state.json's `agent` key. Returns null when the
+// file is absent or the key is missing/invalid so callers can distinguish "no
+// opinion" (keep the current agent; cold start falls back to the launch default)
+// from a real, validated switch request.
+const activeAgentKindFromFile = () => {
+    const value = uiStateFromFile().agent;
+    return validAgentKind(value) ? value.trim().toLowerCase() : null;
+};
+
 const canvasNameFromPath = canvasPath =>
     path.relative(WORKSPACE_PATH, canvasPath) || path.basename(canvasPath);
 
 let CANVAS_PATH = path.join(WORKSPACE_PATH, activeCanvasNameFromFile() || DEFAULT_CANVAS_NAME);
 let INDEX_PATH = path.join(CANVAS_PATH, 'index.json');
-let ACTIVE_AGENT_KIND = activeAgentKindFromFile();
+let ACTIVE_AGENT_KIND = activeAgentKindFromFile() || DEFAULT_AGENT_KIND;
 // The agent runs with the workspace as its CWD. Each agent's discovery
 // dir (.claude/, .codex/, .hermes/, .pi/, .agents/) and the system-prompt
 // file (AGENTS.md) are materialized directly inside the workspace, so
@@ -324,9 +315,6 @@ if (!fs.existsSync(path.join(CANVAS_PATH, 'index.json'))) {
     INDEX_PATH = path.join(CANVAS_PATH, 'index.json');
 }
 
-if (!fs.existsSync(ACTIVE_AGENT_FILE)) {
-    writeActiveAgentKind(ACTIVE_AGENT_KIND);
-}
 runtimeSet.refreshRuntime();
 const PORT = Number.parseInt(requiredArg('--port'), 10);
 
@@ -1014,6 +1002,29 @@ const applyActiveCanvasFromFile = () => {
     broadcast();
 };
 
+// ui-state.json's `agent` key is the source of truth for the active agent kind:
+// the client, an agent, or an external editor may write it. The watcher detects
+// the change, validates the kind through the runtime, and applies it. A
+// missing/invalid key (null) or one that already matches is a no-op, so a
+// canvas/panel-only write never disturbs the agent. select() rejects unknown or
+// uninstalled kinds — log and leave the agent where it was, same as a bad canvas.
+const applyActiveAgentFromFile = () => {
+    const kind = activeAgentKindFromFile();
+    if (!kind || kind === ACTIVE_AGENT_KIND) return;
+    const result = activeRuntime.select(kind);
+    if (!result.ok) {
+        logHermesError('active-agent', new Error(result.error || 'agent select failed'), {
+            message: 'ui-state.json names an unavailable agent: ' + kind
+        });
+        return;
+    }
+    ACTIVE_AGENT_KIND = activeRuntime.activeKind() || kind;
+    if (outputQueue) {
+        outputQueue.feedHermesOutput();
+    }
+    broadcast({ type: 'agent-mode', agentKind: ACTIVE_AGENT_KIND });
+};
+
 // One @parcel/watcher subscription on the whole workspace replaces the
 // fs.watch instances this used to juggle. @parcel/watcher drives the native
 // FSEvents/inotify backends directly and reliably reports every change —
@@ -1040,13 +1051,14 @@ const dispatchWorkspaceEvent = absPath => {
     const rel = path.relative(workspaceWatchRoot, absPath).split(path.sep).join('/');
     if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
 
-    // ui-state.json is the single source of truth for both the active canvas and
-    // which system panels are open (escape mode, the canvas picker,
-    // canvas/component requirements). The client (PUT /workspace/), an agent, or
-    // an external editor may write it. Apply any canvas switch it requests, then
-    // push the panel state to every client.
+    // ui-state.json is the single source of truth for the active canvas, the
+    // active agent, and which system panels are open (escape mode, the canvas
+    // picker, canvas/component requirements). The client (PUT /workspace/), an
+    // agent, or an external editor may write it. Apply any canvas/agent switch it
+    // requests, then push the panel state to every client.
     if (rel === 'ui-state.json') {
         applyActiveCanvasFromFile();
+        applyActiveAgentFromFile();
         broadcast({ type: 'ui-state', state: uiStateFromFile() });
         return false;
     }
@@ -1893,36 +1905,6 @@ const server = http.createServer(async (req, res) => {
             } catch (error) {
                 send(res, 502, 'dial failed: ' + (error?.message || error));
             }
-            return;
-        }
-
-        if (req.method === 'POST' && url.pathname === '/agent/select') {
-            const body = JSON.parse(await readBody(req));
-
-            const normalized = String(body.kind || '').trim().toLowerCase();
-            const result = activeRuntime.select(normalized);
-
-            if (!result.ok) {
-                send(res, result.statusCode, JSON.stringify({ error: result.error }), 'application/json; charset=utf-8');
-                return;
-            }
-
-            ACTIVE_AGENT_KIND = activeRuntime.activeKind() || normalized;
-            writeActiveAgentKind(ACTIVE_AGENT_KIND);
-
-            if (outputQueue) {
-                outputQueue.feedHermesOutput();
-            }
-
-            broadcast({
-                type: 'agent-mode',
-                agentKind: ACTIVE_AGENT_KIND
-            });
-
-            send(res, 200, JSON.stringify({
-                ok: true,
-                agent: result.agent
-            }), 'application/json; charset=utf-8');
             return;
         }
 

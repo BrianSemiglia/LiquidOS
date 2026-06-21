@@ -22,10 +22,11 @@ set -euo pipefail
 #   --no-component                     close the component requirements editor
 #
 #   --canvas <name>                    switch the active canvas (must already exist)
+#   --agent <kind>                     switch the active agent (hermes | pi | codex | claude-code | none)
 #
-# The active canvas, the engaged/disengaged surface, and the component editor are
-# all independent: this MERGES with the current ui-state.json, so changing one
-# leaves the others alone. Pass any combination of flags.
+# The active canvas, the active agent, the engaged/disengaged surface, and the
+# component editor are all independent: this MERGES with the current
+# ui-state.json, so changing one leaves the others alone. Pass any combination.
 #
 # Examples:
 #   set-ui-state.sh <ws> --disengaged prompt              # clean canvas
@@ -33,12 +34,13 @@ set -euo pipefail
 #   set-ui-state.sh <ws> --component home/components/clock # open a component's requirements
 #   set-ui-state.sh <ws> --engaged --no-component         # back to normal, nothing open
 #   set-ui-state.sh <ws> --canvas notes                   # switch to the "notes" canvas
+#   set-ui-state.sh <ws> --agent codex                    # switch the active agent
 #
 # Output: one-line JSON of the resulting state.
 #
 
 usage() {
-    sed -n '5,37p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '5,39p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 WORKSPACE_DIR=""
@@ -48,6 +50,8 @@ COMPONENT=""
 COMPONENT_SET=0   # 0 = leave componentRequirements as-is
 CANVAS=""
 CANVAS_SET=0      # 0 = leave the active canvas as-is
+AGENT=""
+AGENT_SET=0       # 0 = leave the active agent as-is
 
 set_mode() {
     if [ "$MODE_SET" -eq 1 ]; then
@@ -86,6 +90,9 @@ while [ "$#" -gt 0 ]; do
         --canvas)
             CANVAS="${2:-}"; CANVAS_SET=1; shift 2
             ;;
+        --agent)
+            AGENT="${2:-}"; AGENT_SET=1; shift 2
+            ;;
         -*)
             echo "Error: unknown flag: $1" >&2
             exit 1
@@ -123,18 +130,19 @@ case "$WORKSPACE_DIR" in
         ;;
 esac
 
-if [ "$MODE_SET" -eq 0 ] && [ "$COMPONENT_SET" -eq 0 ] && [ "$CANVAS_SET" -eq 0 ]; then
-    echo "Error: nothing to do — pass --engaged / --disengaged, --component / --no-component, and/or --canvas" >&2
+if [ "$MODE_SET" -eq 0 ] && [ "$COMPONENT_SET" -eq 0 ] && [ "$CANVAS_SET" -eq 0 ] && [ "$AGENT_SET" -eq 0 ]; then
+    echo "Error: nothing to do — pass --engaged / --disengaged, --component / --no-component, --canvas, and/or --agent" >&2
     exit 1
 fi
 
-# Read-merge-write so the active canvas, the surface, and the component editor
-# stay independent: an absent file defaults to the home canvas, engaged, with
-# nothing open; only the flags passed change. The canvas key is always preserved
-# (never dropped) so a panel-only change never moves the active canvas.
+# Read-merge-write so the active canvas, the active agent, the surface, and the
+# component editor stay independent: an absent file defaults to the home canvas,
+# the launch-default agent, engaged, with nothing open; only the flags passed
+# change. The canvas and agent keys are always preserved (never dropped) so a
+# panel-only change never moves the active canvas or agent.
 node -e '
 const fs = require("fs");
-const [file, mode, modeSet, component, componentSet, canvas, canvasSet] = process.argv.slice(1);
+const [file, mode, modeSet, component, componentSet, canvas, canvasSet, agent, agentSet] = process.argv.slice(1);
 const MODES = ["engaged", "prompt", "canvasPicker", "canvasRequirements"];
 let state = {};
 try { const p = JSON.parse(fs.readFileSync(file, "utf8")); if (p && typeof p === "object") state = p; } catch {}
@@ -144,8 +152,11 @@ let nextComponent = typeof state.componentRequirements === "string" ? state.comp
 if (componentSet === "1") nextComponent = component;
 let nextCanvas = typeof state.canvas === "string" ? state.canvas : "";
 if (canvasSet === "1") nextCanvas = canvas;
+let nextAgent = typeof state.agent === "string" ? state.agent : "";
+if (agentSet === "1") nextAgent = agent;
 const out = { mode: nextMode, componentRequirements: nextComponent };
 if (nextCanvas) out.canvas = nextCanvas;
+if (nextAgent) out.agent = nextAgent;
 fs.writeFileSync(file, JSON.stringify(out, null, 2) + "\n");
 process.stdout.write(JSON.stringify(out) + "\n");
-' "$WORKSPACE_DIR/ui-state.json" "$MODE" "$MODE_SET" "$COMPONENT" "$COMPONENT_SET" "$CANVAS" "$CANVAS_SET"
+' "$WORKSPACE_DIR/ui-state.json" "$MODE" "$MODE_SET" "$COMPONENT" "$COMPONENT_SET" "$CANVAS" "$CANVAS_SET" "$AGENT" "$AGENT_SET"

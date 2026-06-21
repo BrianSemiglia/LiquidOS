@@ -4654,24 +4654,16 @@
         };
 
         const switchAgentKind = async kind => {
-            const response = await fetch('/agent/select', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ kind })
-            });
-
-            if (!response.ok) {
-                throw new Error('/agent/select returned ' + response.status);
+            // Selecting an agent is a ui-state.json write — no dedicated endpoint.
+            // Set the agent key and let the harness watcher validate the kind,
+            // swap the runtime, and broadcast agent-mode, which drives
+            // loadAgentChoices()/loadDebugPanel() via the SSE handler. The select
+            // already holds the optimistic value (the change fired this), so a
+            // concurrent panel/canvas write preserves it.
+            const ok = await writeUiState({ agent: kind });
+            if (!ok) {
+                throw new Error('failed to persist agent switch');
             }
-
-            const result = await response.json();
-
-            await loadAgentChoices();
-            await loadDebugPanel().catch(() => {});
-
-            return result;
         };
 
         const switchCanvas = async name => {
@@ -5620,14 +5612,16 @@
             if (document.body.getAttribute('data-prompt-hidden') === 'true') return 'prompt';
             return 'engaged';
         };
-        // ui-state.json carries the active canvas alongside the panel state, so
-        // every write includes `canvas` — otherwise a panel toggle would drop the
-        // key and the harness would snap back to home. The current canvas is the
-        // one source we read from (the server's truth, via loadCanvases).
+        // ui-state.json carries the active canvas and agent alongside the panel
+        // state, so every write includes `canvas` and `agent` — otherwise a panel
+        // toggle would drop a key and the harness would snap back to the default.
+        // Both come from the live UI (loadCanvases sets currentCanvasName; the
+        // agent dropdown holds the current kind).
         const readUiPanelState = () => ({
             mode:                  readUiMode(),
             componentRequirements: openComponentScope(),
             canvas:                currentCanvasName || document.body.dataset.currentCanvas || '',
+            agent:                 agentSelect.value || '',
         });
 
         let applyingUiState = false;   // while true, the observer must not re-persist

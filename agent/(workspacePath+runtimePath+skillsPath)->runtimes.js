@@ -23,6 +23,8 @@ const { LqpatchStreamStubAgent } = require('./test/lqpatch-stream-stub-agent');
 const { ServiceRewriteStubAgent } = require('./test/service-rewrite-stub-agent');
 const { CrashRepairStubAgent } = require('./test/crash-repair-stub-agent');
 const { ChatStubAgent } = require('./test/chat-stub-agent');
+const { AgentSwitchStubAAgent } = require('./test/agent-switch-stub-a-agent');
+const { AgentSwitchStubBAgent } = require('./test/agent-switch-stub-b-agent');
 
 // NoneAgent is for runs that should not have a working agent — sandbox boots
 // for smoke tests, recursion guards, anything where callbacks should fail
@@ -77,7 +79,9 @@ const createRuntimes = ({
         LqpatchStreamStubAgent(),
         ServiceRewriteStubAgent(),
         CrashRepairStubAgent(),
-        ChatStubAgent()
+        ChatStubAgent(),
+        AgentSwitchStubAAgent(),
+        AgentSwitchStubBAgent()
     ];
 
     const ownedRuntimePaths = () =>
