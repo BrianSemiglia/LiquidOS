@@ -289,21 +289,6 @@ const pathIsInside = (file, basePath) => {
     return relative === '' || Boolean(relative && !relative.startsWith('..') && !path.isAbsolute(relative));
 };
 
-const resolveCanvasLocalFile = file =>
-    path.isAbsolute(file) ? path.normalize(file) : path.resolve(CANVAS_PATH, file);
-
-const isCanvasLocalFile = file =>
-    pathIsInside(resolveCanvasLocalFile(file), path.resolve(CANVAS_PATH));
-
-const streamCanvasFile = (req, res, file, type) => {
-    if (!isCanvasLocalFile(file)) {
-        send(res, 403, 'Use a served URL for files outside the canvas folder');
-        return;
-    }
-
-    streamFile(req, res, resolveCanvasLocalFile(file), type);
-};
-
 fs.mkdirSync(WORKSPACE_PATH, { recursive: true });
 
 if (!fs.existsSync(path.join(CANVAS_PATH, 'index.json'))) {
@@ -2209,22 +2194,10 @@ const server = http.createServer(async (req, res) => {
             }
         }
 
-        const componentResource = url.pathname.match(/^\/component\/(.+)\/resources\/(.+)$/);
-
-        if (req.method === 'GET' && componentResource) {
-            const componentPath = decodeURIComponent(componentResource[1]);
-            const component = canvasGraph.findAnyByPath(componentPath)?.component;
-            const name = decodeURIComponent(componentResource[2]);
-            const resource = component && canvasGraph.componentResources(resolveCanvasReference(componentPath), component)[name];
-
-            if (!resource?.path) {
-                send(res, 404, 'Component resource not found');
-                return;
-            }
-
-            streamCanvasFile(req, res, resource.path, resource.mime || resource.type);
-            return;
-        }
+        // A component's local resources (the synthesized relationship
+        // functions.js) are served through GET /workspace/<canvas>/<path> — the
+        // url renderedResources hands the client — so there's no dedicated
+        // /component/<path>/resources route.
 
         const file = staticPath(url.pathname);
 

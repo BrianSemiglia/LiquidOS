@@ -10,11 +10,22 @@ const createCanvasGraph = ({
     const componentScopePath = componentPath =>
         path.relative(getCanvasPath(), componentPath).split(path.sep).join('/');
 
-    const componentResourceUrl = (componentPath, name) =>
-        '/component/' + encodeURIComponent(componentScopePath(componentPath)) + '/resources/' + encodeURIComponent(name);
-
-    const resourceUrl = (componentPath, name, resource) =>
-        resource?.url ? String(resource.url) : componentResourceUrl(componentPath, name);
+    // A local resource file (the synthesized relationship functions.js) lives
+    // inside the canvas, so it's served through the generic /workspace path like
+    // every other component file — no dedicated /component/<path>/resources
+    // route. Its `path` is canvas-relative; prefix the canvas folder to make it
+    // workspace-relative. An external resource keeps its explicit url; the
+    // version (mtime) the client cache-busts with rides on /workspace's query.
+    const resourceUrl = (componentPath, name, resource) => {
+        if (resource?.url) return String(resource.url);
+        const local = localResourcePath(resource);
+        if (!local || path.isAbsolute(local)) return '';
+        const rel = path.posix.join(
+            path.basename(getCanvasPath()),
+            local.split(path.sep).join('/')
+        );
+        return '/workspace/' + rel;
+    };
 
     const localResourcePath = resource =>
         resource?.path && !/^https?:\/\//i.test(String(resource.path)) ? String(resource.path) : null;
@@ -201,9 +212,6 @@ const createCanvasGraph = ({
         ) || null;
     };
 
-    const componentResources = (componentPath, component) =>
-        component?.resources || {};
-
     const renderedResources = (componentPath, resources) =>
         Object.fromEntries(
             Object.entries(resources).map(([name, resource]) => [
@@ -369,7 +377,6 @@ const createCanvasGraph = ({
         componentFolderPath,
         canvasJsPath,
         updateDiagnostics,
-        componentResources,
         renderedInput,
         findLeafComponentByPath,
         findAnyByPath,
