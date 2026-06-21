@@ -139,7 +139,7 @@ export default async ({ url, page, browser }) => {
     console.log('surviving canvas still renders the installed component');
 
     // ...and its requirements must still be intact (not blanked or merged).
-    await conPage.locator('liquidos-component[path="components/gizmo"] [data-component-flip]').click();
+    await conPage.getByRole('button', { name: 'Edit Gizmo requirements' }).click();
     await conPage.waitForFunction(
       (expected) => {
         const ta = document.querySelector('.requirements-overlay [data-feature-requirements]');

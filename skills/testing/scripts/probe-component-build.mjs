@@ -33,7 +33,7 @@ export default async ({ url, workspace, page }) => {
 
     // Open the modal; wait for the textarea to actually carry the
     // seeded BEFORE text (loadRequirements fetches it async).
-    await page.locator('[data-component-flip]').first().dispatchEvent('click');
+    await page.getByRole('button', { name: 'Edit Probe requirements' }).dispatchEvent('click');
     await page.waitForFunction(
         () => document.querySelector('[data-feature-requirements]')?.value?.includes('BEFORE_PROBE_MARKER'),
         { timeout: 5000 }

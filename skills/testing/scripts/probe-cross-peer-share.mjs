@@ -83,7 +83,7 @@ export default async ({ url, page, browser }) => {
     // Open gizmo's Requirements modal and check the per-component share switch
     // reflects the inherited canvas-level state (aria-checked=true, not
     // disabled).
-    await pubPage.locator('liquidos-component[path="components/gizmo"] [data-component-flip]').click();
+    await pubPage.getByRole('button', { name: 'Edit Gizmo requirements' }).click();
     await pubPage.waitForFunction(
       () => {
         const btn = document.querySelector('.requirements-overlay [data-component-share-switch]');
@@ -151,7 +151,7 @@ export default async ({ url, page, browser }) => {
     // Open the installed gizmo's Requirements modal and confirm the publisher's
     // sentinel text reached the textarea — the assertion that proves the
     // requirements survived share.sh → bundle → libp2p → install.sh → on-disk.
-    await conPage.locator('liquidos-component[path="components/gizmo"] [data-component-flip]').click();
+    await conPage.getByRole('button', { name: 'Edit Gizmo requirements' }).click();
     await conPage.waitForFunction(
       (expected) => {
         const ta = document.querySelector('.requirements-overlay [data-feature-requirements]');

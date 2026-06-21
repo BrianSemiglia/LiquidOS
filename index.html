@@ -3642,6 +3642,10 @@
                 textarea.dataset.savedValue = textarea.value;
                 const titleEl = item.querySelector('[data-feature-title]');
                 if (titleEl) titleEl.textContent = title;
+                // Keep the flip button's accessible name in step with the
+                // resolved title, so it reads "Edit <title> requirements".
+                const flipBtn = item.querySelector('[data-component-flip]');
+                if (flipBtn) flipBtn.setAttribute('aria-label', 'Edit ' + title + ' requirements');
                 item.querySelector('[data-feature-save]').disabled = true;
                 // Record the outcome so syncRepairCallback can choose between
                 // Generate (present but empty) and Repair (missing / corrupt).

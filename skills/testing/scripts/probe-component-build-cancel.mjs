@@ -17,7 +17,7 @@ export default async ({ url, page }) => {
     await page.waitForSelector('[data-probe]', { timeout: 20000 });
 
     // Open the modal — the overlay appears in the DOM.
-    await page.locator('[data-component-flip]').first().dispatchEvent('click');
+    await page.getByRole('button', { name: 'Edit Probe requirements' }).dispatchEvent('click');
     await page.waitForSelector('.requirements-overlay', { timeout: 5000 });
 
     // Click Cancel — the overlay must go away.

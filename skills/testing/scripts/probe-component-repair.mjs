@@ -34,7 +34,7 @@ export default async ({ url, page }) => {
 
     // Open the flip-back. Requirements file is present but empty so the recover
     // affordance reads "Generate" — the user can see it.
-    await page.locator('[data-component-flip]').first().dispatchEvent('click');
+    await page.getByRole('button', { name: 'Edit Probe requirements' }).dispatchEvent('click');
     await onScreen("Generate").catch(() => {
         throw new Error('"Generate" did not appear when the flip-back opened (requirements file present but empty)');
     });
@@ -52,7 +52,7 @@ export default async ({ url, page }) => {
     // Reopen — harness re-fetches via /component/<path>/features so the
     // recover overlay now reflects the agent's write: file is non-empty,
     // so the recover button hides entirely. The user no longer sees "Generate".
-    await page.locator('[data-component-flip]').first().dispatchEvent('click');
+    await page.getByRole('button', { name: 'Edit Probe requirements' }).dispatchEvent('click');
     await offScreen("Generate").catch(() => {
         throw new Error('"Generate" is still on screen after the agent wrote the requirements file — recover overlay did not clear');
     });

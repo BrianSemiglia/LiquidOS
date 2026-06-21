@@ -17,7 +17,10 @@ export default async ({ url, page }) => {
     await page.waitForSelector('[data-probe]', { timeout: 20000 });
     await sleep(1500);
 
-    const flip = page.locator('[data-component-flip]').first();
+    // Located by its accessible name (aria-label), which stays constant while
+    // the visible label toggles Requirements ↔ Close — and which still resolves
+    // once the button moves into the open requirements overlay.
+    const flip = page.locator('[aria-label="Edit Probe requirements"]');
     const front = await flip.textContent();
     if ((front || '').trim() !== 'Requirements') {
         throw new Error('front state should read "Requirements", got: ' + front);

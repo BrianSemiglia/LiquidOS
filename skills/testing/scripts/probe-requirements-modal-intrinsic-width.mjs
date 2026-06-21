@@ -22,7 +22,7 @@ export default async ({ url, page }) => {
   await page.waitForSelector('[data-narrow]', { timeout: 15000 });
 
   // Open the modal.
-  await page.locator('[data-component-flip]').first().evaluate(el => el.click());
+  await page.getByRole('button', { name: 'Edit Narrow requirements' }).dispatchEvent('click');
   await page.waitForFunction(
     () => !!document.querySelector('.requirements-overlay [data-narrow]'),
     { timeout: 5000 }

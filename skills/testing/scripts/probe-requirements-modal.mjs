@@ -35,8 +35,7 @@ export default async ({ url, workspace, page }) => {
 
   // The component's own rendered content — a unique visible string.
   const WIDGET = 'A component with some content to render inside the requirements modal';
-  const openModal = () => page.locator('.item[data-component-path*="widget"] [data-component-flip]')
-    .first().evaluate(el => el.click());
+  const openModal = () => page.getByRole('button', { name: 'Edit Widget requirements' }).dispatchEvent('click');
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await onScreen(WIDGET, 20000);   // the component renders on the canvas

@@ -22,7 +22,7 @@ export const agent = 'none';
 const MARKER = '- REQ_PERSIST_RELOAD_MARKER must survive a reload';
 
 const openEditor = async (page) => {
-    await page.locator('[data-component-flip]').first().dispatchEvent('click');
+    await page.getByRole('button', { name: 'Edit Probe requirements' }).dispatchEvent('click');
     await page.waitForSelector('[data-feature-requirements]', { timeout: 8000 });
 };
 

@@ -66,7 +66,7 @@ export default async ({ url, page, browser }) => {
         console.log('publisher: canvas Shared ON');
 
         // --- publisher: opt widget OUT via its Requirements modal -------------
-        await pubPage.locator('liquidos-component[path="components/widget"] [data-component-flip]').click();
+        await pubPage.getByRole('button', { name: 'Edit Widget requirements' }).click();
         await pubPage.waitForSelector('.requirements-overlay [data-component-share-switch]', { timeout: 8000 });
         // Wait for the switch to populate as ON (inherited from canvas).
         await pubPage.waitForFunction(
