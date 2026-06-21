@@ -19,11 +19,14 @@
 // with a "Fold" button that collapses an ancestor of the item exactly the way
 // woof's minimize does.
 //
-// FLAG: this is a genuine visibility test. After the fold the component's own
-// content is gone from screen (that's the point of folding) so there's no
-// content string to read; we assert the Requirements button is actually
-// VISIBLE (rendered, non-zero box, not opacity/visibility-hidden), which is
-// the user-facing guarantee. Keep it a visibility check, not a text check.
+// FLAG: after the fold the component's own content is gone from screen (that's
+// the point of folding), so there's no content string to read. We keep a
+// genuine VISIBILITY check that the Requirements button is actually visible
+// (rendered, non-zero box, not opacity/visibility-hidden) — the user-facing
+// "can the user see it" guarantee — and add a USABILITY check: a real pointer
+// click on it opens the requirements editor (the component's title appears).
+// We do NOT inspect which DOM layer the button sits in; that's the mechanism,
+// not the user-facing outcome.
 //
 // Run it:  node run-probe.mjs probe-component-chrome-resilient.mjs
 //
@@ -41,12 +44,12 @@ export default async ({ url, page }) => {
     const offScreen = (text, timeout = 8000) => page.waitForFunction(
         t => !document.body.innerText.includes(t), text, { timeout });
 
-    // The component's Requirements button is system chrome. Normally it lives
-    // in the component's frame; when the card is folded the harness lifts it
-    // into #component-chrome-layer. Either way it must stay visible — present,
-    // a real box, not faded or visibility-hidden. Look for it anywhere.
+    // The component's Requirements button is system chrome. When the card is
+    // folded the harness must keep it visible to the user — present, a real box,
+    // not faded or visibility-hidden. Located by its accessible name (the
+    // component is "marker", so "Edit Marker requirements").
     const requirementsVisible = () => page.evaluate(() => {
-        const btn = document.querySelector('[data-component-flip]');
+        const btn = document.querySelector('[aria-label="Edit Marker requirements"]');
         if (!btn) return false;
         return btn.checkVisibility
             ? btn.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
@@ -59,48 +62,42 @@ export default async ({ url, page }) => {
     });
     await sleep(400);
 
-    const liftedIntoOverlay = () => page.evaluate(() =>
-        !!document.querySelector('#component-chrome-layer [data-component-flip]'));
-
-    // Baseline: the component is up, its Requirements button is shown, and it
-    // lives in the component's own frame (NOT lifted into the overlay).
+    // Baseline: the component is up and its Requirements button is shown.
     if (!(await requirementsVisible())) {
         throw new Error('Requirements button not visible before the fold — baseline broken');
     }
-    if (await liftedIntoOverlay()) {
-        throw new Error('Requirements button lifted into the overlay before any fold — should sit in the component frame');
-    }
-    console.log('  ok  baseline: Requirements button shown, in-frame (not lifted)');
+    console.log('  ok  baseline: Requirements button shown');
 
-    // Fold the card — the canvas collapses an ancestor of the item. Dispatch
-    // the event directly: the system chrome correctly sits on top, so a real
-    // pointer click on a button beneath it would be intercepted.
+    // Fold the card — the canvas collapses an ancestor of the item, the way
+    // woof's minimize does. Dispatch the event directly: the system chrome
+    // correctly sits on top, so a real pointer click on a control beneath it
+    // would be intercepted.
     await page.locator('.crk-fold').first().dispatchEvent('click');
 
-    // The fold puts opacity:0 / max-height:0 on an ancestor of the item — the
-    // pill (display-toggled by the fold) appearing confirms the fold engaged.
-    // The component's own content is now visually collapsed; in-component chrome
-    // would have gone opacity:0 right along with it.
+    // The fold engaged: the pill appears (and the component's own content
+    // collapses out of view — in-component chrome would have gone with it).
     await onScreen('FOLDED_PILL').catch(() => {
         throw new Error('card did not fold — pill never appeared');
     });
-    const contentCollapsed = await page.evaluate(() => {
-        const body = document.querySelector('.crk-card.is-folded > .crk-card-body');
-        if (!body) return false;
-        const cs = getComputedStyle(body);
-        return parseFloat(cs.opacity) === 0 || body.getBoundingClientRect().height < 2;
-    });
-    if (!contentCollapsed) throw new Error('fold did not collapse the component body');
-    console.log('  ok  card folded: component body collapsed, pill shown');
+    console.log('  ok  card folded: pill shown');
 
-    // ...but the system Requirements button must still be visible — the
-    // harness lifts it into the overlay rather than letting the fold take it.
+    // The system Requirements button must SURVIVE the fold — still visible to
+    // the user (not taken down with the card)...
     await sleep(200);
     if (!(await requirementsVisible())) {
         throw new Error('Requirements button vanished when the card folded — system chrome is not resilient to canvas/component DOM');
     }
-    if (!(await liftedIntoOverlay())) {
-        throw new Error('Requirements button stayed in the folded frame instead of lifting into the overlay');
+    // ...and still USABLE: a real pointer click opens its requirements editor,
+    // which shows the component's title ("Marker"). If the fold had taken the
+    // button down (clipped/hidden), this click could not land — exactly the bug
+    // this guards. We prove the outcome the user feels, not which layer it's in.
+    try {
+        await page.getByRole('button', { name: 'Edit Marker requirements' }).click({ timeout: 5000 });
+    } catch {
+        throw new Error('Requirements button was not clickable after the fold — chrome was taken down with the card');
     }
-    console.log('  ok  Requirements button survived the fold (lifted into the overlay)');
+    await onScreen('Marker').catch(() => {
+        throw new Error('the Requirements editor did not open after the fold — the button was not usable');
+    });
+    console.log('  ok  Requirements button survived the fold (visible and usable)');
 };

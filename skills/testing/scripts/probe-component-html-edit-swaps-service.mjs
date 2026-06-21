@@ -14,15 +14,16 @@
 //
 // This probe:
 //   1. Renders a component whose component.html declares
-//      <liquidos-file run path="service-a.js">
-//      <p data-marker>SURVIVED_THE_SWAP</p>
-//   2. Confirms SURVIVED_THE_SWAP is visible on screen.
-//   3. PUTs a new component.html with the run path swapped to
-//      service-b.js — same marker content, no other change.
-//   4. Asserts SURVIVED_THE_SWAP is STILL visible after the swap.
+//      <liquidos-file run path="service-a.js">, a static SURVIVED_THE_SWAP
+//      marker, and a #svc region the running service paints into.
+//   2. Confirms SURVIVED_THE_SWAP and service-a's SERVICE_A_LIVE are visible.
+//   3. PUTs a new component.html with the run path swapped to service-b.js.
+//   4. Asserts the swap is visible — SERVICE_B_LIVE now paints and
+//      SERVICE_A_LIVE is gone (A torn down, B spawned) — AND SURVIVED_THE_SWAP
+//      is STILL on screen (the view survived the structural edit).
 //
-// Asserts only what a person sees on screen, never internal DOM structure
-// or geometry.
+// Asserts only what a person sees on screen — the markers the services paint
+// and the static content — never internal DOM structure or geometry.
 //
 // Run it:  node run-probe.mjs probe-component-html-edit-swaps-service.mjs
 //
@@ -43,14 +44,20 @@ export default async ({ url, workspace, page }) => {
 
     const onScreen = (text, timeout = 10000) => page.waitForFunction(
         t => document.body.innerText.includes(t), text, { timeout });
+    const offScreen = (text, timeout = 10000) => page.waitForFunction(
+        t => !document.body.innerText.includes(t), text, { timeout });
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // Baseline: the component's visible marker is on screen.
+    // Baseline: the static marker is on screen, and service-a is running —
+    // proven by the SERVICE_A_LIVE marker it paints into the component.
     await onScreen('SURVIVED_THE_SWAP').catch(() => {
         throw new Error('"SURVIVED_THE_SWAP" never appeared — component did not render');
     });
-    console.log('  ok  baseline: SURVIVED_THE_SWAP visible');
+    await onScreen('SERVICE_A_LIVE').catch(() => {
+        throw new Error('"SERVICE_A_LIVE" never appeared — service-a did not start/paint');
+    });
+    console.log('  ok  baseline: SURVIVED_THE_SWAP + SERVICE_A_LIVE visible');
 
     // Swap which service the run-mode liquidos-file points at by editing
     // component.html. This is the exact edit the user made (start.sh →
@@ -69,23 +76,17 @@ export default async ({ url, workspace, page }) => {
     });
     expect('PUT returned 200', put.status === 200, 'got HTTP ' + put.status);
 
-    // Wait for the live DOM to reflect the swap — the new run-mode
-    // liquidos-file (pointing at service-b.js) appears in the document.
-    // This is a driving step: we need to know the edit landed before
-    // asserting the view survived.
-    const deadline = Date.now() + 8000;
-    while (Date.now() < deadline) {
-        const swapped = await page.evaluate(() =>
-            !!document.querySelector('liquidos-file[path*="service-b.js"][run]')
-            && !document.querySelector('liquidos-file[path*="service-a.js"][run]'));
-        if (swapped) break;
-        await sleep(120);
-    }
-    expect('swap propagated to the live DOM (service-b mounted, service-a removed)',
-        await page.evaluate(() =>
-            !!document.querySelector('liquidos-file[path*="service-b.js"][run]')
-            && !document.querySelector('liquidos-file[path*="service-a.js"][run]')),
-        'mount reconcile never propagated');
+    // The swap is observable on screen: the new service paints SERVICE_B_LIVE
+    // into the component, and the old service's SERVICE_A_LIVE stops (the
+    // harness killed A and spawned B). No DOM/structure inspection — just what
+    // the running services put on screen.
+    await onScreen('SERVICE_B_LIVE').catch(() => {
+        throw new Error('FAIL: "SERVICE_B_LIVE" never appeared — the swapped-in service did not start');
+    });
+    await offScreen('SERVICE_A_LIVE').catch(() => {
+        throw new Error('FAIL: "SERVICE_A_LIVE" still on screen — the swapped-out service was not torn down');
+    });
+    console.log('  ok  swap visible: SERVICE_B_LIVE painting, SERVICE_A_LIVE gone');
 
     // The whole point: did the rendered view survive the swap?
     await onScreen('SURVIVED_THE_SWAP').catch(() => {

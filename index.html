@@ -4046,6 +4046,13 @@
             flipButton.className = 'component-flip-button';
             flipButton.dataset.componentFlip = 'true';
             flipButton.textContent = 'Requirements';
+            // Name this component's Requirements button so it's distinguishable
+            // from every other component's (and the canvas-level toggle) —
+            // aria-label="Edit <Title> requirements", the same scheme buildShell
+            // uses; the resolved title refreshes it in loadComponentFeatures.
+            const flipLeaf = String(component.scope || '').split('/').filter(Boolean).pop() || 'component';
+            const flipName = flipLeaf.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            flipButton.setAttribute('aria-label', 'Edit ' + flipName + ' requirements');
 
             chrome.append(runtimeRepair, flipButton);
 
