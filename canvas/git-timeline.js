@@ -56,6 +56,8 @@ const promptEvent = job => {
 
 const crashEvent = error => eventWithParameter('LiquidOS did crash', 'error', error);
 
+const canceledEvent = () => 'User did cancel';
+
 const shutdownEvent = reason => isCrashReason(reason)
     ? crashEvent(reason)
     : 'User did quit';
@@ -63,18 +65,18 @@ const shutdownEvent = reason => isCrashReason(reason)
 const workspaceName = workspacePath => path.basename(String(workspacePath || '').replace(/\/+$/, ''), '.liquidos');
 
 const createGitTimeline = ({ workspacePath, currentCanvasPath, logServer }) => {
-    const ensureCanvasesGitRepo = () => {
+    const ensureWorkspaceGitRepo = () => {
         fs.mkdirSync(workspacePath, { recursive: true });
 
         if (path.resolve((git(workspacePath, ['rev-parse', '--show-toplevel']).stdout || '').trim()) !== path.resolve(workspacePath)) {
             if (git(workspacePath, ['init'], { stdio: 'inherit' }).status !== 0) {
-                throw new Error('Failed to initialize git repo for canvases');
+                throw new Error('Failed to initialize git repo for workspace');
             }
         }
 
         if (git(workspacePath, ['rev-parse', '--verify', 'HEAD']).status !== 0) {
             if (git(workspacePath, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
-                throw new Error('Failed to stage initial canvases snapshot');
+                throw new Error('Failed to stage initial workspace snapshot');
             }
 
             if (git(workspacePath, ['commit', '-m', commitMessage({
@@ -82,105 +84,44 @@ const createGitTimeline = ({ workspacePath, currentCanvasPath, logServer }) => {
                 scope: workspacePath,
                 agentResponse: 'none'
             })], { stdio: 'inherit' }).status !== 0) {
-                throw new Error('Failed to commit initial canvases snapshot');
+                throw new Error('Failed to commit initial workspace snapshot');
             }
         }
 
         return workspacePath;
     };
 
-    const commitFailedCanvases = (job, agentResponse = '', error = '') => {
-        ensureCanvasesGitRepo();
+    // Stage the whole workspace and commit it under the given event label —
+    // the commit is what enters the event into the git-log timeline. Every turn
+    // is committed, even when nothing changed on disk: DOM-only turns
+    // (`op="replace"`, `op="setAttr"`, …), quits, and failed or canceled turns
+    // are all real events worth recording for undo and later debugging. The
+    // caller supplies the event; this only knows how to snapshot.
+    const commitWorkspace = (job, event, agentResponse = '') => {
+        ensureWorkspaceGitRepo();
 
         if (git(workspacePath, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
-            logServer('git', 'failed to stage failed job canvases changes', { jobId: job.id || null });
+            logServer('git', 'failed to stage workspace changes', { jobId: job.id || null });
             return false;
         }
 
-        if (git(workspacePath, ['diff', '--cached', '--quiet']).status === 0) {
-            logServer('git', 'no failed job canvases changes to commit', { jobId: job.id || null });
-            return false;
-        }
-
-        if (git(workspacePath, ['commit', '-m', commitMessage({
-            event: crashEvent(error || agentResponse),
+        const hasChanges = git(workspacePath, ['diff', '--cached', '--quiet']).status !== 0;
+        const commitArgs = ['commit', '-m', commitMessage({
+            event,
             scope: scopeText(job.scope, currentCanvasPath),
             agentResponse: agentResponse || 'none'
-        })], { stdio: 'inherit' }).status !== 0) {
-            logServer('git', 'failed to commit failed job canvases changes', {
+        })];
+        if (!hasChanges) commitArgs.push('--allow-empty');
+
+        if (git(workspacePath, commitArgs, { stdio: 'inherit' }).status !== 0) {
+            logServer('git', 'failed to commit workspace changes', {
                 jobId: job.id || null,
                 prompt: callbackPromptText(job) || null
             });
             return false;
         }
 
-        logServer('git', 'committed failed job canvases changes', { jobId: job.id || null });
-        return true;
-    };
-
-
-    const commitShutdownCanvases = (job, reason = '') => {
-        ensureCanvasesGitRepo();
-
-        if (git(workspacePath, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
-            logServer('git', 'failed to stage shutdown canvases changes', { jobId: job && job.id ? job.id : null });
-            return false;
-        }
-
-        // Always record the quit, even with nothing on disk to commit — a quit
-        // is a real timeline event worth capturing (same reason DOM-only turns
-        // commit empty in commitCanvases below).
-        const hasChanges = git(workspacePath, ['diff', '--cached', '--quiet']).status !== 0;
-        const commitArgs = ['commit', '-m', commitMessage({
-            event: shutdownEvent(reason),
-            scope: scopeText(job && job.scope ? job.scope : '', currentCanvasPath),
-            agentResponse: job && job.agentResponse ? job.agentResponse : 'none'
-        })];
-        if (!hasChanges) commitArgs.push('--allow-empty');
-
-        if (git(workspacePath, commitArgs, { stdio: 'inherit' }).status !== 0) {
-            logServer('git', 'failed to commit shutdown canvases changes', {
-                jobId: job && job.id ? job.id : null,
-                prompt: callbackPromptText(job || {}) || null
-            });
-            return false;
-        }
-
-        logServer('git', hasChanges ? 'committed shutdown canvases changes' : 'committed empty shutdown turn', { jobId: job && job.id ? job.id : null });
-        return true;
-    };
-
-    const commitCanvases = (job, context = '') => {
-        ensureCanvasesGitRepo();
-
-        if (git(workspacePath, ['add', '-A'], { stdio: 'inherit' }).status !== 0) {
-            logServer('git', 'failed to stage canvases changes', { jobId: job.id || null });
-            return false;
-        }
-
-        // Commit every turn, even when nothing on disk changed — DOM-only
-        // turns (`op="replace"`, `op="setAttr"`, etc.) are still real
-        // agent responses, and the transcript belongs in git for undo
-        // and after-the-fact debugging.
-        const hasChanges = git(workspacePath, ['diff', '--cached', '--quiet']).status !== 0;
-        const commitArgs = ['commit', '-m', commitMessage({
-            event: promptEvent(job),
-            scope: scopeText(job.scope, currentCanvasPath),
-            agentResponse: context || 'none'
-        })];
-        if (!hasChanges) commitArgs.push('--allow-empty');
-
-        if (git(workspacePath, commitArgs, { stdio: 'inherit' }).status !== 0) {
-            logServer('git', 'failed to commit canvases changes', {
-                jobId: job.id || null,
-                prompt: callbackPromptText(job) || null
-            });
-            return false;
-        }
-
-        logServer('git', hasChanges ? 'committed canvases changes' : 'committed empty canvases turn', {
-            jobId: job.id || null
-        });
+        logServer('git', hasChanges ? 'committed workspace changes' : 'committed empty workspace turn', { jobId: job.id || null });
         return true;
     };
 
@@ -200,14 +141,16 @@ const createGitTimeline = ({ workspacePath, currentCanvasPath, logServer }) => {
     };
 
     return {
-        ensureCanvasesGitRepo,
-        commitCanvases,
-        commitFailedCanvases,
-        commitShutdownCanvases,
+        ensureWorkspaceGitRepo,
+        commitWorkspace,
         recentEvents
     };
 };
 
 module.exports = {
-    createGitTimeline
+    createGitTimeline,
+    promptEvent,
+    crashEvent,
+    canceledEvent,
+    shutdownEvent
 };

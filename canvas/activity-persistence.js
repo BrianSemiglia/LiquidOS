@@ -1,4 +1,4 @@
-const { createGitTimeline } = require('./git-timeline');
+const { createGitTimeline, promptEvent, crashEvent, canceledEvent, shutdownEvent } = require('./git-timeline');
 
 const restoreContextBlockPattern = /\[\[LIQUIDOS_RESTORE_CONTEXT_BEGIN\]\]([\s\S]*?)\[\[LIQUIDOS_RESTORE_CONTEXT_END\]\]/g;
 
@@ -61,13 +61,15 @@ const createActivityPersistence = ({ workspacePath, currentCanvasPath, logServer
             restoreContext: parsed.restoreContext
         };
 
-        if (mode === 'failed') {
-            timeline.commitFailedCanvases(record, parsed.persistedAgentResponse, error);
-        } else if (mode === 'shutdown') {
-            timeline.commitShutdownCanvases(record, reason);
-        } else {
-            timeline.commitCanvases(record, parsed.persistedAgentResponse);
-        }
+        // The mode picks the event. A cancel is the user's choice, not a
+        // crash; only a genuine failure is a crash.
+        const eventLabel =
+            mode === 'shutdown' ? shutdownEvent(reason) :
+            mode === 'canceled' ? canceledEvent() :
+            mode === 'failed'   ? crashEvent(error || parsed.persistedAgentResponse) :
+            promptEvent(record);
+
+        timeline.commitWorkspace(record, eventLabel, parsed.persistedAgentResponse);
 
         return {
             ...parsed,
@@ -80,7 +82,7 @@ const createActivityPersistence = ({ workspacePath, currentCanvasPath, logServer
     };
 
     return {
-        ensureActivityPersistenceRepo: timeline.ensureCanvasesGitRepo,
+        ensureActivityPersistenceRepo: timeline.ensureWorkspaceGitRepo,
         persistActivity,
         recentEvents: timeline.recentEvents
     };

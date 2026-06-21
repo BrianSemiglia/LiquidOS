@@ -17,6 +17,7 @@ const { ComponentRuntimeRepairTestAgent } = require('./test/component-runtime-re
 const { PromptBarSingleDispatchTestAgent } = require('./test/prompt-bar-single-dispatch-test-agent');
 const { CanvasRepairTestAgent } = require('./test/canvas-repair-test-agent');
 const { PromptBarTestAgent } = require('./test/prompt-bar-test-agent');
+const { PromptCancelTestAgent } = require('./test/prompt-cancel-test-agent');
 const { InstallBuildTestAgent } = require('./test/install-build-test-agent');
 const { CrossCanvasPersistenceTestAgent } = require('./test/cross-canvas-persistence-test-agent');
 const { LqpatchStreamStubAgent } = require('./test/lqpatch-stream-stub-agent');
@@ -74,6 +75,7 @@ const createRuntimes = ({
         PromptBarSingleDispatchTestAgent(),
         CanvasRepairTestAgent(),
         PromptBarTestAgent(),
+        PromptCancelTestAgent(),
         InstallBuildTestAgent(),
         CrossCanvasPersistenceTestAgent(),
         LqpatchStreamStubAgent(),

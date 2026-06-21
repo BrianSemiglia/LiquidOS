@@ -28,7 +28,7 @@ process.env.LIQUIDOS_HARNESS_PID = String(process.pid);
 const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none',
     'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'component-build-test', 'canvas-repair-test',
     'canvas-damaged-repair-test', 'component-runtime-repair-test', 'prompt-bar-single-dispatch-test',
-    'prompt-bar-test', 'install-build-test', 'cross-canvas-persistence-test', 'lqpatch-stream-stub',
+    'prompt-bar-test', 'prompt-cancel-test', 'install-build-test', 'cross-canvas-persistence-test', 'lqpatch-stream-stub',
     'service-rewrite-stub', 'crash-repair-stub', 'chat-stub', 'stub-a', 'stub-b']);
 
 const failStartup = message => {
@@ -749,6 +749,11 @@ const runQueuedAgentJob = (prompt, context = {}) => {
 };
 
 let activeOutputJob = null;
+// Jobs the user canceled. The agent run rejects when its process is
+// killed, so processOutputJob's catch can't tell a cancel from a crash
+// on its own — /cancel records the job id here and the catch reads it to
+// mark the job 'canceled' rather than 'failed'.
+const canceledOutputJobIds = new Set();
 let shutdownCommitAttempted = false;
 // True while Phase 1 of a crash recovery is making the workspace bootable. The
 // client auto-starts run-mode services (on mount and on every workspace-file
@@ -851,12 +856,18 @@ const processOutputJob = async job => {
             body: job.prompt
         });
     } catch (error) {
+        // The run rejected. If the user canceled it, that's its own
+        // outcome ('canceled') — not a failure — and the undo follow-up
+        // already in the queue carries on from here.
+        const canceled = canceledOutputJobIds.delete(jobId);
+        const status = canceled ? 'canceled' : 'failed';
+
         const activityRecord = activityPersistence.persistActivity({
             event: job.event || null,
             scope: job.scope || null,
             prompt: job.prompt || '',
             agentResponse,
-            mode: 'failed',
+            mode: status,
             error: error.message
         });
 
@@ -866,13 +877,11 @@ const processOutputJob = async job => {
         };
 
         canvasGraph.validateCanvasConfig();
-        await outputQueue.updateOutputJob(jobId, {
-            status: 'failed',
-            failedAt: new Date().toISOString(),
-            error: error.message
-        });
-        broadcastQueueState('', { lane: laneKey, status: 'failed' });
-        logServer('queue', 'job marked failed', {
+        await outputQueue.updateOutputJob(jobId, canceled
+            ? { status, canceledAt: new Date().toISOString() }
+            : { status, failedAt: new Date().toISOString(), error: error.message });
+        broadcastQueueState('', { lane: laneKey, status });
+        logServer('queue', 'job marked ' + status, {
             jobId,
             lane: laneKey,
             durationMs: Date.now() - startedAt,
@@ -880,11 +889,12 @@ const processOutputJob = async job => {
         });
 
         emitNativeNotification({
-            title: 'Failed',
+            title: canceled ? 'Canceled' : 'Failed',
             body: job.prompt
         });
 
     } finally {
+        canceledOutputJobIds.delete(jobId);
         if (activeOutputJob && activeOutputJob.id === jobId) {
             activeOutputJob = null;
         }
@@ -1377,6 +1387,32 @@ const newShapeKillService = (id) => {
         for (const pid of still) { try { process.kill(pid, 'SIGKILL'); } catch {} }
     }, 1500);
     newShapeServices.delete(id);
+    return true;
+};
+
+// Cancel the running agent job, whatever provider is running it. Providers just
+// spawn their process and report its pid (via host.status -> agentDebugState);
+// stopping the job is the queue/job layer's concern, not theirs. We kill the
+// agent's whole process tree — the same SIGTERM-then-SIGKILL sweep services get
+// — so the agent AND anything it spawned actually stop (killing only the parent
+// left children streaming). The run then rejects; processOutputJob's catch sees
+// the id in canceledOutputJobIds and marks the job 'canceled' rather than failed.
+const cancelActiveAgentJob = () => {
+    const job = activeOutputJob;
+    const pid = agentDebugState.current && agentDebugState.current.status === 'running'
+        ? agentDebugState.current.pid
+        : null;
+    if (!job || !pid) {
+        return false;
+    }
+
+    canceledOutputJobIds.add(job.id);
+    const tree = [pid, ...newShapeDescendantsOf(pid)];
+    for (const p of tree) { try { process.kill(p, 'SIGTERM'); } catch {} }
+    setTimeout(() => {
+        const still = [pid, ...newShapeDescendantsOf(pid)];
+        for (const p of still) { try { process.kill(p, 'SIGKILL'); } catch {} }
+    }, 1500);
     return true;
 };
 
@@ -1959,6 +1995,30 @@ const server = http.createServer(async (req, res) => {
 
         if (req.method === 'POST' && url.pathname === '/output') {
             await appendOutput(req);
+            outputQueue.feedHermesOutput();
+            broadcastQueueState();
+            send(res, 204, '');
+            return;
+        }
+
+        // Cancel the running job: stop the agent, then enqueue a normal
+        // follow-up prompt on the same scope telling it the user canceled
+        // and to undo whatever the canceled task had started.
+        if (req.method === 'POST' && url.pathname === '/cancel') {
+            const canceled = activeOutputJob;
+            if (!canceled || !cancelActiveAgentJob()) {
+                send(res, 404, '');
+                return;
+            }
+
+            await outputQueue.appendOutputJob({
+                id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                scope: canceled.scope,
+                status: 'pending',
+                createdAt: new Date().toISOString(),
+                componentKey: canceled.componentKey || canceled.scope,
+                prompt: `The user canceled your previous task. Please clean up whatever you were working on.`
+            });
             outputQueue.feedHermesOutput();
             broadcastQueueState();
             send(res, 204, '');

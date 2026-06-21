@@ -1407,10 +1407,11 @@
                left margin exactly as the send button lines up with the right.
                (There was a vestigial "nav" column here whose column-gap pushed
                the left content in by 1rem with nothing ever filling it.) */
-            grid-template-columns: minmax(0, 1fr);
+            grid-template-columns: minmax(0, 1fr) max-content;
             grid-template-areas:
-                "activity"
-                "send";
+                "activity activity"
+                "send     stop";
+            column-gap: 0.45rem;
             row-gap: 0;
             align-items: center;
             width: min(calc(100vw - var(--debug-rail-space) - 2rem), 58rem);
@@ -1454,6 +1455,23 @@
 
         .prompt-send > form {
             display: contents;
+        }
+
+        /* The Stop button shares the send row, collapsing to nothing (its
+           max-content column shrinks away) whenever it's hidden. */
+        .prompt-stop {
+            grid-area: stop;
+            align-self: center;
+            padding: 0.5rem 0.85rem;
+            border: 1px solid var(--border, rgba(0, 0, 0, 0.15));
+            border-radius: 0.6rem;
+            background: var(--surface-1);
+            color: var(--fg);
+            font: inherit;
+            cursor: pointer;
+        }
+        .prompt-stop[hidden] {
+            display: none;
         }
 
         .canvas-nav {
@@ -2429,6 +2447,11 @@
                 <button type="submit" aria-label="Send">↑</button>
             </form>
         </liquidos-callback>
+        <!-- Cancel the running job. Lives outside <liquidos-callback> so the
+             busy state (which makes the callback inert) can't disable it —
+             it's only useful precisely while a job is in flight. Shown by
+             syncBusyUI whenever a lane is active. -->
+        <button type="button" class="prompt-stop" id="global-cancel" hidden>Stop</button>
     </div>
 
     <!-- Top-left meta control: minimizes the canvas to a grid of all canvases.
@@ -2616,10 +2639,19 @@
         // render (so redraws can't lose it) and whenever the server's busy signal changes.
         const syncBusyUI = () => {
             syncCallbackState();
+            // The Stop button only makes sense while a job is in flight.
+            const cancelButton = document.getElementById('global-cancel');
+            if (cancelButton) cancelButton.hidden = activeLanes.size === 0;
             // Hold the output waveform up while any agent job is running, so it
             // rides out within-turn output gaps instead of flickering away.
             if (window.__agentActivityViz) window.__agentActivityViz.hold(activeLanes.size > 0);
         };
+
+        // Stop the running job. The server kills the agent and enqueues a
+        // follow-up prompt telling it to undo the canceled task's changes.
+        document.getElementById('global-cancel')?.addEventListener('click', () => {
+            fetch('/cancel', { method: 'POST' }).catch(() => {});
+        });
 
         const markScopeBusy = scope => {
             activeLanes.add(laneKeyForScope(scope));
