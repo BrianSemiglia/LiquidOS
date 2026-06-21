@@ -3607,22 +3607,46 @@
             if (loading) loading.hidden = false;
             status.textContent = '';
             try {
-                const response = await fetch(componentFeatureUrl(item.__component), { cache: 'no-store' });
+                // feature-requirements.txt and the title's view.json are plain
+                // component files — read them straight from /workspace (no
+                // dedicated /features GET), the same way the new-shape element
+                // does. The component folder is the entry path's directory.
+                const entry = String(item.__component.entryPath || '');
+                const dir = entry.includes('/') ? entry.slice(0, entry.lastIndexOf('/')) : '';
+                const canvas = (window.liquidos?.canvasName || currentCanvasName || '').trim();
+                const base = '/workspace/' + (canvas ? canvas + '/' : '') + (dir ? dir + '/' : '');
 
-                if (!response.ok) {
-                    throw new Error('/features returned ' + response.status);
+                const reqRes = await fetch(base + 'feature-requirements.txt', { cache: 'no-store' });
+                let present = true, text = '', error = null;
+                if (reqRes.status === 404) {
+                    present = false;
+                } else if (reqRes.ok) {
+                    text = await reqRes.text();
+                } else {
+                    error = 'feature-requirements.txt returned ' + reqRes.status;
                 }
 
-                const data = await response.json();
-                textarea.value = String(data.text || '');
+                // Title: view.json's title, else a prettified folder name —
+                // mirrors what the server used to compute.
+                const prettify = s => s.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                let title = prettify(dir.split('/').filter(Boolean).pop() || 'Component');
+                try {
+                    const viewRes = await fetch(base + 'view.json', { cache: 'no-store' });
+                    if (viewRes.ok) {
+                        const view = await viewRes.json();
+                        if (typeof view.title === 'string' && view.title.trim()) title = view.title.trim();
+                    }
+                } catch { /* keep the prettified fallback */ }
+
+                textarea.value = text;
                 textarea.dataset.savedValue = textarea.value;
                 const titleEl = item.querySelector('[data-feature-title]');
-                if (titleEl) titleEl.textContent = String(data.title || '');
+                if (titleEl) titleEl.textContent = title;
                 item.querySelector('[data-feature-save]').disabled = true;
                 // Record the outcome so syncRepairCallback can choose between
                 // Generate (present but empty) and Repair (missing / corrupt).
-                if (data.error || data.present === false) {
-                    item.__featureLoadOutcome = data.error ? 'corrupt' : 'missing';
+                if (error || present === false) {
+                    item.__featureLoadOutcome = error ? 'corrupt' : 'missing';
                 } else {
                     item.__featureLoadOutcome = textarea.value.trim().length === 0 ? 'empty' : 'present';
                 }

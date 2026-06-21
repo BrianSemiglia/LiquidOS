@@ -1148,34 +1148,12 @@ const appendOutput = async req => {
 const componentFeatureFile = componentPath =>
     path.join(canvasGraph.componentFolderPath(componentPath), 'feature-requirements.txt');
 
+// readComponentFeatureText backs the POST diff (before/after). The read side
+// (text/present/title) moved to the client, which reads feature-requirements.txt
+// and view.json straight from /workspace.
 const readComponentFeatureText = componentPath => {
     const file = componentFeatureFile(componentPath);
     return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
-};
-
-// readComponentFeatures returns the file's content plus presence/error
-// metadata so the client can distinguish "file missing" (Repair) from
-// "file present but empty" (Generate). Read errors fall under Repair too.
-const readComponentFeatures = componentPath => {
-    const file = componentFeatureFile(componentPath);
-    if (!fs.existsSync(file)) return { present: false, text: '', error: null };
-    try {
-        return { present: true, text: fs.readFileSync(file, 'utf8'), error: null };
-    } catch (error) {
-        return { present: true, text: '', error: error.message };
-    }
-};
-
-const readComponentFeatureTitle = componentPath => {
-    const folder = canvasGraph.componentFolderPath(componentPath);
-    try {
-        const view = JSON.parse(fs.readFileSync(path.join(folder, 'view.json'), 'utf8'));
-        if (typeof view.title === 'string' && view.title.trim()) return view.title.trim();
-    } catch { /* fall through */ }
-    // Fallback: prettify the folder basename ("bitcoin-price-chart" → "Bitcoin Price Chart").
-    return path.basename(folder)
-        .replace(/[-_]+/g, ' ')
-        .replace(/\b\w/g, c => c.toUpperCase());
 };
 
 const writeComponentFeatureText = (componentPath, text) => {
@@ -2160,17 +2138,10 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            if (req.method === 'GET') {
-                const { present, text, error } = readComponentFeatures(entry.componentPath);
-                send(res, 200, JSON.stringify({
-                    text,
-                    title: readComponentFeatureTitle(entry.componentPath),
-                    present,
-                    error
-                }), 'application/json; charset=utf-8');
-                return;
-            }
-
+            // GET is gone: the client reads feature-requirements.txt and
+            // view.json straight from /workspace. Only POST remains, because the
+            // before/after diff drives the agent reconcile prompt and this is the
+            // user-edit channel (the agent's own writes must not trigger it).
             if (req.method === 'POST') {
                 const body = JSON.parse(await readBody(req));
                 const before = readComponentFeatureText(entry.componentPath);
