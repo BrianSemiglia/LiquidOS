@@ -2870,12 +2870,22 @@
         let pendingCanvasRemount = false;
 
         const loadCanvas = async (version, context) => {
-            const cacheKey = '/canvas.js@' + (version || '');
+            const baseContext = context || {};
+            // Every canvas's module is just <canvas>/canvas.js — fetched through
+            // the generic /workspace path, no dedicated endpoint. The canvas name
+            // is the last segment of its folder path; fall back to the live
+            // current canvas. All canvas.js imports are root-absolute (/lib/...),
+            // so the module's URL base doesn't affect resolution. The cache key
+            // includes the name so two canvases can't collide on equal mtimes.
+            const canvasName = String(baseContext.canvasPath || '').split('/').filter(Boolean).pop()
+                || currentCanvasName || '';
+            const cacheKey = '/workspace/' + canvasName + '/canvas.js@' + (version || '');
             if (cacheKey === currentCanvasCacheKey && currentCanvas) {
                 return currentCanvas;
             }
 
-            const url = '/canvas.js' + (version ? '?v=' + encodeURIComponent(version) : '');
+            const url = '/workspace/' + encodeURIComponent(canvasName) + '/canvas.js'
+                + (version ? '?v=' + encodeURIComponent(version) : '');
             const importPromise = import(url);
             currentCanvasLoad = importPromise;
 
@@ -2897,8 +2907,6 @@
             // Pass the new-shape context too — canvas.js variants that own
             // their own components (foo7's gadgets, etc.) read these fields.
             // Legacy canvases that only use canvasPath ignore the extras.
-            const baseContext = context || {};
-            const canvasName = String(baseContext.canvasPath || '').split('/').filter(Boolean).pop() || '';
             const newShapeContext = {
                 ...baseContext,
                 canvasName,

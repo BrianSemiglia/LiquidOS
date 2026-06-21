@@ -2158,19 +2158,11 @@ const server = http.createServer(async (req, res) => {
         }
 
 
-        // The canvas's own module — presentation, input controls, anything
-        // canvas-scoped. Always served from <canvas>/canvas.js. CSS-only
-        // canvases import the cssLayout helper from /lib/ and delegate.
-        if (req.method === 'GET' && url.pathname === '/canvas.js') {
-            const resolvedPath = canvasGraph.canvasJsPath();
-            if (!fs.existsSync(resolvedPath) || fs.statSync(resolvedPath).isDirectory()) {
-                send(res, 404, 'canvas.js not found');
-                return;
-            }
-            streamFile(req, res, resolvedPath, 'text/javascript; charset=utf-8');
-            return;
-        }
-
+        // The canvas's own module (presentation, input controls — anything
+        // canvas-scoped) is just <canvas>/canvas.js, served through the generic
+        // GET /workspace/<canvas>/canvas.js path the client builds in loadCanvas.
+        // No dedicated endpoint: canvas.js imports are root-absolute (/lib/...),
+        // so the module's URL base doesn't change resolution.
 
         const componentFeatures = url.pathname.match(/^\/component\/(.+)\/features$/);
 
