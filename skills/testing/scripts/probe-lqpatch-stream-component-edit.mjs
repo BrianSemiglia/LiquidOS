@@ -15,7 +15,7 @@
 //
 
 export const fixture = './probe-lqpatch-stream-component-edit.liquidos';
-export const agent = 'lqpatch-stream-stub';
+export const agent = 'agent/test/lqpatch-stream-stub-agent.js';
 
 // Is this string visible to a person looking at the page? innerText is the
 // rendered, visible text — it skips hidden nodes, <style>, <script>.

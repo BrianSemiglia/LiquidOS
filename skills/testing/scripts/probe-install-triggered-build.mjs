@@ -28,7 +28,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 export default async ({ url, page, browser }) => {
     const publisher = { url };
     const pubPage = page;
-    const consumer = await bootSandbox(new URL('./probe-install-triggered-build-consumer.liquidos', import.meta.url), { agent: 'install-build-test' });
+    const consumer = await bootSandbox(new URL('./probe-install-triggered-build-consumer.liquidos', import.meta.url), { agent: 'agent/test/install-build-test-agent.js' });
     console.log('publisher:', publisher.url);
     console.log('consumer :', consumer.url);
 

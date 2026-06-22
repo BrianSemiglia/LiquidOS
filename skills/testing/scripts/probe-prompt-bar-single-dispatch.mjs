@@ -12,7 +12,7 @@
 //
 
 export const fixture = './probe-prompt-bar-single-dispatch.liquidos';
-export const agent = 'prompt-bar-single-dispatch-test';
+export const agent = 'agent/test/prompt-bar-single-dispatch-test-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

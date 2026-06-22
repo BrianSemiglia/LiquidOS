@@ -3,14 +3,20 @@
 Run a workspace:
 
 ```sh
-node server.js --workspace /path/to/Workspace.liquidos --agent hermes --port 3000
+node server.js --workspace /path/to/Workspace.liquidos \
+  --agent './agent/(skillsPath+runtimePath)->hermes-runtime.js' --port 3000
 ```
 
 Required arguments:
 
 ```text
 --workspace <*.liquidos folder>
---agent codex | claude-code | hermes | pi
+--agent <agent-script-path>   repeatable; each is a module exporting a factory
+                              that returns { label, run, ...optional lifecycle }.
+                              The roster is the agents you pass; the first is the
+                              default-active; the label is the identity (shown in
+                              the picker, persisted, and used to switch). The
+                              labels of co-loaded agents must be unique.
 --port <number>
 ```
 

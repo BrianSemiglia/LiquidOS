@@ -29,7 +29,7 @@
 //
 
 export const fixture = './probe-cross-canvas-job-persistence.liquidos';
-export const agent = 'cross-canvas-persistence-test';
+export const agent = 'agent/test/cross-canvas-persistence-test-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

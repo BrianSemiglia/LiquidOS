@@ -11,7 +11,7 @@
 //
 
 export const fixture = './probe-canvas-requirements-live-refresh.liquidos';
-export const agent = 'canvas-requirements-live-refresh';
+export const agent = 'agent/test/canvas-requirements-live-refresh-agent.js';
 
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));

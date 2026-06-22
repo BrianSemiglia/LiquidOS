@@ -13,7 +13,7 @@
 //
 
 export const fixture = './probe-callback-dispatch.liquidos';
-export const agent = 'callback-dispatch-test';
+export const agent = 'agent/test/callback-dispatch-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

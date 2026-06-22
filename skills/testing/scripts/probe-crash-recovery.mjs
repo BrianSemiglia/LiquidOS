@@ -90,7 +90,7 @@ const matchesExpected = (actual, expected) =>
 // its LIQUIDOS_RECOVERY stdout lines — the channel the app uses to drive the
 // recovery screen. We keep a live stdout buffer so the test can assert them.
 const startServer = (workspace, env = {}) => new Promise((resolve, reject) => {
-    const proc = spawn('node', [SERVER, '--workspace', workspace, '--agent', 'crash-repair-stub', '--port', '0'],
+    const proc = spawn('node', [SERVER, '--workspace', workspace, '--agent', path.join(REPO_ROOT, 'agent/test/crash-repair-stub-agent.js'), '--port', '0'],
         { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, LIQUIDOS_RUNTIME_KIND: 'mac-app', ...env } });
     const stdout = { buf: '' };
     proc.stdout.on('data', chunk => { stdout.buf += chunk.toString(); });

@@ -18,7 +18,7 @@
 //
 
 export const fixture = './probe-agent-updates-view.liquidos';
-export const agent = 'none';
+export const agent = 'agent/none-agent.js';
 
 const expect = (label, predicate, detail) => {
     if (predicate) { console.log('  ok  ' + label); return; }

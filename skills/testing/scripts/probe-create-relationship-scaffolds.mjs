@@ -109,7 +109,7 @@ export default async ({ browser }) => {
     }
 
     // Boot the sandbox internally (dynamic workspace — no static fixture).
-    const sandbox = await bootSandbox(ws, { agent: 'none' });
+    const sandbox = await bootSandbox(ws, { agent: 'agent/none-agent.js' });
 
     try {
         const page = await browser.newPage();

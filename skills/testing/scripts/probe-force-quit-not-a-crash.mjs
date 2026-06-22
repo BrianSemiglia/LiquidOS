@@ -50,7 +50,7 @@ export default async () => {
     try {
         // Boot the server the way the app does. Its stdout/stderr are pipes whose
         // read ends live here — this process stands in for the macOS app.
-        proc = spawn('node', [SERVER, '--workspace', workspace, '--agent', 'none', '--port', '0'],
+        proc = spawn('node', [SERVER, '--workspace', workspace, '--agent', path.join(REPO_ROOT, 'agent/none-agent.js'), '--port', '0'],
             { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, LIQUIDOS_RUNTIME_KIND: 'mac-app' } });
 
         let stdout = '';

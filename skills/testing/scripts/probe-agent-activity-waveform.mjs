@@ -16,7 +16,7 @@
 //
 
 export const fixture = './probe-agent-activity-waveform.liquidos';
-export const agent = 'agent-activity-waveform';
+export const agent = 'agent/test/agent-activity-waveform-agent.js';
 
 // Tallest run of painted (non-transparent) pixels in any column of the
 // waveform canvas — i.e. the height of the biggest spike currently drawn.

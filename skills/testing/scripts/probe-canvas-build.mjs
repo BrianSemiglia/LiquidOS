@@ -11,7 +11,7 @@
 //
 
 export const fixture = './probe-canvas-build.liquidos';
-export const agent = 'canvas-build-test';
+export const agent = 'agent/test/canvas-build-test-agent.js';
 
 const MARKER = 'PROBE_CANVAS_BUILD';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

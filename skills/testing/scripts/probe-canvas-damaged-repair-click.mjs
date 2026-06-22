@@ -11,7 +11,7 @@
 //
 
 export const fixture = './probe-canvas-damaged-repair-click.liquidos';
-export const agent = 'canvas-damaged-repair-test';
+export const agent = 'agent/test/canvas-damaged-repair-test-agent.js';
 
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));

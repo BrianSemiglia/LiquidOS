@@ -30,12 +30,17 @@ const repoRoot = path.resolve(SCRIPT_DIR, '../../..');
 // Boot a sandbox of `fixture` — an absolute .liquidos path, or a file: URL
 // (e.g. `new URL('./peer.liquidos', import.meta.url)` to point at a sibling).
 // Resolves { url, workspace, teardown }.
-export const bootSandbox = (fixture, { agent = 'none', app } = {}) => new Promise((resolve, reject) => {
+// `agent` is one or more agent script paths (app-relative or absolute); each is
+// forwarded as its own --agent. Defaults to the no-op agent. A URL/file: entry
+// is converted to a path so a probe can name a sibling script.
+export const bootSandbox = (fixture, { agent = 'agent/none-agent.js', app } = {}) => new Promise((resolve, reject) => {
   const source = fixture instanceof URL || String(fixture).startsWith('file:')
     ? fileURLToPath(fixture)
     : fixture;
   const appRoot = app || (hasServerJs(repoRoot) ? repoRoot : null);
-  const args = ['--workspace', source, '--agent', agent];
+  const toPath = a => (a instanceof URL || String(a).startsWith('file:')) ? fileURLToPath(a) : a;
+  const agentScripts = (Array.isArray(agent) ? agent : [agent]).map(toPath);
+  const args = ['--workspace', source, ...agentScripts.flatMap(a => ['--agent', a])];
   if (appRoot) args.push('--app', appRoot);
 
   const child = spawn('node', [LAUNCHER, ...args], { stdio: ['ignore', 'pipe', 'inherit'] });

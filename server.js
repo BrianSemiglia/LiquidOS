@@ -25,20 +25,16 @@ const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
 process.env.PATH = path.join(ROOT, 'diagnostics') + ':' + (process.env.PATH || '');
 process.env.LIQUIDOS_HARNESS_PID = String(process.pid);
 
-const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none',
-    'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'component-build-test', 'canvas-repair-test',
-    'canvas-damaged-repair-test', 'component-runtime-repair-test', 'prompt-bar-single-dispatch-test',
-    'prompt-bar-test', 'prompt-cancel-test', 'install-build-test', 'cross-canvas-persistence-test', 'lqpatch-stream-stub',
-    'service-rewrite-stub', 'crash-repair-stub', 'chat-stub', 'stub-a', 'stub-b',
-    'canvas-requirements-live-refresh', 'cancel-button-disables', 'cancel-undo-precedes-queued', 'agent-activity-waveform', 'component-html-edit-keeps-chrome', 'persist-no-chrome-leak', 'chat-composer']);
-
 const failStartup = message => {
     console.error(message);
     process.exit(1);
 };
 
+// --agent is repeatable: each occurrence is a path to an agent script the
+// server loads into the roster. Every other flag is single-valued.
 const argumentPairs = () => {
     const values = new Map();
+    const agentScripts = [];
     const args = process.argv.slice(2);
 
     for (let index = 0; index < args.length; index += 1) {
@@ -60,17 +56,21 @@ const argumentPairs = () => {
             failStartup('Missing value for ' + name);
         }
 
-        values.set(name, value);
+        if (name === '--agent') {
+            agentScripts.push(value);
+        } else {
+            values.set(name, value);
+        }
 
         if (equalsIndex === -1) {
             index += 1;
         }
     }
 
-    return values;
+    return { values, agentScripts };
 };
 
-const REQUIRED_ARGUMENTS = argumentPairs();
+const { values: REQUIRED_ARGUMENTS, agentScripts: AGENT_SCRIPTS } = argumentPairs();
 
 const requiredArg = name => {
     if (!REQUIRED_ARGUMENTS.has(name)) {
@@ -146,10 +146,9 @@ const canvasPathFromScope = scope => {
 };
 
 const WORKSPACE_PATH = resolveConfigPath(requiredArg('--workspace'));
-const DEFAULT_AGENT_KIND = String(requiredArg('--agent')).trim().toLowerCase();
 
-if (!VALID_AGENT_KINDS.has(DEFAULT_AGENT_KIND)) {
-    failStartup('Invalid --agent. Expected one of: codex, claude-code, hermes, pi');
+if (AGENT_SCRIPTS.length === 0) {
+    failStartup('At least one --agent <script-path> is required.');
 }
 
 if (path.extname(WORKSPACE_PATH) !== '.liquidos') {
@@ -203,10 +202,6 @@ const validCanvasName = value =>
         && !value.startsWith('.')
         && !value.includes('..');
 
-const validAgentKind = value =>
-    typeof value === 'string'
-        && VALID_AGENT_KINDS.has(value.trim().toLowerCase());
-
 // ui-state.json is the single workspace-state file: it names the active canvas
 // and the active agent, AND persists which "system" panels are open — escape
 // mode (the prompt bar hidden for a clean canvas), the Spaces canvas picker, the
@@ -243,9 +238,13 @@ const activeCanvasNameFromFile = () => {
 // file is absent or the key is missing/invalid so callers can distinguish "no
 // opinion" (keep the current agent; cold start falls back to the launch default)
 // from a real, validated switch request.
+// Returns the persisted agent label, or null when the key is absent — so
+// callers distinguish "no opinion" (keep current; cold start uses the first
+// launched agent) from a switch request. An unknown label is left for
+// activeRuntime.select() to reject (it falls back to the first agent).
 const activeAgentKindFromFile = () => {
     const value = uiStateFromFile().agent;
-    return validAgentKind(value) ? value.trim().toLowerCase() : null;
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
 };
 
 const canvasNameFromPath = canvasPath =>
@@ -253,7 +252,7 @@ const canvasNameFromPath = canvasPath =>
 
 let CANVAS_PATH = path.join(WORKSPACE_PATH, activeCanvasNameFromFile() || DEFAULT_CANVAS_NAME);
 let INDEX_PATH = path.join(CANVAS_PATH, 'index.json');
-let ACTIVE_AGENT_KIND = activeAgentKindFromFile() || DEFAULT_AGENT_KIND;
+let ACTIVE_AGENT_KIND = activeAgentKindFromFile();
 // The agent runs with the workspace as its CWD. Each agent's discovery
 // dir (.claude/, .codex/, .hermes/, .pi/, .agents/) and the system-prompt
 // file (AGENTS.md) are materialized directly inside the workspace, so
@@ -274,6 +273,7 @@ if (WORKSPACE_BOOTSTRAP.error) {
 }
 
 const runtimeSet = createRuntimes({
+    agentScripts: AGENT_SCRIPTS.map(p => path.resolve(p)),
     runtimePath: AGENT_RUNTIME_PATH,
     skillsPath: SKILLS_SOURCE_PATH
 });

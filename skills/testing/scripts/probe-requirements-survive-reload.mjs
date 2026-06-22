@@ -17,7 +17,7 @@
 //
 
 export const fixture = './probe-requirements-survive-reload.liquidos';
-export const agent = 'none';
+export const agent = 'agent/none-agent.js';
 
 const MARKER = '- REQ_PERSIST_RELOAD_MARKER must survive a reload';
 

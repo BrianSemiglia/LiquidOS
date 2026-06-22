@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const fixture = './probe-component-build.liquidos';
-export const agent = 'component-build-test';
+export const agent = 'agent/test/component-build-test-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

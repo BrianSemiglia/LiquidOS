@@ -22,7 +22,7 @@ set -euo pipefail
 #   --no-component                     close the component requirements editor
 #
 #   --canvas <name>                    switch the active canvas (must already exist)
-#   --agent <kind>                     switch the active agent (hermes | pi | codex | claude-code | none)
+#   --agent <label>                    switch the active agent by its label (the name shown in the picker, e.g. "Hermes")
 #
 # The active canvas, the active agent, the engaged/disengaged surface, and the
 # component editor are all independent: this MERGES with the current
@@ -34,7 +34,7 @@ set -euo pipefail
 #   set-ui-state.sh <ws> --component home/components/clock # open a component's requirements
 #   set-ui-state.sh <ws> --engaged --no-component         # back to normal, nothing open
 #   set-ui-state.sh <ws> --canvas notes                   # switch to the "notes" canvas
-#   set-ui-state.sh <ws> --agent codex                    # switch the active agent
+#   set-ui-state.sh <ws> --agent Codex                    # switch the active agent (by label)
 #
 # Output: one-line JSON of the resulting state.
 #

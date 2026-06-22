@@ -96,7 +96,7 @@ const scaffold = () => {
 // so the time varies; we wait for the event, not a guess.) The timeout is only
 // a failure bound.
 const startServer = (ws, port) => new Promise((resolve, reject) => {
-    const child = childProcess.spawn('node', [SERVER_JS, '--workspace', ws, '--agent', 'none', '--port', String(port)],
+    const child = childProcess.spawn('node', [SERVER_JS, '--workspace', ws, '--agent', path.join(ROOT, 'agent/none-agent.js'), '--port', String(port)],
         { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = '', settled = false;
     const ready = 'Server at http://127.0.0.1:' + port;

@@ -33,7 +33,7 @@ export const fixture = './probe-component-share-opt-out.liquidos';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 export default async ({ url, page, browser }) => {
-    const consumer = await bootSandbox(new URL('./probe-component-share-opt-out-consumer.liquidos', import.meta.url), { agent: 'none' });
+    const consumer = await bootSandbox(new URL('./probe-component-share-opt-out-consumer.liquidos', import.meta.url), { agent: 'agent/none-agent.js' });
     console.log('publisher:', url);
     console.log('consumer :', consumer.url);
 

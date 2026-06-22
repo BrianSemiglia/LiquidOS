@@ -32,7 +32,7 @@
 import fs from 'node:fs';
 
 export const fixture = './probe-persist-no-chrome-leak.liquidos';
-export const agent = 'persist-no-chrome-leak';
+export const agent = 'agent/test/persist-no-chrome-leak-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const expect = (label, predicate, detail) => {

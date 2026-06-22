@@ -1,8 +1,11 @@
+// An agent's `label` is its identity — the value shown to the user, persisted
+// in ui-state.json, and used to select/switch. Compared verbatim (trimmed, not
+// lowercased) since labels carry caps and spaces ("No agent", "Claude Code").
 const selectRuntime = ({ runtimes = [], selection = null } = {}) => {
-    const normalizedKind = String(selection || '').trim().toLowerCase();
-    const byKind = new Map(runtimes.map(runtime => [runtime.kind, runtime]));
+    const normalizedLabel = String(selection || '').trim();
+    const byLabel = new Map(runtimes.map(runtime => [runtime.label, runtime]));
 
-    return byKind.get(normalizedKind) || runtimes[0] || null;
+    return byLabel.get(normalizedLabel) || runtimes[0] || null;
 };
 
 const createActiveRuntime = ({
@@ -19,7 +22,7 @@ const createActiveRuntime = ({
     const activeRuntimeInstance = () => active || runtimes[0] || null;
     const activeKind = () => {
         const runtime = activeRuntimeInstance();
-        return runtime ? runtime.kind : null;
+        return runtime ? runtime.label : null;
     };
 
     const snapshotRuntime = runtime => {
@@ -42,8 +45,8 @@ const createActiveRuntime = ({
     };
 
     const select = nextSelection => {
-        const normalized = String(nextSelection || '').trim().toLowerCase();
-        const nextRuntime = runtimes.find(runtime => runtime.kind === normalized) || null;
+        const normalized = String(nextSelection || '').trim();
+        const nextRuntime = runtimes.find(runtime => runtime.label === normalized) || null;
 
         if (!nextRuntime) {
             return {
@@ -87,12 +90,12 @@ const createActiveRuntime = ({
 
     const probe = () => {
         const agents = runtimes.map(runtime => ({
-            id: runtime.kind,
+            id: runtime.label,
             label: runtime.label,
             installed: typeof runtime.isInstalled === 'function' ? runtime.isInstalled() : null,
             usable: true,
             command: runtime.command || null,
-            provider: runtime.currentDebug ? runtime.currentDebug().provider || runtime.kind : runtime.kind,
+            provider: runtime.currentDebug ? runtime.currentDebug().provider || runtime.label : runtime.label,
             model: runtime.currentDebug ? runtime.currentDebug().model || null : null,
             status: runtime.currentDebug ? runtime.currentDebug().status || null : null
         }));

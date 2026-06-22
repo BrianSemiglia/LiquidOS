@@ -11,7 +11,7 @@
 //
 
 export const fixture = './probe-prompt-bar.liquidos';
-export const agent = 'prompt-bar-test';
+export const agent = 'agent/test/prompt-bar-test-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

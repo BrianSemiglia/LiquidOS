@@ -63,7 +63,7 @@ export default async ({ browser }) => {
         throw new Error('create-chat.sh exited ' + scaffold.status + '\nstderr: ' + scaffold.stderr);
     }
 
-    const sandbox = await bootSandbox(ws, { agent: 'chat-composer' });
+    const sandbox = await bootSandbox(ws, { agent: 'agent/test/chat-composer-agent.js' });
     try {
         const page = await browser.newPage();
         page.on('pageerror', err => console.log('[page error]', err.message));

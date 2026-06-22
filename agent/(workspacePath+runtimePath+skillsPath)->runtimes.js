@@ -1,104 +1,64 @@
 const fs = require('fs');
 const path = require('path');
 const { writeAgentSystemPrompt } = require('./system-prompt');
-const { HermesAgent } = require('./(skillsPath+runtimePath)->hermes-runtime');
-const { PiAgent } = require('./(skillsPath+runtimePath)->pi-runtime');
-const { CodexAgent } = require('./(skillsPath+runtimePath)->codex-runtime');
-const { ClaudeCodeAgent } = require('./(skillsPath+runtimePath)->claude-runtime');
-// Test agents — one per probe scenario, each with its own kind name.
-// First-class runtimes from the dispatch loop's perspective; the only
-// difference is they record into a known file instead of calling an LLM.
-const { CallbackDispatchTestAgent } = require('./test/callback-dispatch-agent');
-const { CanvasBuildTestAgent } = require('./test/canvas-build-test-agent');
-const { ComponentRepairTestAgent } = require('./test/component-repair-test-agent');
-const { ComponentBuildTestAgent } = require('./test/component-build-test-agent');
-const { CanvasDamagedRepairTestAgent } = require('./test/canvas-damaged-repair-test-agent');
-const { ComponentRuntimeRepairTestAgent } = require('./test/component-runtime-repair-test-agent');
-const { PromptBarSingleDispatchTestAgent } = require('./test/prompt-bar-single-dispatch-test-agent');
-const { CanvasRepairTestAgent } = require('./test/canvas-repair-test-agent');
-const { CanvasRequirementsLiveRefreshAgent } = require('./test/canvas-requirements-live-refresh-agent');
-const { PromptBarTestAgent } = require('./test/prompt-bar-test-agent');
-const { PromptCancelTestAgent } = require('./test/prompt-cancel-test-agent');
-const { CancelUndoPrecedesQueuedAgent } = require('./test/cancel-undo-precedes-queued-agent');
-const { CancelButtonDisablesAgent } = require('./test/cancel-button-disables-agent');
-const { InstallBuildTestAgent } = require('./test/install-build-test-agent');
-const { CrossCanvasPersistenceTestAgent } = require('./test/cross-canvas-persistence-test-agent');
-const { LqpatchStreamStubAgent } = require('./test/lqpatch-stream-stub-agent');
-const { PersistNoChromeLeakAgent } = require('./test/persist-no-chrome-leak-agent');
-const { ComponentHtmlEditKeepsChromeAgent } = require('./test/component-html-edit-keeps-chrome-agent');
-const { AgentActivityWaveformAgent } = require('./test/agent-activity-waveform-agent');
-const { ServiceRewriteStubAgent } = require('./test/service-rewrite-stub-agent');
-const { CrashRepairStubAgent } = require('./test/crash-repair-stub-agent');
-const { ChatStubAgent } = require('./test/chat-stub-agent');
-const { ChatComposerAgent } = require('./test/chat-composer-agent');
-const { AgentSwitchStubAAgent } = require('./test/agent-switch-stub-a-agent');
-const { AgentSwitchStubBAgent } = require('./test/agent-switch-stub-b-agent');
 
-// NoneAgent is for runs that should not have a working agent — sandbox boots
-// for smoke tests, recursion guards, anything where callbacks should fail
-// loudly rather than dispatching a real prompt. Callbacks will reject; static
-// rendering, services, and view.json watching still work.
-const NoneAgent = () => ({
-    kind: 'none',
-    label: 'No agent',
-    command: null,
-    configureHost: () => {},
-    isInstalled: () => true,
-    initialize: () => {},
-    dispose: () => {},
-    currentDebug: () => ({ status: 'no agent configured' }),
-    runtimePaths: () => [],
-    materializeRuntime: () => {},
-    preparePrompt: prompt => prompt,
-    run: () => Promise.reject(new Error('No agent is configured (--agent none).'))
-});
+// An agent is a script passed by path on the command line. The module exports
+// a factory (a bare function, a `default`, or a single `*Agent` export) that
+// returns the runtime object. The only required fields are `label` (the
+// user-facing name, which is also the identity used to select and persist the
+// active agent) and `run`; every lifecycle hook is optional. There are no
+// built-in kinds and no central registry — the server is handed the array of
+// scripts to load, real agents and test stubs alike.
+const loadAgent = scriptPath => {
+    const resolved = path.resolve(scriptPath);
+    let mod;
+    try { mod = require(resolved); }
+    catch (error) { throw new Error(`could not load agent script ${scriptPath}: ${error.message}`); }
+
+    const exportsObj = typeof mod === 'function' ? { default: mod } : (mod || {});
+    const factory = exportsObj.default
+        || (Object.entries(exportsObj).find(([name, value]) => typeof value === 'function' && /Agent$/.test(name)) || [])[1]
+        || Object.values(exportsObj).find(value => typeof value === 'function');
+    if (typeof factory !== 'function') {
+        throw new Error(`agent script exports no factory function: ${scriptPath}`);
+    }
+
+    const runtime = factory();
+    if (!runtime || typeof runtime.label !== 'string' || !runtime.label.trim()) {
+        throw new Error(`agent script has no string \`label\`: ${scriptPath}`);
+    }
+    if (typeof runtime.run !== 'function') {
+        throw new Error(`agent \`${runtime.label}\` has no run(): ${scriptPath}`);
+    }
+    return runtime;
+};
 
 // runtimePath is the workspace. Each agent materializes its discovery
 // dir (`.claude/`, `.codex/`, `.hermes/`, `.pi/`, `.agents/`) directly
 // inside the workspace so launching the agent with the workspace as CWD
 // is enough — no separate Application Support runtime tree.
 const createRuntimes = ({
+    agentScripts = [],
     runtimePath,
     skillsPath
 } = {}) => {
     if (!runtimePath || !skillsPath) {
         throw new Error('createRuntimes requires runtimePath and skillsPath');
     }
+    if (!Array.isArray(agentScripts) || agentScripts.length === 0) {
+        throw new Error('createRuntimes requires at least one agent script');
+    }
 
     const runtimePromptPath = path.join(runtimePath, 'AGENTS.md');
 
-    const runtimes = [
-        HermesAgent(),
-        PiAgent(),
-        CodexAgent(),
-        ClaudeCodeAgent(),
-        NoneAgent(),
-        CallbackDispatchTestAgent(),
-        CanvasBuildTestAgent(),
-        ComponentRepairTestAgent(),
-        ComponentBuildTestAgent(),
-        CanvasDamagedRepairTestAgent(),
-        ComponentRuntimeRepairTestAgent(),
-        PromptBarSingleDispatchTestAgent(),
-        CanvasRepairTestAgent(),
-        CanvasRequirementsLiveRefreshAgent(),
-        PromptBarTestAgent(),
-        PromptCancelTestAgent(),
-        CancelUndoPrecedesQueuedAgent(),
-        CancelButtonDisablesAgent(),
-        InstallBuildTestAgent(),
-        CrossCanvasPersistenceTestAgent(),
-        LqpatchStreamStubAgent(),
-        PersistNoChromeLeakAgent(),
-        ComponentHtmlEditKeepsChromeAgent(),
-        AgentActivityWaveformAgent(),
-        ServiceRewriteStubAgent(),
-        CrashRepairStubAgent(),
-        ChatStubAgent(),
-        ChatComposerAgent(),
-        AgentSwitchStubAAgent(),
-        AgentSwitchStubBAgent()
-    ];
+    const runtimes = agentScripts.map(loadAgent);
+    const seen = new Set();
+    for (const runtime of runtimes) {
+        if (seen.has(runtime.label)) {
+            throw new Error(`duplicate agent label: ${runtime.label} (labels are identities; each must be unique)`);
+        }
+        seen.add(runtime.label);
+    }
 
     const ownedRuntimePaths = () =>
         runtimes.flatMap(runtime =>
@@ -165,10 +125,9 @@ const createRuntimes = ({
 
     const configureHosts = ({ output, status } = {}) => {
         runtimes.forEach(runtime => {
-            runtime.configureHost({
-                output,
-                status
-            });
+            if (typeof runtime.configureHost === 'function') {
+                runtime.configureHost({ output, status });
+            }
         });
     };
 

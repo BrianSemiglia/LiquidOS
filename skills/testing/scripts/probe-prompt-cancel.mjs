@@ -21,7 +21,7 @@
 import { spawnSync } from 'node:child_process';
 
 export const fixture = './probe-prompt-cancel.liquidos';
-export const agent = 'prompt-cancel-test';
+export const agent = 'agent/test/prompt-cancel-test-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

@@ -20,7 +20,12 @@
 //
 
 export const fixture = './probe-agent-switch.liquidos';
-export const agent = 'stub-a';
+// Both stubs are loaded so the switch can flip between them; Stub A is first,
+// so it's the default-active agent.
+export const agent = [
+    'agent/test/agent-switch-stub-a-agent.js',
+    'agent/test/agent-switch-stub-b-agent.js',
+];
 
 import { STUB_A_REPLY } from '../../../agent/test/agent-switch-stub-a-agent.js';
 import { STUB_B_REPLY } from '../../../agent/test/agent-switch-stub-b-agent.js';
@@ -49,7 +54,7 @@ export default async ({ url, page }) => {
                 && await page.evaluate(async () => {
                     try { const r = await fetch('/agents/probe', { cache: 'no-store' }); return r.ok ? (await r.json()).agentKind : null; }
                     catch { return null; }
-                }) === label.toLowerCase().replace(' ', '-')) return;
+                }) === label) return;
             await sleep(150);
         }
         throw new Error('agent never settled on "' + label + '"');
@@ -84,7 +89,7 @@ export default async ({ url, page }) => {
     await onScreen(STUB_A_REPLY).catch(() => { throw new Error('Stub A never produced ' + STUB_A_REPLY + ' on dispatch'); });
 
     // Pick Stub B and wait for the switch to actually land server-side.
-    await page.selectOption('#agent-select', 'stub-b');
+    await page.selectOption('#agent-select', 'Stub B');
     await waitForActiveAgent('Stub B');
 
     // Stub B dispatches → B's marker replaces A's.

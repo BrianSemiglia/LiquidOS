@@ -40,7 +40,7 @@ const GIZMO_SENTINEL = 'GIZMO_REQUIREMENT_SENTINEL';
 export default async ({ url, page, browser }) => {
   const publisher = { url };
   const pubPage = page;
-  const consumer = await bootSandbox(new URL('./probe-install-collision-keeps-existing-consumer.liquidos', import.meta.url), { agent: 'none' });
+  const consumer = await bootSandbox(new URL('./probe-install-collision-keeps-existing-consumer.liquidos', import.meta.url), { agent: 'agent/none-agent.js' });
   console.log('publisher:', publisher.url);
   console.log('consumer :', consumer.url);
 

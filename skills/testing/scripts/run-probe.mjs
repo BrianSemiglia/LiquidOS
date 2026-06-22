@@ -82,11 +82,13 @@ for (const probe of probes) {
   const source = workspace ? path.resolve(workspace)
     : (mod.fixture ? path.resolve(path.dirname(probeAbs), mod.fixture) : null);
   if (!selfManaged && !source) { console.error(`[run-probe] ${name}: no --workspace given and the probe exports no \`fixture\``); exitCode = 1; continue; }
-  const agentKind = agent || mod.agent || 'none';
+  // The probe's `agent` is one or more agent script path(s); defaults to the
+  // no-op agent. --agent overrides.
+  const agentScripts = agent || mod.agent || 'agent/none-agent.js';
 
   let sandbox = { url: null, workspace: null, teardown: () => {} };
   if (!selfManaged) {
-    try { sandbox = await bootSandbox(source, { agent: agentKind, app }); }
+    try { sandbox = await bootSandbox(source, { agent: agentScripts, app }); }
     catch (e) { console.error(`[run-probe] ${name} boot failed: ${e.message}`); exitCode = 1; continue; }
   }
 

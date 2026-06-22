@@ -16,7 +16,7 @@
 //
 
 export const fixture = './probe-component-repair.liquidos';
-export const agent = 'component-repair-test';
+export const agent = 'agent/test/component-repair-test-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

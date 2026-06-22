@@ -19,7 +19,9 @@
 //
 //  Sketch of the test:
 //    - Launch the built bundle: XCUIApplication(url: .../mac-app/build/LiquidOS.app)
-//    - Force the deterministic stub: launchEnvironment["LIQUIDOS_AGENT"] = "crash-repair-stub"
+//    - Force the deterministic stub: launchEnvironment["LIQUIDOS_AGENT"] = "agent/test/crash-repair-stub-agent.js"
+//      (LIQUIDOS_AGENT is a comma-separated list of agent script paths that
+//      replaces the default roster.)
 //    - Point it at a temp workspace with a component or two.
 //    - Induce a crash generically (write .crash-report.json + kill the serving
 //      process) — do not depend on how a crash arises in the harness.

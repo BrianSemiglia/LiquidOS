@@ -143,7 +143,7 @@ export default async ({ browser }) => {
     // running server never reads the dir we built above. Mutations after boot
     // (the delete, the requirements edit) must target the copy, or the server
     // never sees them.
-    const sandbox = await bootSandbox(ws, { agent: 'none' });
+    const sandbox = await bootSandbox(ws, { agent: 'agent/none-agent.js' });
     const liveCanvasDir = path.join(sandbox.workspace, 'home');
     const liveCanvasReqs = path.join(liveCanvasDir, 'feature-requirements.txt');
     const liveRelDir = path.join(liveCanvasDir, 'relationships', 'source-to-sink');

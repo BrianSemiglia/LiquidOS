@@ -24,7 +24,7 @@
 import { execSync } from 'node:child_process';
 
 export const fixture = './probe-idle-no-network-cpu-spin.liquidos';
-export const agent = 'none';
+export const agent = 'agent/none-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

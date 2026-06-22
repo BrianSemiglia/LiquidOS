@@ -15,7 +15,7 @@
 //
 
 export const fixture = './probe-component-runtime-repair-click.liquidos';
-export const agent = 'component-runtime-repair-test';
+export const agent = 'agent/test/component-runtime-repair-test-agent.js';
 
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));

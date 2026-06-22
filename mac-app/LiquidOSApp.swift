@@ -342,14 +342,9 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         server?.arguments = [
             "-lc",
             Self.shellCommand(
-                "node",
-                "server.js",
-                "--workspace",
-                canvasesRootURL.path,
-                "--agent",
-                Self.agentKind(),
-                "--port",
-                String(port)
+                ["node", "server.js", "--workspace", canvasesRootURL.path]
+                    + Self.agentScriptArgs()
+                    + ["--port", String(port)]
             )
         ]
         server?.environment = ProcessInfo.processInfo.environment.merging(Self.serverEnvironment()) { _, new in new }
@@ -919,13 +914,28 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         ]
     }
 
-    // The agent runtime the server (and a crash repair) runs with. Normally the
-    // real agent; a UI test overrides it via LIQUIDOS_AGENT to force the
-    // deterministic crash-repair stub so the recovery loop is reproducible.
-    private static func agentKind() -> String {
-        let value = ProcessInfo.processInfo.environment["LIQUIDOS_AGENT"]?
+    // The agent roster is the array of --agent script paths the server loads;
+    // the first is the default-active. Paths are resolved against the app root
+    // (the server's cwd). A UI test can override the roster via LIQUIDOS_AGENT
+    // (comma-separated script paths) to force the deterministic crash-repair
+    // stub so the recovery loop is reproducible.
+    private static func agentScriptArgs() -> [String] {
+        let override = ProcessInfo.processInfo.environment["LIQUIDOS_AGENT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return (value?.isEmpty == false) ? value! : "hermes"
+        let scripts: [String]
+        if let override, !override.isEmpty {
+            scripts = override.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        } else {
+            scripts = [
+                "agent/(skillsPath+runtimePath)->hermes-runtime.js",
+                "agent/(skillsPath+runtimePath)->pi-runtime.js",
+                "agent/(skillsPath+runtimePath)->codex-runtime.js",
+                "agent/(skillsPath+runtimePath)->claude-runtime.js",
+            ]
+        }
+        return scripts.flatMap { ["--agent", $0] }
     }
 
     private static func shellQuote(_ value: String) -> String {
@@ -933,6 +943,10 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     }
 
     private static func shellCommand(_ arguments: String...) -> String {
+        shellCommand(arguments)
+    }
+
+    private static func shellCommand(_ arguments: [String]) -> String {
         arguments.map(shellQuote).joined(separator: " ")
     }
 

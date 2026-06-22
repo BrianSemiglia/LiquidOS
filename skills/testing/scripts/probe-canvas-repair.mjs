@@ -11,7 +11,7 @@
 //
 
 export const fixture = './probe-canvas-repair.liquidos';
-export const agent = 'canvas-repair-test';
+export const agent = 'agent/test/canvas-repair-test-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

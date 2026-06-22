@@ -10,21 +10,26 @@ const fail = message => {
   process.exit(1);
 };
 
-const parseArguments = argv => argv.reduce((result, value, index) => {
-  if (value === '--workspace') return { ...result, workspace: argv[index + 1] };
-  if (value === '--app') return { ...result, app: argv[index + 1] };
-  if (value === '--timeout-ms') return { ...result, timeoutMs: Number.parseInt(argv[index + 1], 10) };
-  if (value === '--agent') return { ...result, agent: argv[index + 1] };
+// --agent is repeatable: each value is a path to an agent script. Forwarded
+// verbatim to the server (resolved against the app dir below). Everything else
+// is single-valued.
+const parseArguments = argv => {
+  const result = { agents: [] };
+  argv.forEach((value, index) => {
+    if (value === '--workspace') result.workspace = argv[index + 1];
+    else if (value === '--app') result.app = argv[index + 1];
+    else if (value === '--timeout-ms') result.timeoutMs = Number.parseInt(argv[index + 1], 10);
+    else if (value === '--agent') result.agents.push(argv[index + 1]);
+  });
   return result;
-}, {});
+};
 
-const { workspace, app, timeoutMs, agent } = parseArguments(process.argv.slice(2));
+const { workspace, app, timeoutMs, agents } = parseArguments(process.argv.slice(2));
 const bootTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 30000;
-// Default to --agent none so the existing smoke-test workflow (callbacks
-// must fail loudly, agent can't recurse) stays unchanged. Probes that want
-// a specific runtime (e.g., the per-scenario test agents under agent/test/)
-// pass --agent <kind> and we forward it through.
-const agentKind = typeof agent === 'string' && agent.trim() ? agent.trim() : 'none';
+// Default to the no-op agent so the smoke-test workflow (callbacks fail loudly,
+// the agent can't recurse) stays unchanged. Probes that need a working dispatch
+// loop pass their own --agent script path(s).
+const agentScripts = agents.length ? agents : ['agent/none-agent.js'];
 
 // The server bakes the running app's location in here when it materializes
 // this script into a workspace, so the runtime agent can boot a sandbox
@@ -35,7 +40,7 @@ const BAKED_APP_ROOT = '__LIQUIDOS_APP_ROOT__';
 const resolvedApp = app || (BAKED_APP_ROOT.startsWith('__') ? undefined : BAKED_APP_ROOT);
 
 if (!workspace || !resolvedApp) {
-  fail('usage: node scripts/boot-workspace-sandbox.mjs --workspace /path/to/Workspace.liquidos [--app /path/to/app] [--agent <kind>] [--timeout-ms 30000]\n(--app is optional inside a workspace — the server bakes the app location in)');
+  fail('usage: node scripts/boot-workspace-sandbox.mjs --workspace /path/to/Workspace.liquidos [--app /path/to/app] [--agent <script-path> ...] [--timeout-ms 30000]\n(--app is optional inside a workspace — the server bakes the app location in)');
 }
 
 const sourceWorkspace = path.resolve(workspace);
@@ -99,9 +104,15 @@ fs.cpSync(sourceWorkspace, sandboxWorkspace, { recursive: true });
 // Per-component diagnostics/service.log captures service output; we only
 // inherit stderr so server-level boot errors land on the launcher's own
 // stderr.
+// Agent scripts ship with the app; resolve any relative path against the app
+// dir so probes can name them app-relative (e.g. agent/test/foo-agent.js).
+const agentArgs = agentScripts.flatMap(a => [
+  '--agent', path.isAbsolute(a) ? a : path.join(appDirectory, a)
+]);
+
 const serverArgs = [
   '--workspace', sandboxWorkspace,
-  '--agent', agentKind,
+  ...agentArgs,
   '--port', String(port)
 ];
 

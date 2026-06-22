@@ -22,7 +22,7 @@
 //
 
 export const fixture = './probe-cancel-button-disables.liquidos';
-export const agent = 'cancel-button-disables';
+export const agent = 'agent/test/cancel-button-disables-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
