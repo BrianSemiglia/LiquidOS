@@ -12,7 +12,7 @@
 // Run it:  node run-probe.mjs probe-callback-dispatch.mjs
 //
 
-export const fixture = 'callback-dispatch.liquidos';
+export const fixture = './probe-callback-dispatch.liquidos';
 export const agent = 'callback-dispatch-test';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

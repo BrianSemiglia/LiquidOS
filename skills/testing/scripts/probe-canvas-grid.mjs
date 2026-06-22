@@ -16,7 +16,7 @@
 // Run it:  node run-probe.mjs probe-canvas-grid.mjs
 //
 
-export const fixture = 'canvas-switcher.liquidos';
+export const fixture = './probe-canvas-grid.liquidos';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

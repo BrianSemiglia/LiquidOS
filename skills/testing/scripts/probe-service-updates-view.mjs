@@ -9,7 +9,7 @@
 // Run it:  node run-probe.mjs probe-service-updates-view.mjs
 //
 
-export const fixture = 'service-writes-view.liquidos';
+export const fixture = './probe-service-updates-view.liquidos';
 
 const expect = (label, predicate, detail) => {
     if (predicate) { console.log('  ok  ' + label); return; }

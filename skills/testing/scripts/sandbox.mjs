@@ -19,7 +19,6 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURES_DIR = path.resolve(SCRIPT_DIR, '..', 'fixtures');
 const LAUNCHER = path.join(SCRIPT_DIR, 'boot-workspace-sandbox.mjs');
 
 // The launcher needs to know where the app is. In a materialized workspace it
@@ -28,12 +27,13 @@ const LAUNCHER = path.join(SCRIPT_DIR, 'boot-workspace-sandbox.mjs');
 const hasServerJs = dir => { try { return fs.existsSync(path.join(dir, 'server.js')); } catch { return false; } };
 const repoRoot = path.resolve(SCRIPT_DIR, '../../..');
 
-export const fixturesDir = FIXTURES_DIR;
-
-// Boot a sandbox of `fixture` — a name under skills/testing/fixtures, or an
-// absolute .liquidos path. Resolves { url, workspace, teardown }.
+// Boot a sandbox of `fixture` — an absolute .liquidos path, or a file: URL
+// (e.g. `new URL('./peer.liquidos', import.meta.url)` to point at a sibling).
+// Resolves { url, workspace, teardown }.
 export const bootSandbox = (fixture, { agent = 'none', app } = {}) => new Promise((resolve, reject) => {
-  const source = path.isAbsolute(fixture) ? fixture : path.resolve(FIXTURES_DIR, fixture);
+  const source = fixture instanceof URL || String(fixture).startsWith('file:')
+    ? fileURLToPath(fixture)
+    : fixture;
   const appRoot = app || (hasServerJs(repoRoot) ? repoRoot : null);
   const args = ['--workspace', source, '--agent', agent];
   if (appRoot) args.push('--app', appRoot);

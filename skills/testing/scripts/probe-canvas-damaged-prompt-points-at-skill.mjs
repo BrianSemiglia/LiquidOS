@@ -12,7 +12,7 @@
 // Run it:  node run-probe.mjs probe-canvas-damaged-prompt-points-at-skill.mjs
 //
 
-export const fixture = 'component-missing.liquidos';
+export const fixture = './probe-canvas-damaged-prompt-points-at-skill.liquidos';
 
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));

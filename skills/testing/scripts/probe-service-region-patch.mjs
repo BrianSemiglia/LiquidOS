@@ -17,7 +17,7 @@
 // Run it:  node run-probe.mjs probe-service-region-patch.mjs
 //
 
-export const fixture = 'service-region-patch.liquidos';
+export const fixture = './probe-service-region-patch.liquidos';
 
 const expect = (label, predicate, detail) => {
     if (predicate) { console.log('  ok  ' + label); return; }

@@ -21,7 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const fixture = 'script-remount-on-rerender.liquidos';
+export const fixture = './probe-script-remount-on-rerender.liquidos';
 
 const seesText = (page, text, timeout) =>
     page.waitForFunction(

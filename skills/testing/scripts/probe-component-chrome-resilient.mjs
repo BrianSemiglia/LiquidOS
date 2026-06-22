@@ -31,7 +31,7 @@
 // Run it:  node run-probe.mjs probe-component-chrome-resilient.mjs
 //
 
-export const fixture = 'component-chrome-resilient.liquidos';
+export const fixture = './probe-component-chrome-resilient.liquidos';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

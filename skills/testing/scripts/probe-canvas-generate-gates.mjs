@@ -14,7 +14,7 @@
 // Run it:  node run-probe.mjs probe-canvas-generate-gates.mjs
 //
 
-export const fixture = 'canvas-empty-no-components.liquidos';
+export const fixture = './probe-canvas-generate-gates.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

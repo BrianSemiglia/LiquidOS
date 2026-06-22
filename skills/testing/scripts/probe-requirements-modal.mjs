@@ -19,7 +19,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const fixture = 'requirements-modal.liquidos';
+export const fixture = './probe-requirements-modal.liquidos';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

@@ -10,7 +10,7 @@
 // Run it:  node run-probe.mjs probe-prompt-bar.mjs
 //
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-prompt-bar.liquidos';
 export const agent = 'prompt-bar-test';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

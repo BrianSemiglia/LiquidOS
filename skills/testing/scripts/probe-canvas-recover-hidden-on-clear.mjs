@@ -12,7 +12,7 @@
 // Run it:  node run-probe.mjs probe-canvas-recover-hidden-on-clear.mjs
 //
 
-export const fixture = 'canvas-with-reqs-no-components.liquidos';
+export const fixture = './probe-canvas-recover-hidden-on-clear.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

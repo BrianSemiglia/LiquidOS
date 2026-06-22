@@ -31,7 +31,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const fixture = 'agent-service-swap.liquidos';
+export const fixture = './probe-component-html-edit-swaps-service.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const expect = (label, predicate, detail) => {

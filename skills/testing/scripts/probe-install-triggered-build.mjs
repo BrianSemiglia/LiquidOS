@@ -21,14 +21,14 @@
 
 import { bootSandbox } from './sandbox.mjs';
 
-export const fixture = 'canvas-switcher.liquidos'; // the publisher
+export const fixture = './probe-install-triggered-build.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 export default async ({ url, page, browser }) => {
     const publisher = { url };
     const pubPage = page;
-    const consumer = await bootSandbox('canvas-build.liquidos', { agent: 'install-build-test' });
+    const consumer = await bootSandbox(new URL('./probe-install-triggered-build-consumer.liquidos', import.meta.url), { agent: 'install-build-test' });
     console.log('publisher:', publisher.url);
     console.log('consumer :', consumer.url);
 

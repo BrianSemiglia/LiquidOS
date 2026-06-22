@@ -1,0 +1,1 @@
+- WIDGET_REQUIREMENT_SENTINEL: a knob that wiggles.

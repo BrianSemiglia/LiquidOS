@@ -1,0 +1,2 @@
+Test component for runtime error capture.
+Mounts cleanly and then throws asynchronously to simulate a post-mount runtime failure.

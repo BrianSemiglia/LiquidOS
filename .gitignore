@@ -1,9 +1,7 @@
 index.json
-output.json
-# Fixture workspaces under skills/testing must keep their input/output.json
-# so the bundled probes have known-good starting state.
-!skills/testing/fixtures/**/index.json
-!skills/testing/fixtures/**/output.json
+# Each probe's sibling .liquidos fixture under skills/testing/scripts must keep
+# its index.json so the bundled probes have known-good starting state.
+!skills/testing/scripts/**/index.json
 node_modules/
 package.json
 package-lock.json

@@ -22,7 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const fixture = 'relationship-peer-remount.liquidos';
+export const fixture = './probe-relationship-peer-remount.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const sees = (page, text) =>

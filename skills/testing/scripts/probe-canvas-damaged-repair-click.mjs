@@ -10,7 +10,7 @@
 // Run it:  node run-probe.mjs probe-canvas-damaged-repair-click.mjs
 //
 
-export const fixture = 'canvas-damaged-repair.liquidos';
+export const fixture = './probe-canvas-damaged-repair-click.liquidos';
 export const agent = 'canvas-damaged-repair-test';
 
 export default async ({ url, page }) => {

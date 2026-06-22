@@ -7,7 +7,7 @@
 // Run it:  node run-probe.mjs probe-flip-button-toggle.mjs
 //
 
-export const fixture = 'component-repair.liquidos';
+export const fixture = './probe-flip-button-toggle.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

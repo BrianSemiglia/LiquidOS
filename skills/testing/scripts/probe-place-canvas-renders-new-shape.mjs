@@ -11,7 +11,7 @@
 // Run it:  node run-probe.mjs probe-place-canvas-renders-new-shape.mjs
 //
 
-export const fixture = 'place-canvas-new-shape.liquidos';
+export const fixture = './probe-place-canvas-renders-new-shape.liquidos';
 
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));

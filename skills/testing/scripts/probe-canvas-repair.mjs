@@ -10,7 +10,7 @@
 // Run it:  node run-probe.mjs probe-canvas-repair.mjs
 //
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-canvas-repair.liquidos';
 export const agent = 'canvas-repair-test';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

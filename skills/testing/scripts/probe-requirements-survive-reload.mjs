@@ -16,7 +16,7 @@
 // Run it:  node run-probe.mjs probe-requirements-survive-reload.mjs
 //
 
-export const fixture = 'component-repair.liquidos';
+export const fixture = './probe-requirements-survive-reload.liquidos';
 export const agent = 'none';
 
 const MARKER = '- REQ_PERSIST_RELOAD_MARKER must survive a reload';

@@ -29,7 +29,7 @@
 // Run it:  node run-probe.mjs probe-service-lifecycle-on-canvas-switch.mjs
 //
 
-export const fixture = 'service-canvas-switch.liquidos';
+export const fixture = './probe-service-lifecycle-on-canvas-switch.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

@@ -10,7 +10,7 @@
 // Run it:  node run-probe.mjs probe-canvas-requirements-live-refresh.mjs
 //
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-canvas-requirements-live-refresh.liquidos';
 export const agent = 'canvas-repair-test';
 
 export default async ({ url, page }) => {

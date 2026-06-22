@@ -1,0 +1,6 @@
+{
+  "components": [
+    "components/alpha/component.html",
+    "components/gamma/component.html"
+  ]
+}

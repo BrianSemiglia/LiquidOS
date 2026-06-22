@@ -22,7 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const fixture = 'relationship-reload.liquidos';
+export const fixture = './probe-relationship-live-reload.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

@@ -14,7 +14,7 @@
 // Run it:  node run-probe.mjs probe-component-diagnostics.mjs
 //
 
-export const fixture = 'component-diagnostics.liquidos';
+export const fixture = './probe-component-diagnostics.liquidos';
 
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));

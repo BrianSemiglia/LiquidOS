@@ -26,7 +26,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const fixture = 'agent-service-restart.liquidos';
+export const fixture = './probe-service-reload-keeps-component-visible.liquidos';
 export const agent = 'service-rewrite-stub';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

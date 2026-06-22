@@ -11,7 +11,7 @@
 // Run it:  node run-probe.mjs probe-suggestions-no-fallback.mjs
 //
 
-export const fixture = 'suggestions.liquidos';
+export const fixture = './probe-suggestions-no-fallback.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

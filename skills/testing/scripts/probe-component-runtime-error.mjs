@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const fixture = 'component-runtime-error.liquidos';
+export const fixture = './probe-component-runtime-error.liquidos';
 
 export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));

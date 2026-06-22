@@ -15,7 +15,7 @@
 // Run it:  node run-probe.mjs probe-component-repair.mjs
 //
 
-export const fixture = 'component-repair.liquidos';
+export const fixture = './probe-component-repair.liquidos';
 export const agent = 'component-repair-test';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

@@ -27,7 +27,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const fixture = 'probe.liquidos';
+export const fixture = './probe-canvas-live-updates.liquidos';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

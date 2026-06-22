@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 
-export const fixture = 'canvas-teardown-rewrap.liquidos';
+export const fixture = './probe-canvas-teardown-rewrap.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

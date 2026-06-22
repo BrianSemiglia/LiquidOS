@@ -1,1 +1,0 @@
-- A widget reads its own data file and shows the value.

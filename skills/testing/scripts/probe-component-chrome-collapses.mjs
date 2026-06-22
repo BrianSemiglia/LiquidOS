@@ -17,7 +17,7 @@
 // Run it:  node run-probe.mjs probe-component-chrome-collapses.mjs
 //
 
-export const fixture = 'place-canvas-new-shape.liquidos';
+export const fixture = './probe-component-chrome-collapses.liquidos';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

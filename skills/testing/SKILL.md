@@ -14,8 +14,8 @@ Use this skill when changing a workspace or component and you need to verify the
 A probe is a module that exports a single async function. The test runner boots a sandbox, opens a browser, hands your function `{ url, workspace, page, browser }`, and **tears everything down afterward — no matter what.** You never boot, parse, or clean up anything.
 
 ```js
-export const fixture = 'Clock.liquidos';   // a folder under skills/testing/fixtures
-export const agent = 'none';               // optional server runtime; omit to default to 'none'
+export const fixture = './probe-clock.liquidos';   // this probe's own copy, sitting right next to it
+export const agent = 'none';                        // optional server runtime; omit to default to 'none'
 
 export default async ({ url, workspace, page, browser }) => {
   await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -53,7 +53,7 @@ Drive the app the way the user does (type into the prompt bar, click the button)
 
 ## Fixtures, agents, and self-managed probes
 
-- **`fixture`** names a folder under `skills/testing/fixtures`. The runner sandboxes a copy, so the probe can mutate it freely.
+- **`fixture`** is a path, relative to the probe file, to the probe's own `.liquidos` workspace copy — which sits right next to the probe (`probe-foo.mjs` → `probe-foo.liquidos/`). Every probe owns its own copy, so editing one test's fixture never disturbs another's. The runner sandboxes that copy, so the probe can mutate it freely.
 - **`agent`** is the server's agent runtime. Default `'none'` runs the harness but no agent (callbacks fail loudly; testing can't recurse). Probes that need a working dispatch loop name a per-scenario test agent (these live in `agent/test/`).
 - **`fixture = null`** means *the probe manages its own sandbox(es)* — it scaffolds a workspace at runtime, or needs two peers. The runner then skips the pre-boot and just hands you `browser`. Boot your own with the shared helper:
 
@@ -62,7 +62,7 @@ import { bootSandbox } from './sandbox.mjs';
 
 export const fixture = null;
 export default async ({ browser }) => {
-  const sandbox = await bootSandbox('/abs/path/or/fixture-name.liquidos', { agent: 'none' });
+  const sandbox = await bootSandbox(new URL('./probe-foo.liquidos', import.meta.url), { agent: 'none' });
   try {
     const page = await browser.newPage();
     await page.goto(sandbox.url);
@@ -73,7 +73,7 @@ export default async ({ browser }) => {
 };
 ```
 
-A two-peer probe is the same idea: declare one peer as the `fixture` (driven through the provided `page`) and `bootSandbox(...)` the other, tearing it down in a `finally`. See `probe-cross-peer-share.mjs`.
+A two-peer probe is the same idea: declare one peer as the `fixture` (driven through the provided `page`) and `bootSandbox(new URL('./probe-foo-consumer.liquidos', import.meta.url), …)` the other from its own sibling copy, tearing it down in a `finally`. See `probe-cross-peer-share.mjs`.
 
 ## Save the probe
 

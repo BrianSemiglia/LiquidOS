@@ -11,7 +11,7 @@
 // Run it:  node run-probe.mjs probe-requirements-modal-intrinsic-width.mjs
 //
 
-export const fixture = 'requirements-modal-intrinsic.liquidos';
+export const fixture = './probe-requirements-modal-intrinsic-width.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

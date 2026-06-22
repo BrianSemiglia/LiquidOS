@@ -14,7 +14,7 @@
 // and tears everything down afterward. Throw to fail, return to pass.
 //
 
-export const fixture = 'agent-edit-stub.liquidos';
+export const fixture = './probe-lqpatch-stream-component-edit.liquidos';
 export const agent = 'lqpatch-stream-stub';
 
 // Is this string visible to a person looking at the page? innerText is the

@@ -28,12 +28,12 @@
 
 import { bootSandbox } from './sandbox.mjs';
 
-export const fixture = 'canvas-switcher.liquidos';
+export const fixture = './probe-component-share-opt-out.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 export default async ({ url, page, browser }) => {
-    const consumer = await bootSandbox('canvas-build.liquidos', { agent: 'none' });
+    const consumer = await bootSandbox(new URL('./probe-component-share-opt-out-consumer.liquidos', import.meta.url), { agent: 'none' });
     console.log('publisher:', url);
     console.log('consumer :', consumer.url);
 

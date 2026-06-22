@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-canvas-damaged.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

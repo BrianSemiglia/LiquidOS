@@ -23,7 +23,7 @@
 
 import { execSync } from 'node:child_process';
 
-export const fixture = 'canvas-build.liquidos';  // shares nothing
+export const fixture = './probe-idle-no-network-cpu-spin.liquidos';
 export const agent = 'none';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

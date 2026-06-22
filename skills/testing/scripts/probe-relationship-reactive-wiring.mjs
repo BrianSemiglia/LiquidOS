@@ -16,7 +16,7 @@
 // Run it:  node run-probe.mjs probe-relationship-reactive-wiring.mjs
 //
 
-export const fixture = 'relationship-reactive.liquidos';
+export const fixture = './probe-relationship-reactive-wiring.liquidos';
 
 const expect = (label, predicate, detail) => {
   if (predicate) { console.log('  ok  ' + label); return; }

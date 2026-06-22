@@ -15,7 +15,7 @@
 // Run it:  node run-probe.mjs probe-agent-activity-waveform.mjs
 //
 
-export const fixture = 'agent-edit-stub.liquidos';
+export const fixture = './probe-agent-activity-waveform.liquidos';
 export const agent = 'lqpatch-stream-stub';
 
 // Tallest run of painted (non-transparent) pixels in any column of the

@@ -23,7 +23,7 @@
 // Run it:  node run-probe.mjs probe-cancel-undo-precedes-queued.mjs
 //
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-cancel-undo-precedes-queued.liquidos';
 export const agent = 'prompt-cancel-test';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

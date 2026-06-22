@@ -24,7 +24,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const fixture = 'probe.liquidos';
+export const fixture = './probe-component-redesign-live-reload.liquidos';
 
 export default async ({ url, workspace, page }) => {
     console.log('sandbox url:      ', url);

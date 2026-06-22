@@ -20,7 +20,7 @@
 
 import { spawnSync } from 'node:child_process';
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-prompt-cancel.liquidos';
 export const agent = 'prompt-cancel-test';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

@@ -16,7 +16,7 @@
 // Run it:  node run-probe.mjs probe-suggestions-placeholder.mjs
 //
 
-export const fixture = 'suggestions.liquidos';
+export const fixture = './probe-suggestions-placeholder.liquidos';
 
 const ALPHA = 'ALPHA make the header bigger';
 const BRAVO = 'BRAVO add a dark mode toggle';

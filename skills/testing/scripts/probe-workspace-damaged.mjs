@@ -14,7 +14,7 @@
 // Run it:  node run-probe.mjs probe-workspace-damaged.mjs
 //
 
-export const fixture = 'workspace-damaged.liquidos';
+export const fixture = './probe-workspace-damaged.liquidos';
 
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));

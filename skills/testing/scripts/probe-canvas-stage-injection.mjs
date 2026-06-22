@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 
-export const fixture = 'canvas-stage-injection.liquidos';
+export const fixture = './probe-canvas-stage-injection.liquidos';
 
 // Resolve once an element carrying `text` is rendered and visible (has a
 // non-empty box and isn't display:none / visibility:hidden) — i.e. actually

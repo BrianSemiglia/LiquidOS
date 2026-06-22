@@ -11,7 +11,7 @@
 // Run it:  node run-probe.mjs probe-prompt-bar-single-dispatch.mjs
 //
 
-export const fixture = 'prompt-bar-single-dispatch.liquidos';
+export const fixture = './probe-prompt-bar-single-dispatch.liquidos';
 export const agent = 'prompt-bar-single-dispatch-test';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

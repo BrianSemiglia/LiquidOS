@@ -1,0 +1,4 @@
+Probe target: a component that wires up a placeholder service and a
+view.json. The probe swaps which service the run-mode liquidos-file
+points at by editing component.html, and asserts the rendered view stays
+visible.

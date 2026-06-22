@@ -14,7 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const fixture = 'component-repair.liquidos';
+export const fixture = './probe-ui-state-component-requirements.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

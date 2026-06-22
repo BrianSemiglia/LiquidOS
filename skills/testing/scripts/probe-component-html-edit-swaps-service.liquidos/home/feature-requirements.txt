@@ -1,0 +1,5 @@
+Fixture for the live service-swap probe.
+One component whose component.html points at service-a.js (long-running
+placeholder) plus a view.json. The probe edits component.html in place,
+swapping the run path from service-a.js to service-b.js, and asserts the
+rendered view stays on screen.

@@ -9,7 +9,7 @@
 // Run it:  node run-probe.mjs probe-component-build-cancel.mjs
 //
 
-export const fixture = 'component-repair.liquidos';
+export const fixture = './probe-component-build-cancel.liquidos';
 
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));

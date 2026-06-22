@@ -18,7 +18,7 @@
 // Run it:  node run-probe.mjs probe-relationship-observe-toggle.mjs
 //
 
-export const fixture = 'relationship-observe-toggle.liquidos';
+export const fixture = './probe-relationship-observe-toggle.liquidos';
 
 const expect = (label, predicate, detail) => {
   if (predicate) { console.log('  ok  ' + label); return; }

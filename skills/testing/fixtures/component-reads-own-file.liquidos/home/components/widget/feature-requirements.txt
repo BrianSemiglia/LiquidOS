@@ -1,1 +1,0 @@
-- Shows the value from its data file.

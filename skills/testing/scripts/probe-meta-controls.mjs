@@ -14,7 +14,7 @@
 // Run it:  node run-probe.mjs probe-meta-controls.mjs
 //
 
-export const fixture = 'requirements-modal.liquidos';
+export const fixture = './probe-meta-controls.liquidos';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

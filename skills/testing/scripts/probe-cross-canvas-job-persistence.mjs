@@ -28,7 +28,7 @@
 // Run it:  node run-probe.mjs probe-cross-canvas-job-persistence.mjs
 //
 
-export const fixture = 'cross-canvas-persistence.liquidos';
+export const fixture = './probe-cross-canvas-job-persistence.liquidos';
 export const agent = 'cross-canvas-persistence-test';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

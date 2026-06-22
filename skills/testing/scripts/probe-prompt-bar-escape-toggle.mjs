@@ -9,7 +9,7 @@
 // Run it:  node run-probe.mjs probe-prompt-bar-escape-toggle.mjs
 //
 
-export const fixture = 'canvas-empty-no-components.liquidos';
+export const fixture = './probe-prompt-bar-escape-toggle.liquidos';
 
 export default async ({ url, page }) => {
   page.on('pageerror', err => console.log('[pageerror]', err.message));

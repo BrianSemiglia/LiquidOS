@@ -1,0 +1,6 @@
+{
+  "components": [
+    "components/gizmo/component.html",
+    "components/widget/component.html"
+  ]
+}

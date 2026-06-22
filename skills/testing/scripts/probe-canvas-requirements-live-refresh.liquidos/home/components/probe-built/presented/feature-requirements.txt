@@ -1,0 +1,1 @@
+- Surfaces when the canvas is reconciled to include this component.

@@ -19,7 +19,7 @@
 // Run it:  node run-probe.mjs probe-agent-switch.mjs
 //
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-agent-switch.liquidos';
 export const agent = 'stub-a';
 
 import { STUB_A_REPLY } from '../../../agent/test/agent-switch-stub-a-agent.js';

@@ -14,7 +14,7 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-export const fixture = 'suggestions.liquidos';
+export const fixture = './probe-suggestions-script-adds.liquidos';
 
 const SCRIPT = fileURLToPath(new URL('../../suggestions/scripts/add-suggestions.mjs', import.meta.url));
 const HOME_FIRST = 'ALPHA make the header bigger';

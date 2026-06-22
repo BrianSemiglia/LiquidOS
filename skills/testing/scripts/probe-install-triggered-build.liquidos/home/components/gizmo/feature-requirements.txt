@@ -1,0 +1,1 @@
+- GIZMO_REQUIREMENT_SENTINEL: a square button that hums.

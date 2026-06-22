@@ -26,7 +26,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const fixture = 'canvas-switcher.liquidos';
+export const fixture = './probe-ui-state-file.liquidos';
 
 export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));

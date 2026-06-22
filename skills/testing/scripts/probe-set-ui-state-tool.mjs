@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const fixture = 'canvas-switcher.liquidos';
+export const fixture = './probe-set-ui-state-tool.liquidos';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TOOL = path.resolve(here, '../../workspace/scripts/set-ui-state.sh');

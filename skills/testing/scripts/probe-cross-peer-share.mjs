@@ -28,7 +28,7 @@
 
 import { bootSandbox } from './sandbox.mjs';
 
-export const fixture = 'canvas-switcher.liquidos'; // the publisher
+export const fixture = './probe-cross-peer-share.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -39,7 +39,7 @@ const GIZMO_SENTINEL = 'GIZMO_REQUIREMENT_SENTINEL';
 export default async ({ url, page, browser }) => {
   const publisher = { url };
   const pubPage = page;
-  const consumer = await bootSandbox('canvas-build.liquidos', { agent: 'none' });
+  const consumer = await bootSandbox(new URL('./probe-cross-peer-share-consumer.liquidos', import.meta.url), { agent: 'none' });
   console.log('publisher:', publisher.url);
   console.log('consumer :', consumer.url);
 

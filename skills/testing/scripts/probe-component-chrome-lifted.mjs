@@ -19,7 +19,7 @@
 // Run it:  node run-probe.mjs probe-component-chrome-lifted.mjs
 //
 
-export const fixture = 'requirements-modal-intrinsic.liquidos';
+export const fixture = './probe-component-chrome-lifted.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

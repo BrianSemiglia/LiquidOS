@@ -8,7 +8,7 @@
 // Run it:  node run-probe.mjs probe-suggestions-per-canvas.mjs
 //
 
-export const fixture = 'suggestions.liquidos';
+export const fixture = './probe-suggestions-per-canvas.liquidos';
 
 const HOME_FIRST = 'ALPHA make the header bigger';
 const OTHER_FIRST = 'DELTA rename this canvas';

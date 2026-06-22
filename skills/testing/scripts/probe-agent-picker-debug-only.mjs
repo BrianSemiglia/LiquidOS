@@ -21,7 +21,7 @@
 // Run it:  node run-probe.mjs probe-agent-picker-debug-only.mjs
 //
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-agent-picker-debug-only.liquidos';
 
 const pickerVisible = (page) => page.locator('#agent-select').isVisible();
 

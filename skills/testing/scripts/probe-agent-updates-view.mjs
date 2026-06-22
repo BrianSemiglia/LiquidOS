@@ -17,7 +17,7 @@
 // Run it:  node run-probe.mjs probe-agent-updates-view.mjs
 //
 
-export const fixture = 'agent-service-swap.liquidos';
+export const fixture = './probe-agent-updates-view.liquidos';
 export const agent = 'none';
 
 const expect = (label, predicate, detail) => {

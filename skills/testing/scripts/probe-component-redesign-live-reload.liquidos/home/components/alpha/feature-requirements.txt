@@ -1,0 +1,1 @@
+- Alpha is a tiny static component used by the app's live-update probe.

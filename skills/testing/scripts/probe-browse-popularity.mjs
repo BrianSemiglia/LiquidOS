@@ -35,7 +35,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootSandbox } from './sandbox.mjs';
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-browse-popularity.liquidos';
 export const agent = 'none';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -100,7 +100,7 @@ export default async ({ url, page, browser }) => {
     try {
         // --- Boot publishers + populate components ----------------------
         for (const def of PUBLISHERS) {
-            const handle = await bootSandbox('popularity-publisher.liquidos', { agent: 'none' });
+            const handle = await bootSandbox(new URL('./probe-browse-popularity-publisher.liquidos', import.meta.url), { agent: 'none' });
             // Canvas-level requirements: minimal, just enough text to be
             // searchable on TOPIC even if the topic isn't in component names.
             fs.writeFileSync(

@@ -10,7 +10,7 @@
 // Run it:  node run-probe.mjs probe-canvas-build.mjs
 //
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-canvas-build.liquidos';
 export const agent = 'canvas-build-test';
 
 const MARKER = 'PROBE_CANVAS_BUILD';

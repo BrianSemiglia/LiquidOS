@@ -13,7 +13,7 @@
 // Run it:  node run-probe.mjs probe-debug-panel-toggle.mjs
 //
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-debug-panel-toggle.liquidos';
 
 // "Copy" is the panel's own static label — present only when the
 // debug rail is visible on screen.

@@ -9,7 +9,7 @@
 // Run it:  node run-probe.mjs probe-debug-rail.mjs
 //
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-debug-rail.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const readRailWidth = (page) => page.evaluate(() =>

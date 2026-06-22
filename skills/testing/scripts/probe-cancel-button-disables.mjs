@@ -21,7 +21,7 @@
 // Run it:  node run-probe.mjs probe-cancel-button-disables.mjs
 //
 
-export const fixture = 'canvas-build.liquidos';
+export const fixture = './probe-cancel-button-disables.liquidos';
 export const agent = 'prompt-cancel-test';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

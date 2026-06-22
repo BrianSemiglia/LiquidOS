@@ -1,0 +1,5 @@
+{
+  "components": [
+    "components/orphan/component.html"
+  ]
+}

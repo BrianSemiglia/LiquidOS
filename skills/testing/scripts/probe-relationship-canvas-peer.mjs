@@ -17,7 +17,7 @@
 // Run it:  node run-probe.mjs probe-relationship-canvas-peer.mjs
 //
 
-export const fixture = 'relationship-canvas-peer.liquidos';
+export const fixture = './probe-relationship-canvas-peer.liquidos';
 
 const expect = (label, predicate, detail) => {
   if (predicate) { console.log('  ok  ' + label); return; }

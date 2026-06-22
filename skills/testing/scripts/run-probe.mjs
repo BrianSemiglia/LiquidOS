@@ -13,7 +13,7 @@
 // lives here, in the wrapper.
 //
 // A probe is a module:
-//   export const fixture = 'name.liquidos';   // a folder under skills/testing/fixtures
+//   export const fixture = './probe-name.liquidos';   // the probe's own copy, sitting next to it
 //   export const agent = 'none';              // optional server runtime; default 'none'
 //   export default async ({ url, workspace, page, browser }) => { ... };
 // Throw to fail, return to pass. --workspace / --agent override the exports.
@@ -24,11 +24,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { bootSandbox, fixturesDir } from './sandbox.mjs';
+import { pathToFileURL } from 'node:url';
+import { bootSandbox } from './sandbox.mjs';
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURES_DIR = fixturesDir;
 const PROBE_TIMEOUT_MS = 180000;
 
 const parseArgs = argv => {
@@ -78,9 +76,11 @@ for (const probe of probes) {
   // scaffolds a workspace at runtime, or needs two peers. We skip the pre-boot
   // for those and just hand it the browser (it uses `bootSandbox` from
   // sandbox.mjs itself and tears its own down).
+  // The probe's `fixture` is a path relative to the probe file itself — its own
+  // .liquidos copy sits right next to it. `--workspace` overrides.
   const selfManaged = mod.fixture === null && !workspace;
   const source = workspace ? path.resolve(workspace)
-    : (mod.fixture ? path.resolve(FIXTURES_DIR, mod.fixture) : null);
+    : (mod.fixture ? path.resolve(path.dirname(probeAbs), mod.fixture) : null);
   if (!selfManaged && !source) { console.error(`[run-probe] ${name}: no --workspace given and the probe exports no \`fixture\``); exitCode = 1; continue; }
   const agentKind = agent || mod.agent || 'none';
 

@@ -17,7 +17,7 @@
 // Run it:  node run-probe.mjs probe-concurrent-producers-no-corruption.mjs
 //
 
-export const fixture = 'concurrent-producers.liquidos';
+export const fixture = './probe-concurrent-producers-no-corruption.liquidos';
 
 const expect = (label, predicate, detail) => {
     if (predicate) { console.log('  ok  ' + label); return; }

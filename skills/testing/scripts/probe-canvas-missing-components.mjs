@@ -11,7 +11,7 @@
 // Run it:  node run-probe.mjs probe-canvas-missing-components.mjs
 //
 
-export const fixture = 'component-missing.liquidos';
+export const fixture = './probe-canvas-missing-components.liquidos';
 
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));

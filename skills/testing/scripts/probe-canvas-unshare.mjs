@@ -13,7 +13,7 @@
 // Run it:  node run-probe.mjs probe-canvas-unshare.mjs
 //
 
-export const fixture = 'canvas-switcher.liquidos';
+export const fixture = './probe-canvas-unshare.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

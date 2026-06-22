@@ -14,7 +14,7 @@
 // Run it:  node run-probe.mjs probe-component-runtime-repair-click.mjs
 //
 
-export const fixture = 'component-runtime-error.liquidos';
+export const fixture = './probe-component-runtime-repair-click.liquidos';
 export const agent = 'component-runtime-repair-test';
 
 export default async ({ url, page }) => {

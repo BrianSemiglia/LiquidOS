@@ -21,7 +21,7 @@
 // Run it:  node run-probe.mjs probe-requirements-overlay-dismiss-outside.mjs
 //
 
-export const fixture = 'requirements-modal.liquidos';
+export const fixture = './probe-requirements-overlay-dismiss-outside.liquidos';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
