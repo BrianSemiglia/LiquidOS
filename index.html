@@ -4989,6 +4989,126 @@
             globalText.blur();
         });
 
+        // --- Prompt suggestions (ghosted in the placeholder) ----------------
+        // While the prompt field is empty, the current canvas's suggestions
+        // ride in as placeholder text. Down/Up steps through them; Tab accepts
+        // the current one into the field. Each canvas owns its own
+        // <canvas>/suggestions.json (an array of strings) — there is no
+        // built-in fallback, so the bar stays plain until that file loads, and
+        // switching canvases reloads the list (clearing the old one at once so
+        // a stale canvas's suggestions never linger).
+        (() => {
+            let suggestions = [];
+            let index = 0;
+
+            const isEmpty = () => globalText.value.length === 0;
+            const showPlaceholder = () => {
+                globalText.placeholder = suggestions.length
+                    ? suggestions[index % suggestions.length]
+                    : '';
+            };
+            const step = delta => {
+                const n = suggestions.length;
+                if (!n) return;
+                index = (index + delta % n + n) % n;
+                showPlaceholder();
+            };
+            const accept = () => {
+                const n = suggestions.length;
+                if (!n) return;
+                globalText.value = suggestions[index % n];
+                // Drive the existing input wiring (auto-grow, enable Send).
+                globalText.dispatchEvent(new Event('input', { bubbles: true }));
+                const end = globalText.value.length;
+                globalText.setSelectionRange(end, end);
+            };
+
+            // The suggestion ghosts in whenever the field is empty — focused or
+            // not. A placeholder set while the field has text never shows, so
+            // we just keep one assigned and let emptiness decide visibility.
+            // (Arrow/Tab navigation still only fires while focused.)
+            globalText.addEventListener('input', () => {
+                if (isEmpty()) showPlaceholder();
+            });
+            showPlaceholder();
+
+            // Runs before the Enter handler's listener? Order doesn't matter:
+            // this only acts on Tab/Arrow while empty; Enter is untouched.
+            globalText.addEventListener('keydown', event => {
+                if (!isEmpty() || !suggestions.length) return;
+                if (event.key === 'ArrowDown') { event.preventDefault(); step(1); }
+                else if (event.key === 'ArrowUp') { event.preventDefault(); step(-1); }
+                else if (event.key === 'Tab' && !event.shiftKey) { event.preventDefault(); accept(); }
+            });
+
+            // The list is scoped to the active canvas, read from
+            // <canvas>/suggestions.json. currentCanvasName (set by loadCanvases)
+            // is the authority; the ui-state event also carries the new canvas
+            // on a switch.
+            const currentCanvas = () =>
+                (currentCanvasName || document.body.dataset.currentCanvas || '').trim();
+            let loadedCanvas = null;
+
+            // Read straight from disk with no-store: this list is rewritten in
+            // place (by the agent at end of turn), so a live refresh must never
+            // be served a stale cached copy.
+            const readList = canvas =>
+                fetch('/workspace/' + canvas + '/suggestions.json', { cache: 'no-store' })
+                    .then(r => (r.ok ? r.json() : null))
+                    .catch(() => null);
+
+            const apply = (canvas, list) => {
+                if (loadedCanvas !== canvas) return;     // switched away mid-read
+                suggestions = Array.isArray(list)
+                    ? list.filter(s => typeof s === 'string' && s.trim().length)
+                    : [];
+                index = 0;
+                if (isEmpty()) showPlaceholder();
+            };
+
+            // Load the canvas's list. On a real switch the old list is blanked at
+            // once so it can't linger through the async read; a same-canvas
+            // refresh (file changed in place, force=true) keeps showing the old
+            // ghost until the new content lands, then replaces it.
+            const reloadFor = (canvas, { force = false } = {}) => {
+                canvas = (canvas || currentCanvas()).trim();
+                if (!force && canvas === loadedCanvas) return;
+                const switching = canvas !== loadedCanvas;
+                loadedCanvas = canvas;
+                if (switching) { suggestions = []; index = 0; if (isEmpty()) showPlaceholder(); }
+                if (canvas) readList(canvas).then(list => apply(canvas, list));
+            };
+
+            // currentCanvasName is only known once loadCanvases resolves, so
+            // poll for it, then load.
+            const boot = () => {
+                if (!currentCanvas()) { setTimeout(boot, 30); return; }
+                reloadFor(currentCanvas());
+            };
+            boot();
+
+            // Stay in sync with the workspace:
+            //  - ui-state carries the new canvas directly on a switch;
+            //  - canvases-changed updates currentCanvasName async, so re-resolve;
+            //  - workspace-file fires when the ACTIVE canvas's suggestions.json is
+            //    rewritten in place (the agent's end-of-turn update) — refresh the
+            //    same canvas, forcing past the unchanged-canvas guard.
+            const watch = () => {
+                const on = window.liquidos?.onWorkspaceEvent;
+                if (!on) { setTimeout(watch, 30); return; }
+                on(payload => {
+                    if (!payload) return;
+                    if (payload.type === 'ui-state') reloadFor(payload.state?.canvas);
+                    else if (payload.type === 'canvases-changed') setTimeout(() => reloadFor(), 60);
+                    else if (payload.type === 'workspace-file'
+                             && payload.path === currentCanvas() + '/suggestions.json') {
+                        reloadFor(currentCanvas(), { force: true });
+                    }
+                });
+            };
+            watch();
+        })();
+
         // --- Canvas requirements editor ------------------------------------
 
         const canvasReqToggle = document.getElementById('canvas-reqs-toggle');

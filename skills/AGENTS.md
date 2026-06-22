@@ -10,6 +10,12 @@ When something is already on the canvas, edits land *on* it — you don't rewrit
 
 Keep every `feature-requirements.txt` in sync with what it describes — components, canvases, the workspace, anywhere one lives. Any change to behavior belongs in the file too. If the file and the source drift apart, trust the source and rewrite the file to match — never the other way. The file tells the user what's actually there, so it must describe what's actually there.
 
+Once you are done handling a prompt, before you end the turn, add prompt suggestions for the canvas you worked in. Think of improvements or ideas that would make that canvas better for the user — each a single tappable prompt phrased in the user's own voice, e.g. "Add fireflies near the campfire at night" — and record them by running:
+
+`node skills/suggestions/scripts/add-suggestions.mjs <canvas> "idea one" "idea two" …`
+
+where `<canvas>` is the canvas's folder name (e.g. `gadgets`). Pass as many ideas as are genuinely worth suggesting. This is a required final step on every turn that changed a canvas; only suggest for the canvas you worked in.
+
 All user/agent activity is committed to the workspace git history. Restore context if you need to using the history-and-undo skill.
 
 Do not read files outside the workspace unless the user asks.
@@ -25,7 +31,7 @@ The **first emission of every turn** — before any tool call, before the histor
 
 The prompt bar is blank until this lands; every token before it is dead air the user has to wait through. Keep updating at every meaningful step until you're done.
 
-End of turn: clear it (`<lqpatch target="#agent-activity" op="replace"></lqpatch>`).
+End of turn: add prompt suggestions for the canvas you worked in (see above), then clear the badge (`<lqpatch target="#agent-activity" op="replace"></lqpatch>`).
 
 ### Voice
 
