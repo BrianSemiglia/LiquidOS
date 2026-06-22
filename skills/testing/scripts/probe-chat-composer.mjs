@@ -11,7 +11,7 @@
 // Run it:  node run-probe.mjs probe-chat-composer.mjs
 //
 // Self-managed sandbox (fixture = null): lays down its own workspace, runs the
-// scaffolder, and boots with the deterministic chat-stub agent.
+// scaffolder, and boots with the deterministic chat-composer agent.
 //
 
 import fs from 'node:fs';
@@ -20,7 +20,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { bootSandbox } from './sandbox.mjs';
-import { CHAT_STUB_REPLY } from '../../../agent/test/chat-stub-agent.js';
+import { CHAT_STUB_REPLY } from '../../../agent/test/chat-composer-agent.js';
 
 export const fixture = null;
 
@@ -63,7 +63,7 @@ export default async ({ browser }) => {
         throw new Error('create-chat.sh exited ' + scaffold.status + '\nstderr: ' + scaffold.stderr);
     }
 
-    const sandbox = await bootSandbox(ws, { agent: 'chat-stub' });
+    const sandbox = await bootSandbox(ws, { agent: 'chat-composer' });
     try {
         const page = await browser.newPage();
         page.on('pageerror', err => console.log('[page error]', err.message));

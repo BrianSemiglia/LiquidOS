@@ -29,7 +29,8 @@ const VALID_AGENT_KINDS = new Set(['codex', 'claude-code', 'hermes', 'pi', 'none
     'callback-dispatch-test', 'canvas-build-test', 'component-repair-test', 'component-build-test', 'canvas-repair-test',
     'canvas-damaged-repair-test', 'component-runtime-repair-test', 'prompt-bar-single-dispatch-test',
     'prompt-bar-test', 'prompt-cancel-test', 'install-build-test', 'cross-canvas-persistence-test', 'lqpatch-stream-stub',
-    'service-rewrite-stub', 'crash-repair-stub', 'chat-stub', 'stub-a', 'stub-b']);
+    'service-rewrite-stub', 'crash-repair-stub', 'chat-stub', 'stub-a', 'stub-b',
+    'canvas-requirements-live-refresh', 'cancel-button-disables', 'cancel-undo-precedes-queued', 'agent-activity-waveform', 'component-html-edit-keeps-chrome', 'persist-no-chrome-leak', 'chat-composer']);
 
 const failStartup = message => {
     console.error(message);

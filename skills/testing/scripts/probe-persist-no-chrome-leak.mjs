@@ -32,7 +32,7 @@
 import fs from 'node:fs';
 
 export const fixture = './probe-persist-no-chrome-leak.liquidos';
-export const agent = 'lqpatch-stream-stub';
+export const agent = 'persist-no-chrome-leak';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const expect = (label, predicate, detail) => {

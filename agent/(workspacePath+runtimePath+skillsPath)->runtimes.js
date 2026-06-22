@@ -16,14 +16,21 @@ const { CanvasDamagedRepairTestAgent } = require('./test/canvas-damaged-repair-t
 const { ComponentRuntimeRepairTestAgent } = require('./test/component-runtime-repair-test-agent');
 const { PromptBarSingleDispatchTestAgent } = require('./test/prompt-bar-single-dispatch-test-agent');
 const { CanvasRepairTestAgent } = require('./test/canvas-repair-test-agent');
+const { CanvasRequirementsLiveRefreshAgent } = require('./test/canvas-requirements-live-refresh-agent');
 const { PromptBarTestAgent } = require('./test/prompt-bar-test-agent');
 const { PromptCancelTestAgent } = require('./test/prompt-cancel-test-agent');
+const { CancelUndoPrecedesQueuedAgent } = require('./test/cancel-undo-precedes-queued-agent');
+const { CancelButtonDisablesAgent } = require('./test/cancel-button-disables-agent');
 const { InstallBuildTestAgent } = require('./test/install-build-test-agent');
 const { CrossCanvasPersistenceTestAgent } = require('./test/cross-canvas-persistence-test-agent');
 const { LqpatchStreamStubAgent } = require('./test/lqpatch-stream-stub-agent');
+const { PersistNoChromeLeakAgent } = require('./test/persist-no-chrome-leak-agent');
+const { ComponentHtmlEditKeepsChromeAgent } = require('./test/component-html-edit-keeps-chrome-agent');
+const { AgentActivityWaveformAgent } = require('./test/agent-activity-waveform-agent');
 const { ServiceRewriteStubAgent } = require('./test/service-rewrite-stub-agent');
 const { CrashRepairStubAgent } = require('./test/crash-repair-stub-agent');
 const { ChatStubAgent } = require('./test/chat-stub-agent');
+const { ChatComposerAgent } = require('./test/chat-composer-agent');
 const { AgentSwitchStubAAgent } = require('./test/agent-switch-stub-a-agent');
 const { AgentSwitchStubBAgent } = require('./test/agent-switch-stub-b-agent');
 
@@ -74,14 +81,21 @@ const createRuntimes = ({
         ComponentRuntimeRepairTestAgent(),
         PromptBarSingleDispatchTestAgent(),
         CanvasRepairTestAgent(),
+        CanvasRequirementsLiveRefreshAgent(),
         PromptBarTestAgent(),
         PromptCancelTestAgent(),
+        CancelUndoPrecedesQueuedAgent(),
+        CancelButtonDisablesAgent(),
         InstallBuildTestAgent(),
         CrossCanvasPersistenceTestAgent(),
         LqpatchStreamStubAgent(),
+        PersistNoChromeLeakAgent(),
+        ComponentHtmlEditKeepsChromeAgent(),
+        AgentActivityWaveformAgent(),
         ServiceRewriteStubAgent(),
         CrashRepairStubAgent(),
         ChatStubAgent(),
+        ChatComposerAgent(),
         AgentSwitchStubAAgent(),
         AgentSwitchStubBAgent()
     ];

@@ -22,7 +22,7 @@
 //
 
 export const fixture = './probe-cancel-button-disables.liquidos';
-export const agent = 'prompt-cancel-test';
+export const agent = 'cancel-button-disables';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

@@ -36,7 +36,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const fixture = './probe-component-html-edit-keeps-chrome.liquidos';
-export const agent = 'lqpatch-stream-stub';
+export const agent = 'component-html-edit-keeps-chrome';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

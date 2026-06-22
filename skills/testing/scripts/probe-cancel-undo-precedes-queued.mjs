@@ -24,7 +24,7 @@
 //
 
 export const fixture = './probe-cancel-undo-precedes-queued.liquidos';
-export const agent = 'prompt-cancel-test';
+export const agent = 'cancel-undo-precedes-queued';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
