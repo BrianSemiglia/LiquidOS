@@ -1589,13 +1589,16 @@
             transition: height 200ms ease, margin-bottom 200ms ease,
                         opacity 180ms ease;
         }
-        /* Shown when the label has text, the waveform is rendering output, OR a
-           job is in flight (data-cancelable) — the last keeps the row open for
-           the whole job so the ✕ cancel button it hosts is always reachable,
-           even before any output has streamed. */
+        /* Shown while a job is in flight (data-cancelable) OR the waveform is
+           rendering output (data-active). data-cancelable holds the row open
+           for the whole turn — from dispatch, before any output streams — so
+           the heartbeat label and the ✕ cancel button are reachable the moment
+           a job starts and the row collapses the moment it ends. Both signals
+           reset themselves when the turn goes idle; the row is NOT gated on the
+           heartbeat label's text, which lingers after a turn (nothing clears
+           it) and would otherwise prop the row open on a stale status. */
         .agent-activity-row[data-active="true"],
-        .agent-activity-row[data-cancelable="true"],
-        .global-prompt:has(.agent-activity:not([data-empty="true"])) .agent-activity-row {
+        .agent-activity-row[data-cancelable="true"] {
             height: 2rem;
             margin-bottom: 0.55rem;
             opacity: 1;
