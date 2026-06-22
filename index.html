@@ -607,7 +607,9 @@
         }
         body[data-debug-open="true"] {
             --debug-rail-width: var(--debug-rail-width-stored, 22rem);
-            --debug-rail-gap: 1rem;
+            /* No gap — the canvas sheet sits flush against the rail's right
+               border. A gap here leaks the desk background between the two. */
+            --debug-rail-gap: 0px;
             --debug-rail-space: calc(var(--debug-rail-width) + var(--debug-rail-gap));
         }
         /* Higher-specificity hide so it beats the later `.debug-rail { display: grid }` rule. */
