@@ -1793,12 +1793,6 @@
             line-height: 1;
         }
 
-        /* When the input has grown to its max height (content scrolls), recess
-           its fill a step darker as a "this is as tall as it gets" cue. */
-        .global-prompt textarea[data-full] {
-            background: var(--surface-input);
-        }
-
         .global-prompt button:hover:not(:disabled),
         .global-prompt select:hover {
             background-color: rgba(var(--fg), 0.14);
@@ -4870,8 +4864,7 @@
             else    document.body.removeAttribute(attr);
         };
 
-        // When the prompt input has grown to its max height (content overflows
-        // the box), mark it data-full so the fill recesses a step darker. The
+        // Keep the send button disabled until there's something to send. The
         // form clears the textarea on submit without firing 'input', so re-sync
         // after submit too.
         const promptTextField = document.getElementById('global-text');
@@ -4879,9 +4872,6 @@
         if (promptTextField) {
             const promptSendBtn = promptFormEl?.querySelector('button[type="submit"]');
             const syncPrompt = () => {
-                promptTextField.toggleAttribute('data-full',
-                    promptTextField.scrollHeight > promptTextField.clientHeight + 1);
-                // Send is disabled until there's something to send.
                 if (promptSendBtn) promptSendBtn.disabled = promptTextField.value.trim().length === 0;
             };
             promptTextField.addEventListener('input', syncPrompt);
