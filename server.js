@@ -18,6 +18,12 @@ const { bootstrapWorkspace } = require('./workspace/bootstrap');
 const ROOT = __dirname;
 const SERVER_BUILD = 'hermes-output-server-2026-05-10-canvases-git-timeline';
 
+// One node, one source: the server runs on the bundled runtime, so
+// process.execPath IS that runtime. Put its dir first on PATH so every `node`
+// the server or the agent (or a skill it runs) spawns resolves to the exact
+// same binary — no PATH ordering, no system-node fallback.
+process.env.PATH = path.dirname(process.execPath) + ':' + (process.env.PATH || '');
+
 // Inspection tools the agent (and the user) can run from inside the
 // workspace. Prepend the directory to PATH so `processes`, etc. resolve
 // without absolute paths; export the harness PID so those tools can root

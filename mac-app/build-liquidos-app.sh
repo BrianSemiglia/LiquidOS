@@ -174,6 +174,40 @@ if [ -f "$RESOURCES/package.json" ]; then
  npm install --prefix "$RESOURCES" --omit=dev
 fi
 
+# Bundle a self-contained Node runtime so the app runs with no user-installed
+# node. The Homebrew node links Homebrew dylibs (openssl, icu4c, libnode…) and
+# isn't portable, so fetch the official build — one binary linking only system
+# libraries — for this arch, matching the version we test against. Cached.
+NODE_VERSION="$(node -p 'process.version')"
+case "$(uname -m)" in
+  arm64) NODE_ARCH="darwin-arm64" ;;
+  x86_64) NODE_ARCH="darwin-x64" ;;
+  *) echo "Error: unsupported arch $(uname -m) for bundled node." >&2; exit 1 ;;
+esac
+NODE_PKG="node-${NODE_VERSION}-${NODE_ARCH}"
+NODE_CACHE="$MAC_ROOT/.node-cache"
+NODE_TARBALL="$NODE_CACHE/${NODE_PKG}.tar.gz"
+mkdir -p "$NODE_CACHE"
+if [ ! -f "$NODE_TARBALL" ]; then
+  echo "Downloading ${NODE_PKG}…"
+  curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/${NODE_PKG}.tar.gz" -o "$NODE_TARBALL" \
+    || { echo "Error: could not download Node ${NODE_VERSION} (${NODE_ARCH})." >&2; exit 1; }
+fi
+rm -rf "$NODE_CACHE/${NODE_PKG}"
+tar -xzf "$NODE_TARBALL" -C "$NODE_CACHE"
+mkdir -p "$RESOURCES/runtime/bin"
+cp "$NODE_CACHE/${NODE_PKG}/bin/node" "$RESOURCES/runtime/bin/node"
+chmod +x "$RESOURCES/runtime/bin/node"
+
+# Guard against ever shipping a non-portable node: it must link only system
+# libraries (/usr/lib, /System) and its own @rpath/@executable_path.
+if otool -L "$RESOURCES/runtime/bin/node" | awk 'NR>1{print $1}' \
+    | grep -qvE '^/usr/lib/|^/System/|^@rpath/|^@executable_path/'; then
+  echo "Error: bundled node has non-system dylib dependencies (not portable):" >&2
+  otool -L "$RESOURCES/runtime/bin/node" >&2
+  exit 1
+fi
+
 chmod +x "$MACOS/LiquidOS"
 
 # Ad-hoc code signature. macOS won't register an unsigned bundle with the

@@ -339,10 +339,15 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         server = Process()
         server?.executableURL = URL(fileURLWithPath: "/bin/zsh")
         server?.currentDirectoryURL = appRoot
+        // Run the server on the Node runtime bundled in the app (Resources/
+        // runtime/bin/node), by absolute path, so the app works with no
+        // user-installed node. launchPath() also puts that bin first, so any
+        // `node` the server itself spawns resolves to the bundled one too.
+        let bundledNode = appRoot.appendingPathComponent("runtime/bin/node").path
         server?.arguments = [
             "-lc",
             Self.shellCommand(
-                ["node", "server.js", "--workspace", canvasesRootURL.path]
+                [bundledNode, "server.js", "--workspace", canvasesRootURL.path]
                     + Self.agentScriptArgs()
                     + ["--port", String(port)]
             )
@@ -892,6 +897,9 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     // The GUI app's inherited PATH is stripped and a login-but-non-interactive
     // `zsh -lc` sources ~/.zprofile but not ~/.zshrc — where user bin dirs like
     // ~/.local/bin usually live — so we set it explicitly here.
+    // PATH for finding the external agent CLIs (hermes, claude, …). Node is not
+    // resolved through here — the server runs on the bundled runtime and puts
+    // its own execPath dir first for any node it spawns, so there is one node.
     private static func launchPath() -> String {
         [
             NSHomeDirectory() + "/.local/bin",
