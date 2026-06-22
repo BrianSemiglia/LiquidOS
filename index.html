@@ -1727,6 +1727,17 @@
             max-width: 9rem;
         }
 
+        /* The agent picker is a debug-only control: it rides alongside the
+           debug rail and is hidden in the normal view. When hidden we also
+           drop its grid column so the input/send pair stay flush left with no
+           stray gap where the picker used to sit. */
+        body:not([data-debug-open="true"]) .agent-select {
+            display: none;
+        }
+        body:not([data-debug-open="true"]) .prompt-send {
+            grid-template-columns: minmax(14rem, 1fr) max-content;
+        }
+
         .global-prompt textarea {
             max-height: 8rem;
             resize: none;
