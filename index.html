@@ -1913,9 +1913,15 @@
             margin-bottom: 0;
             opacity: 0;
             visibility: hidden;
-            transition: max-height 160ms ease, margin-top 160ms ease,
-                        margin-bottom 160ms ease, opacity 120ms ease,
-                        visibility 0s 160ms;
+            /* Matches the canvas step-back, prompt bar, and corner toggles
+               (all 0.28s, same curve) so on Escape the chrome rows collapse in
+               lockstep with the rest of the scene and everything settles at the
+               same instant — not 160ms early on a different easing. */
+            transition: max-height 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        margin-top 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        margin-bottom 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        opacity 0.28s ease,
+                        visibility 0s 0.28s;
         }
         body:not([data-prompt-hidden="true"]):not([data-canvas-reqs-open="true"]):not([data-canvas-grid-open="true"]) .component-chrome {
             max-height: 3.5rem;
@@ -1923,8 +1929,10 @@
             margin-bottom: 0.7rem;
             opacity: 1;
             visibility: visible;
-            transition: max-height 160ms ease, margin-top 160ms ease,
-                        margin-bottom 160ms ease, opacity 120ms ease;
+            transition: max-height 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        margin-top 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        margin-bottom 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                        opacity 0.28s ease;
         }
 
         .component-face {
@@ -4782,11 +4790,11 @@
             canvasGridOverlay.hidden = false;
             // Mark the zoomed-out state so the canvas Requirements button (and
             // any other "single-canvas" chrome) gets out of the way.
-            document.body.setAttribute('data-canvas-grid-open', 'true');
+            setInsetMode('data-canvas-grid-open', true);
         };
         const closeCanvasGrid = () => {
             canvasGridOverlay.hidden = true;
-            document.body.removeAttribute('data-canvas-grid-open');
+            setInsetMode('data-canvas-grid-open', false);
         };
         const toggleCanvasGrid = () => {
             if (canvasGridOverlay.hidden) openCanvasGrid();
@@ -4824,19 +4832,29 @@
         // The canvas's bottom inset normally tracks the prompt bar live (no
         // transition — see .canvas-shell), so it follows the agent-activity row's
         // grow/collapse frame-for-frame and settles with it. But the discrete
-        // chrome/panel toggles below jump `bottom` in one step and should slide.
-        // Flag .inset-animating whenever one of those body attributes flips so the
-        // bottom transition is in effect just for that 0.28s slide, then drop it.
+        // mode toggles (escape, the grid, the requirements panel) jump `bottom`
+        // in one step and should slide. setInsetMode is the single way those
+        // three body attributes flip: it flags .inset-animating (which adds the
+        // bottom transition) SYNCHRONOUSLY, before the attribute change, so the
+        // class is present in the same style recalc as the value change — then
+        // drops it after the slide.
+        //
+        // This must be synchronous and ahead of the flip: a MutationObserver
+        // runs only after the handler's task, so a forced reflow in that task
+        // (e.g. togglePromptBar's globalText.focus()) would commit the new
+        // `bottom` with no transition class yet — and it would jump instead of
+        // slide, which is exactly the bug that prompted this. `top` animates
+        // regardless only because its transition is declared unconditionally.
         let insetAnimTimer = null;
-        new MutationObserver(() => {
+        const setInsetMode = (attr, on) => {
+            if ((document.body.getAttribute(attr) === 'true') === on) return; // no real change
             document.body.classList.add('inset-animating');
             clearTimeout(insetAnimTimer);
             insetAnimTimer = setTimeout(
                 () => document.body.classList.remove('inset-animating'), 320);
-        }).observe(document.body, {
-            attributes: true,
-            attributeFilter: ['data-prompt-hidden', 'data-canvas-grid-open', 'data-canvas-reqs-open'],
-        });
+            if (on) document.body.setAttribute(attr, 'true');
+            else    document.body.removeAttribute(attr);
+        };
 
         // When the prompt input has grown to its max height (content overflows
         // the box), mark it data-full so the fill recesses a step darker. The
@@ -4973,7 +4991,7 @@
 
         const closeCanvasRequirements = () => {
             canvasReqOverlay.hidden = true;
-            document.body.removeAttribute('data-canvas-reqs-open');
+            setInsetMode('data-canvas-reqs-open', false);
             canvasReqEditingCanvas = '';
             canvasReqTextarea.value = '';
             canvasReqSave.disabled = false;
@@ -5094,7 +5112,7 @@
             canvasReqOverlay.hidden = false;
             // Dock the editor beside the canvas (shrinks the canvas column) and
             // enter the focused mode that hides the prompt bar + meta controls.
-            document.body.setAttribute('data-canvas-reqs-open', 'true');
+            setInsetMode('data-canvas-reqs-open', true);
             // Mirror the component flip-back: hide Generate, show Loading,
             // centered over the textarea. Same overlay markup + CSS.
             const loading = document.getElementById('canvas-requirements-loading');
@@ -5788,8 +5806,7 @@
         // clean canvas) in the DOM. Persistence is handled by the system-panel
         // controller below — see "System-panel state (persisted to ui-state.json)".
         const applyPromptHidden = (hidden) => {
-            if (hidden) document.body.setAttribute('data-prompt-hidden', 'true');
-            else        document.body.removeAttribute('data-prompt-hidden');
+            setInsetMode('data-prompt-hidden', hidden);
             globalPromptBar.inert = hidden;
         };
         const togglePromptBar = () => {
