@@ -2003,7 +2003,9 @@ const server = http.createServer(async (req, res) => {
 
         // Cancel the running job: stop the agent, then enqueue a normal
         // follow-up prompt on the same scope telling it the user canceled
-        // and to undo whatever the canceled task had started.
+        // and to undo whatever the canceled task had started. The undo jumps
+        // ahead of any already-queued jobs so it cleans up the partial work
+        // before later jobs run against it.
         if (req.method === 'POST' && url.pathname === '/cancel') {
             const canceled = activeOutputJob;
             if (!canceled || !cancelActiveAgentJob()) {
@@ -2011,8 +2013,12 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            await outputQueue.appendOutputJob({
-                id: 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+            // Return the undo job's id so the client can keep the ✕ disabled
+            // for exactly as long as the job the cancel submitted is queued or
+            // running.
+            const undoJobId = 'output-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+            await outputQueue.insertOutputJobNext({
+                id: undoJobId,
                 scope: canceled.scope,
                 status: 'pending',
                 createdAt: new Date().toISOString(),
@@ -2021,7 +2027,7 @@ const server = http.createServer(async (req, res) => {
             });
             outputQueue.feedHermesOutput();
             broadcastQueueState();
-            send(res, 204, '');
+            send(res, 200, JSON.stringify({ jobId: undoJobId }), 'application/json; charset=utf-8');
             return;
         }
 

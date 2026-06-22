@@ -72,6 +72,25 @@ const createOutputQueue = ({
         return job;
     };
 
+    // Enqueue a job so it dispatches next, ahead of any already-queued work,
+    // rather than at the tail. The running job (if any) keeps its slot — this
+    // only jumps the pending queue. Used for the cancel cleanup, which must
+    // undo the canceled work before later jobs run against the partial state.
+    const insertOutputJobNext = async job => {
+        const firstPending = jobs.findIndex(item => item && item.status === 'pending');
+        if (firstPending === -1) {
+            jobs.push(job);
+        } else {
+            jobs.splice(firstPending, 0, job);
+        }
+        logServer('queue', 'job enqueued next', {
+            canvas: getCanvasPath(),
+            depth: jobs.filter(item => item && ['pending', 'running'].includes(item.status)).length,
+            job: outputJobSummary(job)
+        });
+        return job;
+    };
+
 
     const updateOutputJob = async (jobId, patch) => {
         let updated = false;
@@ -215,6 +234,7 @@ const createOutputQueue = ({
         outputJobKey,
         outputJobSummary,
         appendOutputJob,
+        insertOutputJobNext,
         updateOutputJob,
         currentBusyState,
         feedHermesOutput,

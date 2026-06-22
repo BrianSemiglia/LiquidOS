@@ -235,8 +235,8 @@
                 raf = requestAnimationFrame(frame);
             };
             // data-active reveals the waveform (and keeps the shared pill on
-            // screen). Set only by bump(), so the waveform first appears on real
-            // output — never merely because a turn started.
+            // screen) and starts the draw loop, which paints the baseline line
+            // immediately and fills in ticks as output arrives.
             const ensure = () => {
                 if (row) row.dataset.active = 'true';
                 if (!raf) { resize(); raf = requestAnimationFrame(frame); }
@@ -248,10 +248,16 @@
                     // stray agent slice arriving at idle can't flash the waveform.
                     if (chars > 0 && turnActive) { pending += chars; lastActive = performance.now(); ensure(); }
                 },
-                // The turn's busy state — gates output (above) and prevents
-                // tear-down mid-stream so within-turn gaps don't flicker. It
-                // never reveals the waveform on its own; that still takes output.
-                hold(on) { turnActive = on; }
+                // The turn's busy state. Revealing the waveform the moment a job
+                // is active (not only once output streams) means the baseline
+                // line shows as soon as the job is queued; ticks then fill in
+                // with output. Keeping turnActive set also prevents tear-down
+                // through within-turn gaps. The idle timer reclaims it once the
+                // turn ends and output has gone quiet.
+                hold(on) {
+                    turnActive = on;
+                    if (on) { lastActive = performance.now(); ensure(); }
+                }
             };
         }
 
@@ -631,6 +637,13 @@
             left: var(--debug-rail-space);
             min-width: 0;
             overflow: auto;
+            /* Above the prompt bar (z-index:0), so the canvas wins any overlap
+               with it — the prompt no longer overlaps the canvas in steady state
+               (it sits in the stepped-back margin), so on the brief transition
+               intersection the canvas covers it. Still below the chrome toggles
+               (21) and the slide-in panels (19), which overlay the canvas; the
+               prompt is hidden whenever a panel is open, so it never competes. */
+            z-index: 1;
             /* Solid surface so the canvas reads as a sheet on the dotted "desk"
                (the body grid) — without it the canvas is transparent and the
                grid shows straight through, so the stepped-back card doesn't
@@ -643,7 +656,24 @@
                accident, via a stray transform; contain:layout makes it explicit
                and reliable, which is what the canvas standard depends on.) */
             contain: layout;
-            /* Animate the step-back inset below. */
+            /* Animate the step-back inset below.
+               `bottom` is deliberately NOT transitioned here: --step-bottom
+               tracks the prompt bar's top edge live as the agent-activity row
+               grows/collapses, so the canvas follows that row's own animation
+               frame-for-frame and the two settle at the same instant. A
+               transition on `bottom` would lag (it'd chase a per-frame-moving
+               target with a different duration/curve), which is what made the
+               row poke over the canvas mid-grow. For the discrete chrome/panel
+               toggles — where `bottom` jumps in a single step — .inset-animating
+               restores the transition (toggled by JS around those toggles). */
+            transition:
+                top 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                right 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                left 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                border-radius 0.28s ease,
+                box-shadow 0.28s ease;
+        }
+        body.inset-animating .canvas-shell {
             transition:
                 top 0.28s cubic-bezier(0.4, 0, 0.2, 1),
                 right 0.28s cubic-bezier(0.4, 0, 0.2, 1),
@@ -1400,18 +1430,23 @@
             position: fixed;
             left: calc(var(--debug-rail-space) + (100vw - var(--debug-rail-space)) / 2);
             bottom: 1rem;
-            z-index: 20;
+            /* Behind the canvas (z-index:1): the prompt lives in the stepped-back
+               margin and no longer overlaps the canvas, so on the brief animation
+               intersection the canvas should cover it, not the other way round.
+               Panels (19) and chrome toggles (21) still sit above the canvas, and
+               the prompt is hidden while any panel is open, so dropping it below
+               them costs nothing. */
+            z-index: 0;
             display: grid;
             /* Single column: the activity row and the send row both span the
                full bar width, so their left edges line up with the canvas's
                left margin exactly as the send button lines up with the right.
                (There was a vestigial "nav" column here whose column-gap pushed
                the left content in by 1rem with nothing ever filling it.) */
-            grid-template-columns: minmax(0, 1fr) max-content;
+            grid-template-columns: minmax(0, 1fr);
             grid-template-areas:
-                "activity activity"
-                "send     stop";
-            column-gap: 0.45rem;
+                "activity"
+                "send";
             row-gap: 0;
             align-items: center;
             width: min(calc(100vw - var(--debug-rail-space) - 2rem), 58rem);
@@ -1457,20 +1492,61 @@
             display: contents;
         }
 
-        /* The Stop button shares the send row, collapsing to nothing (its
-           max-content column shrinks away) whenever it's hidden. */
-        .prompt-stop {
-            grid-area: stop;
-            align-self: center;
-            padding: 0.5rem 0.85rem;
-            border: 1px solid var(--border, rgba(0, 0, 0, 0.15));
-            border-radius: 0.6rem;
-            background: var(--surface-1);
-            color: var(--fg);
-            font: inherit;
+        /* Cancel (✕) button — the last item in the activity row, sitting just
+           past the waveform at the right edge. Styled to match the send arrow
+           (a circular accent-filled button), by id so it wins over the shared
+           .global-prompt button chrome. Hidden between turns; shown by
+           syncBusyUI while a job runs. */
+        #global-cancel {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            /* Small enough to sit inline in the slim activity row rather than
+               filling its full height. */
+            width: 0.85rem;
+            height: 0.85rem;
+            min-width: 0;
+            padding: 0;
+            border: none;
+            border-radius: 50%;
+            /* Line the ✕'s center up with the send arrow's center. The arrow is
+               2rem flush to the bar's right edge (center 1rem in); the row pads
+               0.5rem and the ✕ is half 0.85rem wide, so nudge it left by the
+               remainder (defined once as --edge-nudge on the row). */
+            margin-right: var(--edge-nudge);
+            /* Tinted to match the rest of the activity row (the pulse dot,
+               label, and waveform are all foreground-tinted) rather than the
+               accent — a filled fg circle with the ✕ knocked out in the row's
+               background. Foreground-based so light and dark track it. */
+            background: rgba(var(--fg), 0.85);
+            box-shadow: none;
+            color: var(--bg);
+            line-height: 1;
             cursor: pointer;
+            transition: background 0.15s ease;
         }
-        .prompt-stop[hidden] {
+        /* The ✕ is drawn (not a glyph) so it's exactly centered in the circle
+           at any size and crisp in both themes; stroke follows the text color
+           (here the background, so it reads as a knockout). */
+        #global-cancel svg {
+            width: 62%;
+            height: 62%;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2.4;
+            stroke-linecap: round;
+        }
+        #global-cancel:hover:not(:disabled) {
+            background: rgba(var(--fg), 1);
+        }
+        /* Once a cancellation is queued the ✕ is disabled: dimmed, no hover,
+           no pointer — the cancel is already on its way. */
+        #global-cancel:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+        #global-cancel[hidden] {
             display: none;
         }
 
@@ -1494,6 +1570,10 @@
             align-items: center;
             gap: 0.55rem;
             min-width: 0;
+            /* Nudge that lines the ✕'s center up with the send arrow's center
+               (see #global-cancel). The same amount is mirrored onto the left
+               so the pulse dot and the ✕ sit equidistant from their edges. */
+            --edge-nudge: calc(1rem - 0.5rem - 0.85rem / 2);
             /* Collapsed by default. Showing it animates the pill open (height +
                margin grow the prompt bar) and fades its contents in; hiding
                reverses it. A fixed open height keeps the box from resizing when
@@ -1509,8 +1589,12 @@
             transition: height 200ms ease, margin-bottom 200ms ease,
                         opacity 180ms ease;
         }
-        /* Shown when the label has text OR the waveform is rendering output. */
+        /* Shown when the label has text, the waveform is rendering output, OR a
+           job is in flight (data-cancelable) — the last keeps the row open for
+           the whole job so the ✕ cancel button it hosts is always reachable,
+           even before any output has streamed. */
         .agent-activity-row[data-active="true"],
+        .agent-activity-row[data-cancelable="true"],
         .global-prompt:has(.agent-activity:not([data-empty="true"])) .agent-activity-row {
             height: 2rem;
             margin-bottom: 0.55rem;
@@ -1525,6 +1609,9 @@
             background: rgba(var(--fg), 0.85);
             animation: agent-pulse 1.3s ease-in-out infinite;
             flex-shrink: 0;
+            /* Mirror the ✕'s right nudge so the dot sits equidistant from the
+               left edge as the ✕ is from the right. */
+            margin-left: var(--edge-nudge);
         }
         /* Smooth fade in/out pulse (no glow). */
         @keyframes agent-pulse {
@@ -1556,7 +1643,10 @@
             bottom: 0;
             display: flex;
             align-items: center;
-            max-width: calc(100% - 1rem - 6px - 0.55rem);
+            /* Leave room on the right for the ✕ cancel button (1.5rem) and the
+               row gap before it (0.55rem) so the label's opaque background
+               never slides under the button. */
+            max-width: calc(100% - 1rem - 6px - 0.55rem - 1.5rem - 0.55rem);
             background: var(--bg);
             padding-right: 0.45rem;
             font-size: 0.8rem;
@@ -1578,15 +1668,17 @@
             flex: 1 1 0;
             min-width: 0;
             height: 1.4rem;
+            /* No own opacity transition: the whole section fades as one unit via
+               the row's opacity (below). Giving the waveform its own fade made it
+               ramp on top of the row's (a compounded double-fade), so it lagged
+               the dot and ✕ on reveal. It snaps between 0 and its cap and lets
+               the row carry the timing, uniform with everything else. */
             opacity: 0;
-            transition: opacity 180ms ease;
             /* Drives the canvas trace color (read in JS) so the waveform
                follows the theme instead of being hardcoded white. */
             color: rgba(var(--fg), 1);
         }
-        /* Fades in/out as output starts/stops, independent of the pill's own
-           show/hide fade — so it can appear after the label is already up.
-           Capped at 0.75 so the waveform reads as a subtle layer, not solid. */
+        /* Capped at 0.75 so the waveform reads as a subtle layer, not solid. */
         .agent-activity-row[data-active="true"] .agent-activity-viz {
             opacity: 0.75;
         }
@@ -2439,6 +2531,14 @@
         <div class="agent-activity-row" id="agent-activity-row">
             <div id="agent-activity" class="agent-activity" data-empty="true"></div>
             <canvas id="agent-activity-viz" class="agent-activity-viz" aria-hidden="true"></canvas>
+            <!-- Cancel the running job. Sits at the right end of the activity
+                 row, just past the output waveform, as a round ✕ in the row's
+                 own muted color. Lives outside <liquidos-callback> so the busy
+                 state (which makes the callback inert) can't disable it — it's
+                 only useful precisely while a job is in flight. Shown by
+                 syncBusyUI whenever a lane is active; the row is held open for
+                 the same span so the button is always reachable mid-job. -->
+            <button type="button" class="prompt-stop" id="global-cancel" aria-label="Stop" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 7 L17 17 M17 7 L7 17"/></svg></button>
         </div>
         <liquidos-callback class="prompt-send" id="global-submit-callback" on="submit" scope="" prompt-from="prompt">
             <form id="global-prompt">
@@ -2447,11 +2547,6 @@
                 <button type="submit" aria-label="Send">↑</button>
             </form>
         </liquidos-callback>
-        <!-- Cancel the running job. Lives outside <liquidos-callback> so the
-             busy state (which makes the callback inert) can't disable it —
-             it's only useful precisely while a job is in flight. Shown by
-             syncBusyUI whenever a lane is active. -->
-        <button type="button" class="prompt-stop" id="global-cancel" hidden>Stop</button>
     </div>
 
     <!-- Top-left meta control: minimizes the canvas to a grid of all canvases.
@@ -2557,6 +2652,15 @@
         let debugLines = [];
         let debugState = null;
         let activeLanes = new Set();
+        // Job ids currently in flight (queued or running), from the queue-status
+        // broadcast.
+        let activeJobIds = new Set();
+        // The ✕ is disabled exactly while the job it submitted (the undo) is
+        // queued or running. cancelPending covers the click until that job's id
+        // is known and seen active; cancelJobId is that job once known. Either
+        // being set disables the ✕; both clear once the job leaves the queue.
+        let cancelPending = false;
+        let cancelJobId = null;
         // Both maps key on the component's path (componentPath, absolute).
         // Path is stable across index.json reorders; the array index is not.
         const renderedItemsByPath = new Map();
@@ -2640,17 +2744,61 @@
         const syncBusyUI = () => {
             syncCallbackState();
             // The Stop button only makes sense while a job is in flight.
+            const busy = activeLanes.size > 0;
+            // Reconcile the cancel-in-flight state from this event's snapshot
+            // (no polling — recomputed only when a queue-status event arrives):
+            //  - queue drained → nothing in flight, reset;
+            //  - the submitted undo job is now in the queue → it's no longer
+            //    merely pending, track it by id;
+            //  - that job has left the queue → the ✕ is free again (even if
+            //    other jobs are still running).
+            if (!busy) {
+                cancelPending = false;
+                cancelJobId = null;
+            } else if (cancelJobId !== null) {
+                if (activeJobIds.has(cancelJobId)) cancelPending = false;
+                else if (!cancelPending) cancelJobId = null;
+            }
             const cancelButton = document.getElementById('global-cancel');
-            if (cancelButton) cancelButton.hidden = activeLanes.size === 0;
+            if (cancelButton) {
+                cancelButton.hidden = !busy;
+                // Disabled exactly while the job the ✕ submitted is queued or
+                // running.
+                cancelButton.disabled = cancelPending || cancelJobId !== null;
+            }
+            // Hold the activity row open for the whole job (not just while output
+            // streams) so the ✕ cancel button it hosts is reachable even before
+            // any output has arrived.
+            const activityRow = document.getElementById('agent-activity-row');
+            if (activityRow) activityRow.dataset.cancelable = busy ? 'true' : 'false';
             // Hold the output waveform up while any agent job is running, so it
             // rides out within-turn output gaps instead of flickering away.
-            if (window.__agentActivityViz) window.__agentActivityViz.hold(activeLanes.size > 0);
+            if (window.__agentActivityViz) window.__agentActivityViz.hold(busy);
         };
 
         // Stop the running job. The server kills the agent and enqueues a
         // follow-up prompt telling it to undo the canceled task's changes.
-        document.getElementById('global-cancel')?.addEventListener('click', () => {
-            fetch('/cancel', { method: 'POST' }).catch(() => {});
+        const globalCancel = document.getElementById('global-cancel');
+        globalCancel?.addEventListener('click', async () => {
+            if (globalCancel.disabled) return;
+            // Disable immediately; /cancel returns the id of the undo job it
+            // submitted, and from there the queue-status events drive when to
+            // re-enable (once that job leaves the queue).
+            cancelPending = true;
+            cancelJobId = null;
+            globalCancel.disabled = true;
+            try {
+                const response = await fetch('/cancel', { method: 'POST' });
+                if (!response.ok) throw new Error('/cancel returned ' + response.status);
+                const body = await response.json().catch(() => ({}));
+                if (body && body.jobId) cancelJobId = body.jobId;
+                syncBusyUI();
+            } catch (error) {
+                // The request never landed — let the user try again.
+                cancelPending = false;
+                cancelJobId = null;
+                globalCancel.disabled = false;
+            }
         });
 
         const markScopeBusy = scope => {
@@ -4673,6 +4821,23 @@
         }
         updateStepInset();
 
+        // The canvas's bottom inset normally tracks the prompt bar live (no
+        // transition — see .canvas-shell), so it follows the agent-activity row's
+        // grow/collapse frame-for-frame and settles with it. But the discrete
+        // chrome/panel toggles below jump `bottom` in one step and should slide.
+        // Flag .inset-animating whenever one of those body attributes flips so the
+        // bottom transition is in effect just for that 0.28s slide, then drop it.
+        let insetAnimTimer = null;
+        new MutationObserver(() => {
+            document.body.classList.add('inset-animating');
+            clearTimeout(insetAnimTimer);
+            insetAnimTimer = setTimeout(
+                () => document.body.classList.remove('inset-animating'), 320);
+        }).observe(document.body, {
+            attributes: true,
+            attributeFilter: ['data-prompt-hidden', 'data-canvas-grid-open', 'data-canvas-reqs-open'],
+        });
+
         // When the prompt input has grown to its max height (content overflows
         // the box), mark it data-full so the fill recesses a step darker. The
         // form clears the textarea on submit without firing 'input', so re-sync
@@ -5543,6 +5708,7 @@
             if (payload && payload.type === 'queue-status') {
                 const state = payload.state || { busy: false, job: null, jobs: [] };
                 activeLanes = new Set((state.jobs || []).map(job => job.lane).filter(Boolean));
+                activeJobIds = new Set((state.jobs || []).map(job => job.id).filter(Boolean));
                 syncBusyUI();
                 handleCompleted(payload.completed);
                 // No load() here: queue updates are purely about busy UI.

@@ -24,6 +24,7 @@ const extractScope = (prompt) => {
 };
 
 const isUndoPrompt = (prompt) => /canceled your previous task/i.test(String(prompt || ''));
+const isQueuedMarkerPrompt = (prompt) => /queue a marker/i.test(String(prompt || ''));
 
 const PromptCancelTestAgent = () => {
     const currentDebug = { kind: KIND, label: 'Prompt cancel (test)', command: null, status: 'waiting', provider: 'test', model: null, source: 'in-process' };
@@ -44,6 +45,24 @@ const PromptCancelTestAgent = () => {
             const canvasFolder = (extractScope(prompt) || '').replace(/\/$/, '');
             if (!canvasFolder) { reject(new Error(KIND + ': could not extract canvas scope')); return; }
             const indexPath = path.join(canvasFolder, 'index.json');
+
+            if (isQueuedMarkerPrompt(prompt)) {
+                // A second job queued behind the canceled one. It reconciles
+                // the canvas to a distinct marker ("QUEUED") and completes.
+                // The cancel's undo resets the canvas to empty, so this marker
+                // survives only if the undo runs BEFORE this queued job — which
+                // is exactly the ordering the cancel insert must guarantee.
+                setStatus({ status: 'running', cwd: workingDirectory });
+                try {
+                    fs.writeFileSync(indexPath, JSON.stringify({ components: ['components/probe-queued/component.html'] }, null, 2) + '\n');
+                    setStatus({ status: 'waiting' });
+                    resolve('queued marker placed');
+                } catch (error) {
+                    setStatus({ status: 'failed', error: error.message });
+                    reject(error);
+                }
+                return;
+            }
 
             if (isUndoPrompt(prompt)) {
                 // The undo: take the started work back off the canvas, so
