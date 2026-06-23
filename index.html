@@ -2699,6 +2699,13 @@
         let canvasList = [];
         let currentCanvasName = '';
         let currentCanvasPath = '';
+        // A canvas switch (incl. the one create() does) writes ui-state.json, but
+        // the server only flips its `current` pointer once it processes that write.
+        // Meanwhile a `canvases-changed` broadcast (e.g. emitted by create itself)
+        // can trigger loadCanvases() and read the still-stale server `current`,
+        // clobbering the optimistic name. Pin the target until the server catches
+        // up so the switch survives that intervening reload.
+        let pendingCanvasSwitch = null;
         let scrollSaveTimer;
         let debugResizePointerId = null;
         let debugResizeFrame = null;
@@ -4774,7 +4781,13 @@
             currentCanvasPath = typeof data.currentPath === 'string' && data.currentPath
                 ? data.currentPath
                 : (canvases.find(canvas => canvas.current)?.path || currentCanvasPath || '');
-            currentCanvasName = current || canvases.find(canvas => canvas.current)?.name || (canvases[0]?.name || '');
+            const serverCurrent = current || canvases.find(canvas => canvas.current)?.name || (canvases[0]?.name || '');
+            // The server confirmed the pending switch → stop pinning. Until then,
+            // keep the optimistic name so a create-time reload can't revert it.
+            if (pendingCanvasSwitch && serverCurrent === pendingCanvasSwitch) {
+                pendingCanvasSwitch = null;
+            }
+            currentCanvasName = pendingCanvasSwitch || serverCurrent;
 
             canvasList = canvases;
             document.body.dataset.currentCanvas = currentCanvasName;
@@ -4988,7 +5001,10 @@
             // canvas key and let the harness watcher swap the runtime and
             // broadcast, which drives loadCanvases()/load() via the SSE handlers.
             // Update the in-memory pointer optimistically so a concurrent panel
-            // write preserves the new canvas instead of reverting it.
+            // write preserves the new canvas instead of reverting it. Pin it until
+            // the server's `current` catches up, so a `canvases-changed` reload in
+            // the meantime can't snap currentCanvasName back to the old canvas.
+            pendingCanvasSwitch = name;
             currentCanvasName = name;
             document.body.dataset.currentCanvas = name;
             const ok = await writeUiState({ canvas: name });

@@ -60,6 +60,17 @@ export default async ({ url, workspace, page }) => {
     const after = await page.locator('.canvas-grid-card[data-canvas]').evaluateAll(els => els.map(e => e.dataset.canvas));
     console.log('canvases after :', after);
 
+    // Creating a canvas selects it: the user lands on the new canvas, not the
+    // one they were on. Re-open the grid and assert the new canvas's card is
+    // the one marked current.
+    await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+    await page.waitForSelector('.canvas-grid-card.current[data-canvas]', { timeout: 5000 });
+    const current = await page.locator('.canvas-grid-card.current[data-canvas]').first().getAttribute('data-canvas');
+    console.log('current canvas:', current);
+    if (current !== NAME) {
+        throw new Error('new canvas was not selected after create; current is ' + current);
+    }
+
     // Canvas-creation IS the moment feature-requirements.txt gets materialized
     // (empty by default; user/agent fills it in). Verify the new canvas has it.
     const newFeatureFile = path.join(workspace, NAME, 'feature-requirements.txt');
