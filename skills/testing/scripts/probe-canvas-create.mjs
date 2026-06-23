@@ -11,11 +11,16 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 export const fixture = './probe-canvas-create.liquidos';
 
 const NAME = 'probe-created-canvas';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// The workspace git log is the durable timeline recentEvents() reads; a creation
+// that skips its commit would still surface in the grid. Assert it landed in git.
+const gitLog = workspace => execFileSync('git', ['log', '--format=%B'], { cwd: workspace, encoding: 'utf8' });
 
 export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
@@ -83,4 +88,10 @@ export default async ({ url, workspace, page }) => {
             throw new Error('new canvas feature-requirements.txt should start empty, got size ' + size);
         }
     }
+
+    // The creation is recorded in the workspace git timeline.
+    if (!gitLog(workspace).includes("User did create canvas with name '" + NAME + "'")) {
+        throw new Error('canvas creation was not committed to the workspace git timeline');
+    }
+    console.log('  ok  the creation is committed to the workspace git timeline');
 };

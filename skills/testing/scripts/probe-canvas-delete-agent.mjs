@@ -13,12 +13,19 @@
 // Run it:  node run-probe.mjs probe-canvas-delete-agent.mjs
 //
 
+import { execFileSync } from 'node:child_process';
+
 export const fixture = './probe-canvas-delete-agent.liquidos';
 export const agent = 'agent/test/canvas-delete-test-agent.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-export default async ({ url, page }) => {
+// The workspace git log is the durable timeline recentEvents() reads to decide
+// what happened; a deletion that skips its commit would still pass the on-screen
+// checks. Assert the event landed in git — same record whether ✕ or agent drove it.
+const gitLog = workspace => execFileSync('git', ['log', '--format=%B'], { cwd: workspace, encoding: 'utf8' });
+
+export default async ({ url, workspace, page }) => {
   page.on('pageerror', err => console.log('[pageerror]', err.message));
   const onScreen = (text, timeout = 8000) => page.waitForFunction(
     t => document.body.innerText.includes(t), text, { timeout });
@@ -57,4 +64,10 @@ export default async ({ url, page }) => {
   await onScreen('home').catch(() => { throw new Error('"home" missing after reload'); });
   await offScreen('doomed').catch(() => { throw new Error('"doomed" came back after reload — agent deletion did not persist'); });
   console.log('  ok  the agent deletion persists across a reload');
+
+  // The deletion is recorded in the workspace git timeline.
+  if (!gitLog(workspace).includes("User did delete canvas with name 'doomed'")) {
+    throw new Error('agent deletion was not committed to the workspace git timeline');
+  }
+  console.log('  ok  the agent deletion is committed to the workspace git timeline');
 };
