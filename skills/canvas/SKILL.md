@@ -146,3 +146,11 @@ bash skills/canvas/scripts/create-instance.sh <canvas> /path/to/Workspace.liquid
 ```
 
 Lays down the file layout above and registers the canvas in the workspace. The shipped `canvas.js` delegates to `/lib/css-layout.js` (CSS stack); edit it or rewrite — the only fixed shape is the default-export factory and the `{ place, teardown }` return.
+
+## Delete a canvas
+
+```bash
+bash skills/canvas/scripts/delete-instance.sh <canvas> /path/to/Workspace.liquidos
+```
+
+Removes the canvas folder and commits the deletion to the workspace git timeline. This is a thin wrapper over the app's `canvas/delete-canvas.js` — the same module the in-app DELETE endpoint (the picker's ✕ button) calls — so deleting from the agent and deleting from the UI behave identically.

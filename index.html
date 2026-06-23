@@ -1032,6 +1032,41 @@
             background: var(--accent-hover);
             color: var(--accent-fg);
         }
+        /* Delete control — the same drawn ✕ as the agent-cancel button, pinned
+           to the card's right edge. Revealed on hover/focus so the resting grid
+           stays clean. */
+        .canvas-grid-card .canvas-grid-delete {
+            flex-shrink: 0;
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 0.85rem;
+            height: 0.85rem;
+            border-radius: 50%;
+            background: rgba(var(--fg), 0.85);
+            color: var(--bg);
+            line-height: 1;
+            cursor: pointer;
+            opacity: 0;
+            transition: background 0.15s ease, opacity 0.12s ease;
+        }
+        .canvas-grid-card:hover .canvas-grid-delete,
+        .canvas-grid-card:focus-within .canvas-grid-delete,
+        .canvas-grid-card .canvas-grid-delete:focus-visible {
+            opacity: 1;
+        }
+        .canvas-grid-card .canvas-grid-delete:hover {
+            background: rgba(var(--fg), 1);
+        }
+        .canvas-grid-card .canvas-grid-delete svg {
+            width: 62%;
+            height: 62%;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2.4;
+            stroke-linecap: round;
+        }
 
         /* Let the editor fill the docked card's height: the region grows into
            the column and the textarea fills the region (it's wrapped, so
@@ -4760,6 +4795,24 @@
                 label.className = 'canvas-grid-name';
                 label.textContent = name;
                 card.append(label);
+
+                // Reuse the agent-cancel x icon to delete this canvas. It lives
+                // inside the card, so stop the click from also switching to it.
+                const remove = document.createElement('span');
+                remove.className = 'canvas-grid-delete';
+                remove.setAttribute('role', 'button');
+                remove.setAttribute('tabindex', '0');
+                remove.setAttribute('aria-label', 'Delete canvas ' + name);
+                remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 7 L17 17 M17 7 L7 17"/></svg>';
+                remove.addEventListener('click', event => {
+                    event.stopPropagation();
+                    deleteCanvas(name).catch(error => {
+                        loadCanvases().catch(() => {});
+                        showCanvasDamaged(error);
+                    });
+                });
+                card.append(remove);
+
                 card.addEventListener('click', () => {
                     closeCanvasGrid();
                     if (name === currentCanvasName) return;
@@ -4961,6 +5014,21 @@
             // does — by writing ui-state.json.
             const data = await response.json();
             await switchCanvas(data.name);
+        };
+
+        const deleteCanvas = async name => {
+            const response = await fetch('/canvases/' + encodeURIComponent(name), {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                throw new Error('/canvases returned ' + response.status);
+            }
+
+            // The folder is gone and the deletion is committed server-side; pull
+            // the fresh list so the grid drops the card right away (the broadcast
+            // refreshes other clients).
+            await loadCanvases();
         };
 
         globalText.addEventListener('keydown', event => {

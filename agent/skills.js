@@ -17,21 +17,28 @@ const copySkillsTreeToRoot = (sourceRoot, destinationRoot) => {
             });
         });
 
-    // Bake the running app's location into the sandbox-boot script so the
-    // runtime agent can boot a sandbox of its workspace without knowing where
-    // the app lives. sourceRoot is <app>/skills, so the app root is its
-    // parent. Without this the agent has to reverse-engineer the path (lsof
-    // the running server, hunt for server.js) before it can run a UI test.
+    // Bake the running app's location into the scripts that delegate back to
+    // app code, so the runtime agent doesn't have to reverse-engineer where the
+    // app lives (lsof the running server, hunt for server.js). sourceRoot is
+    // <app>/skills, so the app root is its parent.
+    //   - boot-workspace-sandbox.mjs boots a sandbox of the agent's workspace.
+    //   - canvas/delete-instance.sh delegates to canvas/delete-canvas.js so the
+    //     agent and the DELETE endpoint share one delete path.
     const appRoot = path.dirname(sourceRoot);
-    const bootScript = path.join(skillsRoot, 'testing', 'scripts', 'boot-workspace-sandbox.mjs');
-    try {
-        if (fs.existsSync(bootScript)) {
-            const src = fs.readFileSync(bootScript, 'utf8');
-            const baked = src.replace('__LIQUIDOS_APP_ROOT__', () => appRoot);
-            if (baked !== src) fs.writeFileSync(bootScript, baked);
+    const scriptsWithAppRoot = [
+        path.join(skillsRoot, 'testing', 'scripts', 'boot-workspace-sandbox.mjs'),
+        path.join(skillsRoot, 'canvas', 'scripts', 'delete-instance.sh')
+    ];
+    for (const scriptPath of scriptsWithAppRoot) {
+        try {
+            if (fs.existsSync(scriptPath)) {
+                const src = fs.readFileSync(scriptPath, 'utf8');
+                const baked = src.replace('__LIQUIDOS_APP_ROOT__', () => appRoot);
+                if (baked !== src) fs.writeFileSync(scriptPath, baked);
+            }
+        } catch {
+            // Best-effort; the scripts carry their own fallbacks.
         }
-    } catch {
-        // Best-effort; the agent can still pass --app explicitly.
     }
 
     return true;

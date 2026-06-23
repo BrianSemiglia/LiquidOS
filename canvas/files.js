@@ -155,11 +155,34 @@ const createCanvasFiles = ({
         return safeName;
     };
 
+    const deleteCanvas = name => {
+        if (!/^[^/][^/]*$/.test(name)) {
+            const error = new Error('Invalid canvas name');
+            error.statusCode = 400;
+            throw error;
+        }
+
+        const canvasPath = path.join(workspacePath, name);
+
+        if (!fs.existsSync(path.join(canvasPath, 'index.json'))) {
+            const error = new Error('Canvas does not exist: ' + name);
+            error.statusCode = 404;
+            throw error;
+        }
+
+        // Remove the folder only — recording the event and committing the
+        // deletion to workspace git is the endpoint's job (via persistActivity),
+        // mirroring createCanvas which leaves git/activity to the caller.
+        fs.rmSync(canvasPath, { recursive: true, force: true });
+        return name;
+    };
+
     return {
         ensureCanvasDefaults,
         availableCanvases,
         switchCanvas,
-        createCanvas
+        createCanvas,
+        deleteCanvas
     };
 };
 

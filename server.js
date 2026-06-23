@@ -9,6 +9,7 @@ const { createActivityPersistence } = require('./canvas/activity-persistence');
 const { createRuntimes } = require('./agent/runtimes');
 const { createActiveRuntime } = require('./agent/active-runtime');
 const { createCanvasFiles } = require('./canvas/files');
+const { deleteCanvas } = require('./canvas/delete-canvas');
 const { createCanvasGraph } = require('./canvas/graph');
 const { createOutputQueue } = require('./canvas/output-queue');
 const crashRecovery = require('./canvas/crash-recovery');
@@ -1994,6 +1995,24 @@ const server = http.createServer(async (req, res) => {
             // canvases-changed explicitly to refresh every switcher.
             broadcast({ type: 'canvases-changed' });
             send(res, 201, JSON.stringify({
+                name,
+                canvases: canvasFiles.availableCanvases()
+            }), 'application/json; charset=utf-8');
+            return;
+        }
+
+        if (req.method === 'DELETE' && url.pathname.startsWith('/canvases/')) {
+            const name = decodeURIComponent(url.pathname.slice('/canvases/'.length));
+            // Same delete path the agent's delete-instance.sh runs: removes the
+            // folder and commits the deletion to the workspace git timeline.
+            deleteCanvas({
+                canvasFiles,
+                persistActivity: activityPersistence.persistActivity,
+                workspacePath: WORKSPACE_PATH,
+                name
+            });
+            broadcast({ type: 'canvases-changed' });
+            send(res, 200, JSON.stringify({
                 name,
                 canvases: canvasFiles.availableCanvases()
             }), 'application/json; charset=utf-8');
