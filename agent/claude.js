@@ -281,7 +281,6 @@ const createClaudeStreamParser = userEmit => {
 
 const ClaudeCodeAgent = () => {
     const currentDebug = {
-        kind: 'claude-code',
         label: 'Claude Code',
         command,
         status: 'waiting',
@@ -296,7 +295,6 @@ const ClaudeCodeAgent = () => {
     };
 
     return {
-        kind: 'claude-code',
         label: 'Claude Code',
         command,
         configureHost: configureClaudeCodeAgent,

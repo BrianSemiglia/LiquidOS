@@ -60,7 +60,6 @@ const materializeCodexRuntime = ({ runtimePath, skillsPath } = {}) => {
 
 const CodexAgent = () => {
     const currentDebug = {
-        kind: 'codex',
         label: 'Codex',
         command,
         status: 'waiting',
@@ -75,7 +74,6 @@ const CodexAgent = () => {
     };
 
     return {
-        kind: 'codex',
         label: 'Codex',
         command,
         configureHost: configureCodexAgent,

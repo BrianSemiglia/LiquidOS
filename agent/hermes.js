@@ -147,7 +147,6 @@ const argumentValueFrom = (args, name) => {
 
 const HermesAgent = () => {
     const currentDebug = {
-        kind: 'hermes',
         label: 'Hermes',
         command,
         status: 'waiting',
@@ -164,7 +163,6 @@ const HermesAgent = () => {
     const emitDebug = (label, fields = {}) => host.output('hermes', debugLine(label, fields));
 
     return {
-        kind: 'hermes',
         label: 'Hermes',
         command,
         configureHost: configureHermesAgent,

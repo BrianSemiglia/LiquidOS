@@ -97,7 +97,6 @@ const stripAnsi = value => String(value || '')
 
 const PiAgent = () => {
     const currentDebug = {
-        kind: 'pi',
         label: 'Pi',
         command,
         status: 'waiting',
@@ -134,7 +133,6 @@ const PiAgent = () => {
     };
 
     return {
-        kind: 'pi',
         label: 'Pi',
         command,
         configureHost: configurePiAgent,
