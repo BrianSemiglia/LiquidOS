@@ -937,10 +937,10 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
                 .filter { !$0.isEmpty }
         } else {
             scripts = [
-                "agent/(skillsPath+runtimePath)->hermes-runtime.js",
-                "agent/(skillsPath+runtimePath)->pi-runtime.js",
-                "agent/(skillsPath+runtimePath)->codex-runtime.js",
-                "agent/(skillsPath+runtimePath)->claude-runtime.js",
+                "agent/hermes.js",
+                "agent/pi.js",
+                "agent/codex.js",
+                "agent/claude.js",
             ]
         }
         return scripts.flatMap { ["--agent", $0] }

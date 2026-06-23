@@ -4,7 +4,7 @@ Run a workspace:
 
 ```sh
 node server.js --workspace /path/to/Workspace.liquidos \
-  --agent './agent/(skillsPath+runtimePath)->hermes-runtime.js' --port 3000
+  --agent './agent/hermes.js' --port 3000
 ```
 
 Required arguments:
