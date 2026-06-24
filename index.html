@@ -2596,7 +2596,7 @@
         <liquidos-callback class="prompt-send" id="global-submit-callback" on="submit" scope="" prompt-from="prompt">
             <form id="global-prompt">
                 <select id="agent-select" class="agent-select" aria-label="Agent"></select>
-                <textarea id="global-text" name="prompt"></textarea>
+                <textarea id="global-text" name="prompt" aria-label="Prompt"></textarea>
                 <button type="submit" aria-label="Send">↑</button>
             </form>
         </liquidos-callback>
@@ -4804,6 +4804,9 @@
                 card.type = 'button';
                 card.className = 'canvas-grid-card' + (name === currentCanvasName ? ' current' : '');
                 card.dataset.canvas = name;
+                // Explicit accessible name so the card reads as one action rather
+                // than concatenating its name text with the nested delete button.
+                card.setAttribute('aria-label', 'Open ' + name + ' space');
                 const label = document.createElement('span');
                 label.className = 'canvas-grid-name';
                 label.textContent = name;

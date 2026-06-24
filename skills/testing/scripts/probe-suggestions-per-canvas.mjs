@@ -17,10 +17,14 @@ const OTHER_FIRST = 'DELTA rename this canvas';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// Find UI by what it says, not how it's built — accessible role + name survive
+// id/class/markup refactors.
+const promptBar = (page) => page.getByRole('textbox', { name: 'Prompt' });
+
 // What a user gets by accepting the bar's top suggestion: clear the field so the
 // ghost is offered, focus, press Tab, and read the text the bar now shows.
 const acceptTopSuggestion = async (page) => {
-    const bar = page.locator('#global-text');
+    const bar = promptBar(page);
     await bar.fill('');
     await bar.focus();
     await bar.press('Tab');
@@ -41,15 +45,16 @@ const expectTopSuggestion = async (page, want, label) => {
 };
 
 const switchTo = async (page, canvas) => {
-    await page.locator('#canvas-overview-toggle').dispatchEvent('click');
-    await page.waitForSelector(`.canvas-grid-card[data-canvas="${canvas}"]`, { timeout: 5000 });
-    await page.locator(`.canvas-grid-card[data-canvas="${canvas}"]`).dispatchEvent('click');
+    await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
+    const card = page.getByRole('button', { name: `Open ${canvas} space` });
+    await card.waitFor({ timeout: 5000 });
+    await card.dispatchEvent('click');
 };
 
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#global-text', { timeout: 20000 });
+    await promptBar(page).waitFor({ timeout: 20000 });
 
     // home offers home's suggestion.
     await expectTopSuggestion(page, HOME_FIRST, 'home');
