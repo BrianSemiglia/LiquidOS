@@ -65,9 +65,15 @@ export default async ({ url, workspace, page }) => {
   await offScreen('doomed').catch(() => { throw new Error('"doomed" came back after reload — agent deletion did not persist'); });
   console.log('  ok  the agent deletion persists across a reload');
 
-  // The deletion is recorded in the workspace git timeline.
-  if (!gitLog(workspace).includes("User did delete canvas with name 'doomed'")) {
-    throw new Error('agent deletion was not committed to the workspace git timeline');
-  }
-  console.log('  ok  the agent deletion is committed to the workspace git timeline');
+  // The deletion is bracketed in the workspace git timeline: a "will delete"
+  // commit snapshots the canvas's final state BEFORE removal (so it's
+  // recoverable), then a "did delete" commit records the removal. git log is
+  // newest-first, so the "did" event sits above the older "will" event.
+  const log = gitLog(workspace);
+  const willAt = log.indexOf("User will delete canvas with name 'doomed'");
+  const didAt = log.indexOf("User did delete canvas with name 'doomed'");
+  if (willAt === -1) throw new Error('no "will delete" snapshot committed before the agent deletion');
+  if (didAt === -1) throw new Error('agent deletion was not committed to the workspace git timeline');
+  if (didAt > willAt) throw new Error('"will delete" must be committed before "did delete"');
+  console.log('  ok  the agent deletion is bracketed (will → did) in the workspace git timeline');
 };

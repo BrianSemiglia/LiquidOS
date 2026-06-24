@@ -2,16 +2,28 @@ const path = require('path');
 
 const quoteEvent = value => String(value || '').replace(/[\n\r]+/g, ' ').replace(/'/g, "\\'");
 
-// Single source of truth for deleting a canvas: remove the folder, then record
-// the deletion into the workspace git timeline. The in-app DELETE
-// /canvases/<name> endpoint requires this and calls deleteCanvas() in-process;
-// the agent runs the very same file as a CLI (via
-// skills/canvas/scripts/delete-instance.sh). Both paths remove the same folder
-// and write the same timeline commit, so canvas deletion behaves identically no
-// matter who triggers it. The commit format lives in git-timeline.js (reached
-// through persistActivity) — never hand-write it here, or recentEvents() stops
-// parsing the event back out of the log.
+// Single source of truth for deleting a canvas: snapshot the canvas as it
+// stands, remove the folder, then record the removal — two commits bracketing
+// the delete. The "will delete" commit captures the canvas's final state in the
+// timeline (otherwise a never-committed canvas would vanish with no recoverable
+// snapshot); the "did delete" commit records the removal itself. The in-app
+// DELETE /canvases/<name> endpoint requires this and calls deleteCanvas()
+// in-process; the agent runs the very same file as a CLI (via
+// skills/canvas/scripts/delete-instance.sh). Both paths produce the same pair of
+// timeline commits, so canvas deletion behaves identically no matter who
+// triggers it. The commit format lives in git-timeline.js (reached through
+// persistActivity) — never hand-write it here, or recentEvents() stops parsing
+// the event back out of the log.
 const deleteCanvas = ({ canvasFiles, persistActivity, workspacePath, name }) => {
+    // Commit the canvas's final state before it's gone, so the timeline holds a
+    // recoverable snapshot of what's about to be removed.
+    persistActivity({
+        event: `User will delete canvas with name '${quoteEvent(name)}'`,
+        scope: path.join(workspacePath, name),
+        prompt: '',
+        agentResponse: 'none',
+        mode: 'done'
+    });
     const deleted = canvasFiles.deleteCanvas(name);
     persistActivity({
         event: `User did delete canvas with name '${quoteEvent(deleted)}'`,
