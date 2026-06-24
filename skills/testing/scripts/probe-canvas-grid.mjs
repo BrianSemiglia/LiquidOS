@@ -96,7 +96,9 @@ export default async ({ url, page }) => {
 
   // 4. The grid is still open — pick "other" → switches canvases and closes it.
   await page.locator('.canvas-grid-card[data-canvas="other"]').dispatchEvent('click');
-  await page.waitForFunction(() => document.body.dataset.currentCanvas === 'other', { timeout: 6000 });
+  // "other" is empty, so home's "Gizmo" leaving the screen proves the switch
+  // landed (visible signal, not the private current-canvas flag).
+  await offScreen('Gizmo').catch(() => { throw new Error('picking "other" did not switch away from home'); });
   await offScreen('Create').catch(() => { throw new Error('picking a canvas did not close the grid'); });
   console.log('  ok  picking a canvas switches to it and closes the grid');
 

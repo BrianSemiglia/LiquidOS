@@ -38,9 +38,11 @@ export default async ({ url, page }) => {
     await page.locator('#canvas-overview-toggle').dispatchEvent('click');
     await page.waitForSelector('.canvas-grid-card[data-canvas="other"]', { timeout: 5000 });
     await page.locator('.canvas-grid-card[data-canvas="other"]').dispatchEvent('click');
+    // "other" is empty, so home's rendered content ("Gizmo") leaving the screen
+    // is the visible proof the switch landed — no private flag to read.
     await page.waitForFunction(
-        () => document.body.dataset.currentCanvas === 'other',
-        { timeout: 5000 }
+        () => !document.body.innerText.includes('Gizmo'),
+        undefined, { timeout: 5000 }
     );
     await sleep(500);
 

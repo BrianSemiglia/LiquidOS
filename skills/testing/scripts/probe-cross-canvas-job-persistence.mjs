@@ -40,12 +40,17 @@ export default async ({ url, workspace, page }) => {
     await promptBar.waitFor({ timeout: 20000 });
 
     // Switch canvases via the zoom-out grid (the dropdown is gone).
+    // Both canvases are empty for most of this test (the build is mid-flight),
+    // so nothing on screen distinguishes them — the active-canvas flag is the
+    // only honest "switch landed" signal here. Rare last resort, see below.
     const switchTo = async name => {
         await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
         await page.getByRole('button', { name: `Open ${name} space` }).dispatchEvent('click');
         await page.waitForFunction(n => document.body.dataset.currentCanvas === n, name, { timeout: 8000 });
     };
 
+    // Boot lands on home; both canvases are empty so there's no visible content
+    // to wait for — the flag is the only available barrier (see switchTo).
     await page.waitForFunction(
         () => document.body.dataset.currentCanvas === 'home',
         undefined,

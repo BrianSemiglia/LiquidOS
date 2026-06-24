@@ -119,10 +119,13 @@ export default async ({ url, workspace, page }) => {
         Array.from(document.querySelectorAll('main .item .kb-caption'))
             .some(el => el.textContent.includes(t)), text);
 
+    // Each canvas paints its own distinct content, so the target's text landing
+    // on screen is the visible proof the switch completed.
+    const canvasContent = { home: 'alpha initial', other: 'delta initial' };
     const switchCanvasVia = async (p, name) => {
         await p.locator('#canvas-overview-toggle').dispatchEvent('click');
         await p.locator(`.canvas-grid-card[data-canvas="${name}"]`).dispatchEvent('click');
-        await p.waitForFunction(n => document.body.dataset.currentCanvas === n, name, { timeout: 8000 });
+        await p.waitForFunction(t => document.body.innerText.includes(t), canvasContent[name], { timeout: 8000 });
     };
 
     await page.setViewportSize({ width: 1280, height: 840 });
