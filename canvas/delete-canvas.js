@@ -1,6 +1,5 @@
 const path = require('path');
-
-const quoteEvent = value => String(value || '').replace(/[\n\r]+/g, ' ').replace(/'/g, "\\'");
+const { willDeleteCanvasEvent, didDeleteCanvasEvent } = require('./git-timeline');
 
 // Single source of truth for deleting a canvas: snapshot the canvas as it
 // stands, remove the folder, then record the removal — two commits bracketing
@@ -18,7 +17,7 @@ const deleteCanvas = ({ canvasFiles, persistActivity, workspacePath, name }) => 
     // Commit the canvas's final state before it's gone, so the timeline holds a
     // recoverable snapshot of what's about to be removed.
     persistActivity({
-        event: `User will delete canvas with name '${quoteEvent(name)}'`,
+        event: willDeleteCanvasEvent(name),
         scope: path.join(workspacePath, name),
         prompt: '',
         agentResponse: 'none',
@@ -26,7 +25,7 @@ const deleteCanvas = ({ canvasFiles, persistActivity, workspacePath, name }) => 
     });
     const deleted = canvasFiles.deleteCanvas(name);
     persistActivity({
-        event: `User did delete canvas with name '${quoteEvent(deleted)}'`,
+        event: didDeleteCanvasEvent(deleted),
         scope: path.join(workspacePath, deleted),
         prompt: '',
         agentResponse: 'none',

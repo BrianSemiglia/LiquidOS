@@ -1,4 +1,4 @@
-const { createGitTimeline, promptEvent, crashEvent, canceledEvent, shutdownEvent } = require('./git-timeline');
+const { createGitTimeline, willPromptEvent, didPromptEvent, crashEvent, canceledEvent, shutdownEvent } = require('./git-timeline');
 
 const restoreContextBlockPattern = /\[\[LIQUIDOS_RESTORE_CONTEXT_BEGIN\]\]([\s\S]*?)\[\[LIQUIDOS_RESTORE_CONTEXT_END\]\]/g;
 
@@ -62,12 +62,15 @@ const createActivityPersistence = ({ workspacePath, currentCanvasPath, logServer
         };
 
         // The mode picks the event. A cancel is the user's choice, not a
-        // crash; only a genuine failure is a crash.
+        // crash; only a genuine failure is a crash. 'will' is the pre-dispatch
+        // snapshot — the same event in its future tense, committed before the
+        // agent runs so the pre-agent state is a recoverable restore point.
         const eventLabel =
             mode === 'shutdown' ? shutdownEvent(reason) :
             mode === 'canceled' ? canceledEvent() :
             mode === 'failed'   ? crashEvent(error || parsed.persistedAgentResponse) :
-            promptEvent(record);
+            mode === 'will'     ? willPromptEvent(record) :
+            didPromptEvent(record);
 
         timeline.commitWorkspace(record, eventLabel, parsed.persistedAgentResponse);
 

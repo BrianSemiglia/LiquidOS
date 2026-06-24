@@ -10,6 +10,7 @@ const { createRuntimes } = require('./agent/runtimes');
 const { createActiveRuntime } = require('./agent/active-runtime');
 const { createCanvasFiles } = require('./canvas/files');
 const { deleteCanvas } = require('./canvas/delete-canvas');
+const { didCreateCanvasEvent } = require('./canvas/git-timeline');
 const { createCanvasGraph } = require('./canvas/graph');
 const { createOutputQueue } = require('./canvas/output-queue');
 const crashRecovery = require('./canvas/crash-recovery');
@@ -813,6 +814,18 @@ const processOutputJob = async job => {
     });
 
     let agentResponse = '';
+
+    // Snapshot the workspace BEFORE the agent runs, bracketing the turn:
+    // "User will prompt: X" captures the pre-agent state (including any
+    // non-agent drift and components/relationships the agent is about to
+    // delete) as a recoverable restore point, then "did" records the result.
+    activityPersistence.persistActivity({
+        event: job.event || null,
+        scope: job.scope || null,
+        prompt: job.prompt || '',
+        agentResponse: '',
+        mode: 'will'
+    });
 
     try {
         agentResponse = await runQueuedAgentJob(buildAgentPrompt({ ...job, id: jobId, componentPath }), {
@@ -1985,7 +1998,7 @@ const server = http.createServer(async (req, res) => {
             // keeps ui-state.json's single-writer story intact (the server never
             // writes the canvas pointer).
             activityPersistence.persistActivity({
-                event: `User did create canvas with name '${String(name).replace(/[\n\r]+/g, ' ').replace(/'/g, "\\'")}'`,
+                event: didCreateCanvasEvent(name),
                 scope: path.join(WORKSPACE_PATH, name),
                 prompt: '',
                 agentResponse: 'none',

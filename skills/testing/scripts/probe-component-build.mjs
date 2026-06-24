@@ -13,11 +13,16 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 export const fixture = './probe-component-build.liquidos';
 export const agent = 'agent/test/component-build-test-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// The workspace git timeline brackets every agent turn: a "will prompt" commit
+// snapshots the pre-agent state, then a "did prompt" commit records the result.
+const gitLog = workspace => execFileSync('git', ['log', '--format=%B'], { cwd: workspace, encoding: 'utf8' });
 
 export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
@@ -67,4 +72,22 @@ export default async ({ url, workspace, page }) => {
         console.error('---');
         throw new Error(failure.reason);
     }
+
+    // The turn is bracketed in the workspace git timeline: a "will prompt"
+    // commit snapshots the pre-agent state, then a "did prompt" commit records
+    // the result. The "did" commit lands just after the agent job returns, a
+    // beat behind the DOM marker — wait for it, then assert will-before-did
+    // (git log is newest-first, so "did" sits above the older "will").
+    let willAt = -1, didAt = -1;
+    for (let i = 0; i < 100; i++) {
+        const log = gitLog(workspace);
+        willAt = log.indexOf('User will prompt');
+        didAt = log.indexOf('User did prompt');
+        if (willAt !== -1 && didAt !== -1) break;
+        await sleep(100);
+    }
+    if (willAt === -1) throw new Error('no "will prompt" snapshot committed before the agent ran');
+    if (didAt === -1) throw new Error('agent turn produced no "did prompt" commit');
+    if (didAt > willAt) throw new Error('"will prompt" must be committed before "did prompt"');
+    console.log('  ok  the agent turn is bracketed (will → did) in the workspace git timeline');
 };
