@@ -46,20 +46,17 @@ const eventWithParameter = (event, parameter, value) => value
     ? `${event} with ${parameter} '${quoteEventValue(value)}'`
     : event;
 
-// Each turn-bracketing action has a dedicated will/did pair: the "will" event is
-// committed BEFORE the action (snapshotting recoverable pre-state), the "did"
-// event after. Each is a plain string literal — read the name, know the commit.
+// The timeline's own run-loop lifecycle events. The agent turn is bracketed by
+// a will/did pair: the "will" event is committed BEFORE the agent runs
+// (snapshotting recoverable pre-state), the "did" event after. Domain events
+// (canvases, components, …) are NOT defined here — callers build those with
+// eventWithParameter, keeping the timeline ignorant of the data model.
 const willPromptEvent = job => eventWithParameter('User will prompt', 'prompt', callbackPromptText(job));
 // A "did prompt" honors a caller-supplied outcome label (e.g. a recovery job's
 // own event); without one it's the plain prompt.
 const didPromptEvent = job => (job && job.event)
     ? job.event
     : eventWithParameter('User did prompt', 'prompt', callbackPromptText(job));
-
-const didCreateCanvasEvent = name => eventWithParameter('User did create canvas', 'name', name);
-
-const willDeleteCanvasEvent = name => eventWithParameter('User will delete canvas', 'name', name);
-const didDeleteCanvasEvent = name => eventWithParameter('User did delete canvas', 'name', name);
 
 const crashEvent = error => eventWithParameter('LiquidOS did crash', 'error', error);
 
@@ -156,11 +153,9 @@ const createGitTimeline = ({ workspacePath, currentCanvasPath, logServer }) => {
 
 module.exports = {
     createGitTimeline,
+    eventWithParameter,
     willPromptEvent,
     didPromptEvent,
-    didCreateCanvasEvent,
-    willDeleteCanvasEvent,
-    didDeleteCanvasEvent,
     crashEvent,
     canceledEvent,
     shutdownEvent

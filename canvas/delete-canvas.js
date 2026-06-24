@@ -1,5 +1,11 @@
 const path = require('path');
-const { willDeleteCanvasEvent, didDeleteCanvasEvent } = require('./git-timeline');
+const { eventWithParameter } = require('./git-timeline');
+
+// Canvas-domain timeline events — the will/did pair bracketing a deletion. Built
+// from the timeline's generic formatter; the canvas vocabulary lives here, with
+// the operation, not in the timeline machinery.
+const willDeleteCanvasEvent = name => eventWithParameter('User will delete canvas', 'name', name);
+const didDeleteCanvasEvent = name => eventWithParameter('User did delete canvas', 'name', name);
 
 // Single source of truth for deleting a canvas: snapshot the canvas as it
 // stands, remove the folder, then record the removal — two commits bracketing

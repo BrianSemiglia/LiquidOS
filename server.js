@@ -10,7 +10,11 @@ const { createRuntimes } = require('./agent/runtimes');
 const { createActiveRuntime } = require('./agent/active-runtime');
 const { createCanvasFiles } = require('./canvas/files');
 const { deleteCanvas } = require('./canvas/delete-canvas');
-const { didCreateCanvasEvent } = require('./canvas/git-timeline');
+const { eventWithParameter } = require('./canvas/git-timeline');
+
+// Canvas-domain timeline event — built from the timeline's generic formatter;
+// the canvas vocabulary stays with the operation, out of the timeline machinery.
+const didCreateCanvasEvent = name => eventWithParameter('User did create canvas', 'name', name);
 const { createCanvasGraph } = require('./canvas/graph');
 const { createOutputQueue } = require('./canvas/output-queue');
 const crashRecovery = require('./canvas/crash-recovery');
