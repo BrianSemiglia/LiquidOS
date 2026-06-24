@@ -25,7 +25,7 @@ const gitLog = workspace => execFileSync('git', ['log', '--format=%B'], { cwd: w
 export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
+    await page.getByRole('button', { name: 'Show all spaces' }).waitFor({ timeout: 20000 });
     await sleep(1500);
 
     // Pre-condition: the canvas grid doesn't list NAME yet.
@@ -46,7 +46,7 @@ export default async ({ url, workspace, page }) => {
     }
 
     // Grid "+ New" → opens Browse overlay (grid stays underneath).
-    await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+    await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
     await page.locator('#canvas-grid-new').dispatchEvent('click');
     await page.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
     // From-scratch tile → opens the name modal (browse stays underneath).
@@ -68,7 +68,7 @@ export default async ({ url, workspace, page }) => {
     // Creating a canvas selects it: the user lands on the new canvas, not the
     // one they were on. Re-open the grid and assert the new canvas's card is
     // the one marked current.
-    await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+    await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
     await page.waitForSelector('.canvas-grid-card.current[data-canvas]', { timeout: 5000 });
     const current = await page.locator('.canvas-grid-card.current[data-canvas]').first().getAttribute('data-canvas');
     console.log('current canvas:', current);

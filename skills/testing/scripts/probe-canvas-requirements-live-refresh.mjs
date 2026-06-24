@@ -18,7 +18,7 @@ export default async ({ url, page }) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     // Wait for the canvas info button, then open the requirements modal.
-    await page.locator('#canvas-reqs-toggle').click();
+    await page.getByRole('button', { name: 'Edit canvas requirements' }).click();
     await page.waitForSelector('#canvas-requirements-overlay:not([hidden])', { timeout: 5000 });
     // The fixture's canvas has no feature-requirements.txt → Generate
     // surfaces. Wait for it then click.

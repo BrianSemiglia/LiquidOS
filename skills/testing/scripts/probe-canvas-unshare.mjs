@@ -30,7 +30,7 @@ export default async ({ url, page }) => {
     await onScreen('Gizmo', 20000);
 
     // --- share ON via Canvas Info → Shared toggle -------------------------
-    await page.locator('#canvas-reqs-toggle').click();
+    await page.getByRole('button', { name: 'Edit canvas requirements' }).click();
     await onScreen('Build').catch(() => {
         throw new Error('canvas requirements editor did not open');
     });
@@ -53,7 +53,7 @@ export default async ({ url, page }) => {
 
     // --- own bundle appears in own Browse ---------------------------------
     // Browse is reached via the canvas grid's "+ New" card.
-    await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+    await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
     await page.locator('#canvas-grid-new').dispatchEvent('click');
     await onScreen('Type to search', 5000);
     await page.locator('#browse-query').fill('home');
@@ -72,7 +72,7 @@ export default async ({ url, page }) => {
     await sleep(150);
     await page.keyboard.press('Escape');
     await sleep(200);
-    await page.locator('#canvas-reqs-toggle').click();
+    await page.getByRole('button', { name: 'Edit canvas requirements' }).click();
     await onScreen('Build').catch(() => {
         throw new Error('canvas requirements editor did not reopen');
     });
@@ -95,7 +95,7 @@ export default async ({ url, page }) => {
 
     // --- own bundle gone from own Browse ----------------------------------
     // Browse is reached via the canvas grid's "+ New" card.
-    await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+    await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
     await page.locator('#canvas-grid-new').dispatchEvent('click');
     await onScreen('Type to search', 5000);
     await page.locator('#browse-query').fill('home');

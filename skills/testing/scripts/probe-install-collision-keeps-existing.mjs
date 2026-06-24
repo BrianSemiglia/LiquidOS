@@ -46,7 +46,7 @@ export default async ({ url, page, browser }) => {
 
   // Reusable: open Browse, search, expand the publisher's result, click Install.
   const installFromBrowse = async (conPage, peerId) => {
-    await conPage.locator('#canvas-overview-toggle').dispatchEvent('click');
+    await conPage.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
     await conPage.locator('#canvas-grid-new').dispatchEvent('click');
     await conPage.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
     await conPage.locator('#browse-query').fill('home');
@@ -70,7 +70,7 @@ export default async ({ url, page, browser }) => {
     await pubPage.goto(publisher.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await pubPage.waitForSelector('liquidos-component[path="components/gizmo"]', { timeout: 20000 });
 
-    await pubPage.locator('#canvas-reqs-toggle').click();
+    await pubPage.getByRole('button', { name: 'Edit canvas requirements' }).click();
     await pubPage.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
     await pubPage.locator('#canvas-share-switch').click();
     await pubPage.waitForFunction(
@@ -98,7 +98,7 @@ export default async ({ url, page, browser }) => {
     const conPage = await browser.newPage();
     conPage.on('pageerror', err => console.log('[con pageerror]', err.message));
     await conPage.goto(consumer.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await conPage.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
+    await conPage.getByRole('button', { name: 'Show all spaces' }).waitFor({ timeout: 20000 });
     await sleep(1000);
 
     await installFromBrowse(conPage, pubStatus.peerId);
@@ -124,15 +124,12 @@ export default async ({ url, page, browser }) => {
 
     // --- assert the requirement: first installation survives --------------
     // Reload so we are asserting against the on-disk canvas, not stale client
-    // state, then switch to it through the grid the way a user would.
+    // state. The grid view persists across the reload, so the installed canvas's
+    // card is already shown — switch to it the way a user would.
     await conPage.reload({ waitUntil: 'domcontentloaded' });
-    await conPage.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
-    await sleep(1000);
-
-    await conPage.locator('#canvas-overview-toggle').dispatchEvent('click');
-    const cardSel = `.canvas-grid-card[data-canvas="${installedCanvas}"]`;
-    await conPage.waitForSelector(cardSel, { timeout: 10000 });
-    await conPage.locator(cardSel).dispatchEvent('click');
+    const card = conPage.getByRole('button', { name: `Open ${installedCanvas} space` });
+    await card.waitFor({ timeout: 20000 });
+    await card.dispatchEvent('click');
 
     // The installed component must still render on the surviving canvas.
     await conPage.waitForSelector('liquidos-component[path="components/gizmo"]', { timeout: 30000 });

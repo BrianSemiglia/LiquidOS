@@ -123,8 +123,8 @@ export default async ({ url, page, browser }) => {
             const tab = await browser.newPage();
             tab.on('pageerror', err => console.warn(`[${pub.label} pageerror]`, err.message));
             await tab.goto(pub.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await tab.waitForSelector('#canvas-reqs-toggle', { timeout: 20000 });
-            await tab.locator('#canvas-reqs-toggle').click();
+            await tab.getByRole('button', { name: 'Edit canvas requirements' }).waitFor({ timeout: 20000 });
+            await tab.getByRole('button', { name: 'Edit canvas requirements' }).click();
             await tab.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
             await tab.locator('#canvas-share-switch').click();
             await tab.waitForFunction(
@@ -161,10 +161,10 @@ export default async ({ url, page, browser }) => {
         // --- Drive the Browse overlay -------------------------------------
         page.on('pageerror', err => console.log('[pageerror]', err.message));
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
+        await page.getByRole('button', { name: 'Show all spaces' }).waitFor({ timeout: 20000 });
         await sleep(500);
         // Browse is reached via the canvas grid's "+ New" card.
-        await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+        await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
         await page.locator('#canvas-grid-new').dispatchEvent('click');
         await page.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
         await page.locator('#browse-query').fill(TOPIC);

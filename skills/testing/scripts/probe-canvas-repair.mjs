@@ -26,7 +26,7 @@ export default async ({ url, page }) => {
         t => !document.body.innerText.includes(t), text, { timeout });
 
     // Open the canvas requirements modal.
-    await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
+    await page.getByRole('button', { name: 'Edit canvas requirements' }).dispatchEvent('click');
     await onScreen('Build').catch(() => {
         throw new Error('canvas requirements editor did not open');
     });
@@ -43,7 +43,7 @@ export default async ({ url, page }) => {
     // Close and reopen; openCanvasRequirements always re-fetches.
     await page.locator('#canvas-requirements-cancel').dispatchEvent('click');
     await sleep(300);
-    await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
+    await page.getByRole('button', { name: 'Edit canvas requirements' }).dispatchEvent('click');
     await onScreen('Build').catch(() => {
         throw new Error('canvas requirements editor did not reopen');
     });

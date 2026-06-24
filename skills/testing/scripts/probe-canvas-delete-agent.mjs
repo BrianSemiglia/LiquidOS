@@ -58,12 +58,12 @@ export default async ({ url, workspace, page }) => {
   await onScreen('home').catch(() => { throw new Error('agent delete should not have removed "home"'); });
   console.log('  ok  the agent deletes "doomed" and leaves "home"');
 
-  // Reload and re-open: a real (committed) deletion is still gone.
+  // Reload: a real (committed) deletion is still gone. The grid view persists
+  // across the reload, so the surviving cards are already shown — "home" stays
+  // (its card is back on screen), "doomed" does not.
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
-  await sleep(1000);
-  await page.locator('#canvas-overview-toggle').dispatchEvent('click');
-  await onScreen('home').catch(() => { throw new Error('"home" missing after reload'); });
+  await page.getByRole('button', { name: 'Open home space' }).waitFor({ timeout: 20000 })
+    .catch(() => { throw new Error('"home" missing after reload'); });
   await offScreen('doomed').catch(() => { throw new Error('"doomed" came back after reload — agent deletion did not persist'); });
   console.log('  ok  the agent deletion persists across a reload');
 

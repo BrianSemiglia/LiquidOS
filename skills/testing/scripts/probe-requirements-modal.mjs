@@ -94,14 +94,14 @@ export default async ({ url, workspace, page }) => {
   });
 
   // --- 5. The canvas requirements modal mirrors the same label behavior.
-  await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
+  await page.getByRole('button', { name: 'Edit canvas requirements' }).dispatchEvent('click');
   await onScreen('Repair').catch(() => {
     throw new Error('canvas recover affordance did not read "Repair" (file missing)');
   });
   fs.writeFileSync(path.join(workspace, 'home/feature-requirements.txt'), '');
   await page.locator('#canvas-requirements-cancel').dispatchEvent('click');
   await offScreen('Repair').catch(() => {});
-  await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
+  await page.getByRole('button', { name: 'Edit canvas requirements' }).dispatchEvent('click');
   await onScreen('Generate').catch(() => {
     throw new Error('canvas recover affordance did not flip to "Generate" for an empty file');
   });

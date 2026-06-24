@@ -55,7 +55,7 @@ export default async ({ url, page }) => {
 
   // 4. The top-right canvas button docks the requirements panel beside the
   //    canvas — the canvas content stays on screen next to it.
-  await page.locator('#canvas-reqs-toggle').click();
+  await page.getByRole('button', { name: 'Edit canvas requirements' }).click();
   await onScreen('Build').catch(() => {
     throw new Error('clicking the canvas Requirements button did not open the docked panel');
   });

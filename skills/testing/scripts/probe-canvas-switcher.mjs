@@ -17,11 +17,11 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
+    await page.getByRole('button', { name: 'Show all spaces' }).waitFor({ timeout: 20000 });
     await sleep(1500);
 
     // 1. Open canvas-info on home; assert HOME marker.
-    await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
+    await page.getByRole('button', { name: 'Edit canvas requirements' }).dispatchEvent('click');
     await page.waitForFunction(
         () => {
             const ta = document.getElementById('canvas-requirements-textarea');
@@ -35,9 +35,9 @@ export default async ({ url, page }) => {
     await sleep(300);
 
     // 2. Zoom out to the grid and pick "other".
-    await page.locator('#canvas-overview-toggle').dispatchEvent('click');
-    await page.waitForSelector('.canvas-grid-card[data-canvas="other"]', { timeout: 5000 });
-    await page.locator('.canvas-grid-card[data-canvas="other"]').dispatchEvent('click');
+    await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
+    await page.getByRole('button', { name: 'Open other space' }).waitFor({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Open other space' }).dispatchEvent('click');
     // "other" is empty, so home's rendered content ("Gizmo") leaving the screen
     // is the visible proof the switch landed — no private flag to read.
     await page.waitForFunction(
@@ -47,7 +47,7 @@ export default async ({ url, page }) => {
     await sleep(500);
 
     // 3. Open canvas-info; assert OTHER marker, NOT HOME's content.
-    await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
+    await page.getByRole('button', { name: 'Edit canvas requirements' }).dispatchEvent('click');
     await page.waitForFunction(
         () => {
             const ta = document.getElementById('canvas-requirements-textarea');

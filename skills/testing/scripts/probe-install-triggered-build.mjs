@@ -37,7 +37,7 @@ export default async ({ url, page, browser }) => {
         pubPage.on('pageerror', err => console.log('[pub pageerror]', err.message));
         await pubPage.goto(publisher.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await pubPage.waitForSelector('liquidos-component[path="components/gizmo"]', { timeout: 20000 });
-        await pubPage.locator('#canvas-reqs-toggle').click();
+        await pubPage.getByRole('button', { name: 'Edit canvas requirements' }).click();
         await pubPage.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
         await pubPage.locator('#canvas-share-switch').click();
         await pubPage.waitForFunction(
@@ -67,10 +67,10 @@ export default async ({ url, page, browser }) => {
         const conPage = await browser.newPage();
         conPage.on('pageerror', err => console.log('[con pageerror]', err.message));
         await conPage.goto(consumer.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await conPage.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
+        await conPage.getByRole('button', { name: 'Show all spaces' }).waitFor({ timeout: 20000 });
         await sleep(500);
         // Browse is reached via the canvas grid's "+ New" card.
-        await conPage.locator('#canvas-overview-toggle').dispatchEvent('click');
+        await conPage.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
         await conPage.locator('#canvas-grid-new').dispatchEvent('click');
         await conPage.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
         await conPage.locator('#browse-query').fill('home');

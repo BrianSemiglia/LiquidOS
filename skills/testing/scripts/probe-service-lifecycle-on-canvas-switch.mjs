@@ -51,10 +51,10 @@ const pidOf = (text, prefix) => {
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 const switchToCanvas = async (page, name) => {
-    await page.locator('#canvas-overview-toggle').dispatchEvent('click');
-    const card = `.canvas-grid-card[data-canvas="${name}"]`;
-    await page.waitForSelector(card, { timeout: 10000 });
-    await page.locator(card).dispatchEvent('click');
+    await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
+    const card = page.getByRole('button', { name: `Open ${name} space` });
+    await card.waitFor({ timeout: 10000 });
+    await card.dispatchEvent('click');
 };
 
 // Wait until the named canvas's ticker is visibly advancing (STEP >= 2), which
@@ -74,7 +74,7 @@ export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
+    await page.getByRole('button', { name: 'Show all spaces' }).waitFor({ timeout: 20000 });
 
     // --- home: its service is running -------------------------------------
     await waitForAdvancing(page, 'HOME');

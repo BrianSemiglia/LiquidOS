@@ -54,7 +54,7 @@ export default async ({ url, page, browser }) => {
 
     // The canvas-level Share toggle lives inside the Canvas Requirements modal
     // — open it via the Info button.
-    await pubPage.locator('#canvas-reqs-toggle').click();
+    await pubPage.getByRole('button', { name: 'Edit canvas requirements' }).click();
     await pubPage.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
     await pubPage.locator('#canvas-share-switch').click();
     // Wait for the server to actually accept the toggle, not just the
@@ -117,11 +117,11 @@ export default async ({ url, page, browser }) => {
     const conPage = await browser.newPage();
     conPage.on('pageerror', err => console.log('[con pageerror]', err.message));
     await conPage.goto(consumer.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await conPage.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
+    await conPage.getByRole('button', { name: 'Show all spaces' }).waitFor({ timeout: 20000 });
     await sleep(1000);  // small settle for the grid wire-up
 
     // Open Browse via the canvas grid's "+ New" card, search for "home".
-    await conPage.locator('#canvas-overview-toggle').dispatchEvent('click');
+    await conPage.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
     await conPage.locator('#canvas-grid-new').dispatchEvent('click');
     await conPage.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
     await conPage.locator('#browse-query').fill('home');

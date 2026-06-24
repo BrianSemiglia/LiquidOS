@@ -25,7 +25,7 @@ export default async ({ url, page }) => {
     const offScreen = (text, timeout = 5000) => page.waitForFunction(
         t => !document.body.innerText.includes(t), text, { timeout });
 
-    await page.locator('#canvas-reqs-toggle').click();
+    await page.getByRole('button', { name: 'Edit canvas requirements' }).click();
 
     // The editor is open when its Build action is visible.
     await onScreen('Build').catch(() => {

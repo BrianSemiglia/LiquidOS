@@ -28,7 +28,7 @@ export default async ({ url, page }) => {
     t => !document.body.innerText.includes(t), text, { timeout });
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
+  await page.getByRole('button', { name: 'Show all spaces' }).waitFor({ timeout: 20000 });
   await sleep(1000);
 
   // The prompt bar is up to begin with, and the top-left button reads "Spaces".
@@ -36,11 +36,11 @@ export default async ({ url, page }) => {
   await onScreen('↑').catch(() => { throw new Error('prompt bar not visible at start'); });
   await onScreen('Spaces').catch(() => { throw new Error('top-left button should read "Spaces"'); });
   // The canvas Requirements button is present while on a single canvas.
-  await page.locator('#canvas-reqs-toggle').waitFor({ state: 'visible', timeout: 5000 });
+  await page.getByRole('button', { name: 'Edit canvas requirements' }).waitFor({ state: 'visible', timeout: 5000 });
 
   // 1. Zoom out → the grid shows a card per canvas (home, other) and "Create".
-  await page.locator('#canvas-overview-toggle').dispatchEvent('click');
-  await page.waitForSelector('.canvas-grid-card[data-canvas="other"]', { timeout: 5000 });
+  await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
+  await page.getByRole('button', { name: 'Open other space' }).waitFor({ timeout: 5000 });
   const cardTexts = await page.locator('.canvas-grid-card').allInnerTexts();
   for (const expected of ['home', 'other', 'Create']) {
     if (!cardTexts.some(t => t.includes(expected))) {
@@ -54,7 +54,7 @@ export default async ({ url, page }) => {
   console.log('  ok  the prompt bar stays visible in the grid view');
 
   // 2b. The canvas Requirements button is hidden while zoomed out.
-  await page.locator('#canvas-reqs-toggle').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {
+  await page.getByRole('button', { name: 'Edit canvas requirements' }).waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {
     throw new Error('canvas Requirements button should be hidden in the grid view');
   });
   console.log('  ok  the canvas Requirements button is hidden in the grid view');
@@ -95,7 +95,7 @@ export default async ({ url, page }) => {
   console.log('  ok  Escape from browse steps back to the grid');
 
   // 4. The grid is still open — pick "other" → switches canvases and closes it.
-  await page.locator('.canvas-grid-card[data-canvas="other"]').dispatchEvent('click');
+  await page.getByRole('button', { name: 'Open other space' }).dispatchEvent('click');
   // "other" is empty, so home's "Gizmo" leaving the screen proves the switch
   // landed (visible signal, not the private current-canvas flag).
   await offScreen('Gizmo').catch(() => { throw new Error('picking "other" did not switch away from home'); });
@@ -103,12 +103,12 @@ export default async ({ url, page }) => {
   console.log('  ok  picking a canvas switches to it and closes the grid');
 
   // 5. Re-open, then Escape closes the grid.
-  await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+  await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
   await onScreen('Create').catch(() => { throw new Error('grid did not reopen'); });
   await page.keyboard.press('Escape');
   await offScreen('Create').catch(() => { throw new Error('Escape did not close the grid'); });
   // ...and the canvas Requirements button comes back once we're on one canvas.
-  await page.locator('#canvas-reqs-toggle').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
+  await page.getByRole('button', { name: 'Edit canvas requirements' }).waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
     throw new Error('canvas Requirements button should return after the grid closes');
   });
   console.log('  ok  Escape closes the grid and the Requirements button returns');

@@ -85,8 +85,8 @@ export default async ({ url, workspace, page, browser }) => {
     // internal canvas pointer. `expectVisible` is a string unique to the
     // destination canvas's content.
     const switchCanvasVia = async (p, name, expectVisible) => {
-        await p.locator('#canvas-overview-toggle').dispatchEvent('click');
-        await p.locator(`.canvas-grid-card[data-canvas="${name}"]`).dispatchEvent('click');
+        await p.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
+        await p.getByRole('button', { name: `Open ${name} space` }).dispatchEvent('click');
         if (expectVisible) await waitOnScreen(p, expectVisible, 8000);
     };
 
@@ -277,7 +277,7 @@ export default async ({ url, workspace, page, browser }) => {
         agentWrite(name + '/index.json', { components: [] });
         agentWrite(name + '/canvas.js', "import { cssLayout } from '/lib/css-layout.js'; export default cssLayout('');");
         // Open the grid and look for the new name on screen.
-        await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+        await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
         await waitOnScreen(page, name, 5000);
         // Close the grid (Escape) and confirm we're back on the canvas.
         await page.keyboard.press('Escape');

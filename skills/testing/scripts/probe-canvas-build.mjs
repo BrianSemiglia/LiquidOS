@@ -27,7 +27,7 @@ export default async ({ url, page }) => {
     }
 
     // Open the canvas requirements modal.
-    await page.locator('#canvas-reqs-toggle').dispatchEvent('click');
+    await page.getByRole('button', { name: 'Edit canvas requirements' }).dispatchEvent('click');
     await page.waitForSelector('#canvas-requirements-textarea', { state: 'visible', timeout: 5000 });
     await page.waitForFunction(() => !document.getElementById('canvas-requirements-textarea').disabled, { timeout: 5000 });
     await page.locator('#canvas-requirements-textarea').fill('- ' + MARKER + '\n');

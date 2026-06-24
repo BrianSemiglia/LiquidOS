@@ -32,11 +32,11 @@ export default async ({ url, workspace, page }) => {
     t => !document.body.innerText.includes(t), text, { timeout });
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
+  await page.getByRole('button', { name: 'Show all spaces' }).waitFor({ timeout: 20000 });
   await sleep(1000);
 
   // Zoom out → the grid lists both canvases.
-  await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+  await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
   await onScreen('doomed').catch(() => { throw new Error('grid did not list the "doomed" canvas'); });
   await onScreen('home').catch(() => { throw new Error('grid did not list the "home" canvas'); });
   console.log('  ok  grid lists both "home" and "doomed"');
@@ -52,13 +52,12 @@ export default async ({ url, workspace, page }) => {
   await onScreen('home').catch(() => { throw new Error('deleting "doomed" should not have removed "home"'); });
   console.log('  ok  the ✕ deletes "doomed" and leaves "home"');
 
-  // Reload and re-open the grid: a real (committed) deletion is still gone;
-  // a merely-hidden card would come back.
+  // Reload: a real (committed) deletion is still gone. We deleted from the grid
+  // and that view persists across the reload, so the surviving cards are already
+  // shown — "home" stays (its card is back on screen), "doomed" does not.
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
-  await sleep(1000);
-  await page.locator('#canvas-overview-toggle').dispatchEvent('click');
-  await onScreen('home').catch(() => { throw new Error('"home" missing after reload'); });
+  await page.getByRole('button', { name: 'Open home space' }).waitFor({ timeout: 20000 })
+    .catch(() => { throw new Error('"home" missing after reload'); });
   await offScreen('doomed').catch(() => { throw new Error('"doomed" came back after reload — deletion did not persist'); });
   console.log('  ok  the deletion persists across a reload');
 

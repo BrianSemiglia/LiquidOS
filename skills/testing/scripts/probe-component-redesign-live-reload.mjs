@@ -123,8 +123,8 @@ export default async ({ url, workspace, page }) => {
     // on screen is the visible proof the switch completed.
     const canvasContent = { home: 'alpha initial', other: 'delta initial' };
     const switchCanvasVia = async (p, name) => {
-        await p.locator('#canvas-overview-toggle').dispatchEvent('click');
-        await p.locator(`.canvas-grid-card[data-canvas="${name}"]`).dispatchEvent('click');
+        await p.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
+        await p.getByRole('button', { name: `Open ${name} space` }).dispatchEvent('click');
         await p.waitForFunction(t => document.body.innerText.includes(t), canvasContent[name], { timeout: 8000 });
     };
 
