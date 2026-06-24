@@ -31,7 +31,7 @@ export default async ({ url, page }) => {
 
     // The picker and the prompt are both in the bar from the start; only
     // the picker's visibility is gated on the debug view.
-    await page.waitForSelector('#global-text', { timeout: 20000 });
+    await page.getByRole('textbox', { name: 'Prompt' }).waitFor({ timeout: 20000 });
     // 'attached', not 'visible': the picker lives in the DOM from the
     // start but is hidden until the debug view opens — waiting for it to
     // be visible would deadlock against the very behaviour under test.
@@ -41,10 +41,10 @@ export default async ({ url, page }) => {
     // Start from a known-closed debug state (clear any persisted toggle).
     await page.evaluate(() => { try { localStorage.removeItem('liquidos:debug-open'); } catch {} });
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('#global-text', { timeout: 20000 });
+    await page.getByRole('textbox', { name: 'Prompt' }).waitFor({ timeout: 20000 });
     await page.waitForFunction(() => typeof window.liquidos?.toggleDebug === 'function', { timeout: 10000 });
 
-    const promptReachable = () => page.locator('#global-text').isVisible();
+    const promptReachable = () => page.getByRole('textbox', { name: 'Prompt' }).isVisible();
 
     // 1. Debug closed by default → picker hidden, prompt still usable.
     if (await pickerVisible(page)) {

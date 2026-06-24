@@ -26,17 +26,17 @@ export const agent = 'agent/test/cancel-button-disables-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+const promptBar = (page) => page.getByRole('textbox', { name: 'Prompt' });
+
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#global-text', { timeout: 20000 });
+    await promptBar(page).waitFor({ timeout: 20000 });
     await sleep(1500);
 
     // Start the work; the agent shows "BUILT" then hangs.
-    await page.evaluate(() => {
-        document.getElementById('global-text').value = 'Build the thing.';
-        document.getElementById('global-prompt').requestSubmit();
-    });
+    await promptBar(page).fill('Build the thing.');
+    await promptBar(page).press('Enter');
     await page.getByText('BUILT', { exact: true }).waitFor({ timeout: 10000 });
 
     // While the job runs, the ✕ is shown and still clickable.

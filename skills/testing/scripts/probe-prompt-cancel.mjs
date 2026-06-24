@@ -25,6 +25,8 @@ export const agent = 'agent/test/prompt-cancel-test-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+const promptBar = (page) => page.getByRole('textbox', { name: 'Prompt' });
+
 const gitLog = (workspace) =>
     spawnSync('git', ['-C', workspace, 'log', '--format=%B'], { encoding: 'utf8' }).stdout || '';
 
@@ -40,7 +42,7 @@ const waitFor = async (predicate, ms = 10000) => {
 export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#global-text', { timeout: 20000 });
+    await promptBar(page).waitFor({ timeout: 20000 });
     await sleep(1500);
 
     if (await page.getByText('BUILT', { exact: true }).count() !== 0) {
@@ -48,8 +50,8 @@ export default async ({ url, workspace, page }) => {
     }
 
     // Submit a prompt — the agent starts the work and keeps running.
-    await page.locator('#global-text').fill('Build the thing.');
-    await page.evaluate(() => document.getElementById('global-prompt').requestSubmit());
+    await promptBar(page).fill('Build the thing.');
+    await promptBar(page).press('Enter');
 
     // The started work surfaces on screen.
     await page.getByText('BUILT', { exact: true }).waitFor({ timeout: 10000 });

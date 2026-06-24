@@ -48,7 +48,7 @@ const rowVisible = (page) => page.evaluate(() => {
 
 export default async ({ url, page }) => {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForSelector('#global-text', { timeout: 15000 });
+  await page.getByRole('textbox', { name: 'Prompt' }).waitFor({ timeout: 15000 });
 
   // Before any turn, the activity row (and its waveform) is collapsed away.
   if (await rowVisible(page)) {
@@ -58,8 +58,9 @@ export default async ({ url, page }) => {
   // Drive the prompt bar the way the user does. The stub streams a mix of
   // prose and ops over /agent/stream — exactly the output the waveform draws.
   const token = 'TOK_' + Math.random().toString(36).slice(2, 10).toUpperCase();
-  await page.locator('#global-text').fill('REPLACE_WITH: ' + token);
-  await page.evaluate(() => document.getElementById('global-prompt').requestSubmit());
+  const bar = page.getByRole('textbox', { name: 'Prompt' });
+  await bar.fill('REPLACE_WITH: ' + token);
+  await bar.press('Enter');
 
   // While the agent streams, poll the canvas and remember the biggest spike we
   // ever caught, plus whether the row was visible at that moment.

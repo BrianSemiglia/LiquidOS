@@ -20,7 +20,7 @@ export default async ({ url, page }) => {
     t => !document.body.innerText.includes(t), text, { timeout });
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForSelector('#global-text', { timeout: 20000 });
+  await page.getByRole('textbox', { name: 'Prompt' }).waitFor({ timeout: 20000 });
 
   // The prompt bar is on screen to start. Its Send control is a glyph button
   // ("↑"), so that's the visible string we track.

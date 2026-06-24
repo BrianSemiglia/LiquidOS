@@ -59,13 +59,14 @@ export default async ({ url, page }) => {
         }
         throw new Error('agent never settled on "' + label + '"');
     };
+    const promptBar = page.getByRole('textbox', { name: 'Prompt' });
     const dispatch = async (text) => {
-        await page.locator('#global-text').fill(text);
-        await page.evaluate(() => document.getElementById('global-prompt').requestSubmit());
+        await promptBar.fill(text);
+        await promptBar.press('Enter');
     };
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#global-text', { timeout: 20000 });
+    await promptBar.waitFor({ timeout: 20000 });
     // The agent picker is a debug-only control — it's hidden in the normal
     // view and rides with the debug rail. Switching agents through it is
     // therefore something a user does with the debug view open, so open it

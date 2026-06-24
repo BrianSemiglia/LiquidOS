@@ -31,9 +31,10 @@ export default async ({ url, page }) => {
   }
 
   // Drive the prompt bar, the way the user does.
-  await page.waitForSelector('#global-text', { timeout: 15000 });
-  await page.locator('#global-text').fill('REPLACE_WITH: ' + token);
-  await page.evaluate(() => document.getElementById('global-prompt').requestSubmit());
+  const bar = page.getByRole('textbox', { name: 'Prompt' });
+  await bar.waitFor({ timeout: 15000 });
+  await bar.fill('REPLACE_WITH: ' + token);
+  await bar.press('Enter');
 
   // The agent builds; what the user asked for appears on screen.
   await page.waitForFunction(t => document.body.innerText.includes(t), wanted, { timeout: 30000 }).catch(() => {});

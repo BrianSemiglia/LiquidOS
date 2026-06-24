@@ -36,12 +36,13 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#global-text', { timeout: 20000 });
+    const promptBar = page.getByRole('textbox', { name: 'Prompt' });
+    await promptBar.waitFor({ timeout: 20000 });
 
     // Switch canvases via the zoom-out grid (the dropdown is gone).
     const switchTo = async name => {
-        await page.locator('#canvas-overview-toggle').dispatchEvent('click');
-        await page.locator(`.canvas-grid-card[data-canvas="${name}"]`).dispatchEvent('click');
+        await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
+        await page.getByRole('button', { name: `Open ${name} space` }).dispatchEvent('click');
         await page.waitForFunction(n => document.body.dataset.currentCanvas === n, name, { timeout: 8000 });
     };
 
@@ -57,8 +58,8 @@ export default async ({ url, workspace, page }) => {
     }
 
     // --- 1. Dispatch from home -------------------------------------------
-    await page.locator('#global-text').fill('Build it.');
-    await page.evaluate(() => document.getElementById('global-prompt').requestSubmit());
+    await promptBar.fill('Build it.');
+    await promptBar.press('Enter');
     console.log('home: prompt submitted');
 
     // --- 2. Switch to other while the agent is still thinking ------------

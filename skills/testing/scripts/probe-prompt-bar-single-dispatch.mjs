@@ -16,14 +16,16 @@ export const agent = 'agent/test/prompt-bar-single-dispatch-test-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+const promptBar = (page) => page.getByRole('textbox', { name: 'Prompt' });
+
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('[data-counter-initial]', { timeout: 20000 });
 
     // Type a prompt and submit once via the Send button.
-    await page.locator('#global-text').fill('probe single-dispatch');
-    await page.locator('#global-prompt button[type="submit"]').click();
+    await promptBar(page).fill('probe single-dispatch');
+    await page.getByRole('button', { name: 'Send' }).click();
 
     // First marker arrives — that's the healthy path.
     await page.waitForSelector('[data-dispatched-once]', { timeout: 10000 });

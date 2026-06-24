@@ -15,23 +15,22 @@ export const agent = 'agent/test/prompt-bar-test-agent.js';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// Find the prompt bar by what it is to the user, not by id/class.
+const promptBar = (page) => page.getByRole('textbox', { name: 'Prompt' });
+
 export default async ({ url, page }) => {
   page.on('pageerror', err => console.log('[page error]', err.message));
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForSelector('#global-text', { timeout: 20000 });
+  await promptBar(page).waitFor({ timeout: 20000 });
   await sleep(1500);
 
   if (await page.locator('[data-canvas-build-marker]').count() !== 0) {
     throw new Error('marker existed before prompt-bar submit');
   }
 
-  // Type into the prompt bar and submit the form.
-  await page.locator('#global-text').fill('Add the probe-built component please.');
-  // Form submission goes through liquidos-callback's 'submit' listener.
-  await page.locator('#global-prompt button[type="submit"]').dispatchEvent('click');
-  // dispatchEvent on a submit button doesn't trigger form submission in
-  // every browser/jsdom combo; requestSubmit on the form is the reliable path.
-  await page.evaluate(() => document.getElementById('global-prompt').requestSubmit());
+  // Type into the prompt bar and submit it the way a user does — Enter.
+  await promptBar(page).fill('Add the probe-built component please.');
+  await promptBar(page).press('Enter');
 
   try {
     await page.waitForSelector('[data-canvas-build-marker]', { timeout: 10000 });

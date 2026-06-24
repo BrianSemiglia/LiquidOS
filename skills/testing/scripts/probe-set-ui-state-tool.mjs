@@ -33,7 +33,7 @@ export default async ({ url, workspace, page }) => {
     };
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#global-text', { timeout: 20000 });
+    await page.getByRole('textbox', { name: 'Prompt' }).waitFor({ timeout: 20000 });
 
     // Engaged to start: prompt bar up, picker closed.
     await onScreen('↑').catch(() => { throw new Error('prompt bar ("↑" Send) not visible on load'); });

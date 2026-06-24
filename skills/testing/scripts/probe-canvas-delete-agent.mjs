@@ -32,12 +32,14 @@ export default async ({ url, workspace, page }) => {
   const offScreen = (text, timeout = 15000) => page.waitForFunction(
     t => !document.body.innerText.includes(t), text, { timeout });
 
+  const spaces = page.getByRole('button', { name: 'Show all spaces' });
+
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForSelector('#canvas-overview-toggle', { timeout: 20000 });
+  await spaces.waitFor({ timeout: 20000 });
   await sleep(1000);
 
   // Pre-condition: the grid lists both canvases.
-  await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+  await spaces.dispatchEvent('click');
   await onScreen('doomed').catch(() => { throw new Error('grid did not list the "doomed" canvas'); });
   await onScreen('home').catch(() => { throw new Error('grid did not list the "home" canvas'); });
   console.log('  ok  grid lists both "home" and "doomed"');
@@ -46,12 +48,12 @@ export default async ({ url, workspace, page }) => {
   await offScreen('Create', 6000).catch(() => { throw new Error('Escape did not close the grid'); });
 
   // Prompt the agent → stub deletes the 'doomed' canvas via the shared CLI.
-  await page.locator('#global-text').fill('delete the doomed canvas');
-  await page.locator('#global-prompt button[type="submit"]').click();
+  await page.getByRole('textbox', { name: 'Prompt' }).fill('delete the doomed canvas');
+  await page.getByRole('button', { name: 'Send' }).click();
 
   // Re-open the grid and watch the deleted canvas drop out (the grid live-
   // refreshes on canvases-changed), while the survivor stays.
-  await page.locator('#canvas-overview-toggle').dispatchEvent('click');
+  await spaces.dispatchEvent('click');
   await offScreen('doomed').catch(() => { throw new Error('agent delete did not remove "doomed" from the grid'); });
   await onScreen('home').catch(() => { throw new Error('agent delete should not have removed "home"'); });
   console.log('  ok  the agent deletes "doomed" and leaves "home"');

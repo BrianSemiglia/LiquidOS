@@ -43,7 +43,7 @@ export default async ({ url, workspace, page }) => {
     };
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#global-text', { timeout: 20000 });
+    await page.getByRole('textbox', { name: 'Prompt' }).waitFor({ timeout: 20000 });
 
     // 1. Engaged: prompt bar up, nothing open (no file = engaged).
     await onScreen('↑').catch(() => { throw new Error('prompt bar ("↑" Send) not visible on load'); });
@@ -75,7 +75,7 @@ export default async ({ url, workspace, page }) => {
     await page.keyboard.press('Escape');
     await offScreen('↑').catch(() => { throw new Error('Escape did not hide the prompt bar'); });
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#global-text', { timeout: 20000 });
+    await page.getByRole('textbox', { name: 'Prompt' }).waitFor({ timeout: 20000 });
     await offScreen('↑').catch(() => { throw new Error('the hidden prompt bar did not survive a reload — the Escape gesture was not persisted'); });
 
     // And clearing it the same way restores the bar across a reload too.

@@ -41,7 +41,7 @@ const submitPrompt = (page, text) =>
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('#global-text', { timeout: 20000 });
+    await page.getByRole('textbox', { name: 'Prompt' }).waitFor({ timeout: 20000 });
     await sleep(1500);
 
     if (await page.getByText('BUILT', { exact: true }).count() !== 0) {
