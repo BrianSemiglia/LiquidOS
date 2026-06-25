@@ -775,7 +775,9 @@
             border: none;
             border-left: 1px solid rgba(var(--fg), 0.1);
             border-radius: 0;
-            background: var(--surface-1);
+            /* Match the stepped-back outer margin (--bg) rather than a raised
+               surface, so the panel reads as part of the zoomed-out backdrop. */
+            background: var(--bg);
             box-shadow: none;
             display: flex;
             flex-direction: column;
@@ -815,7 +817,9 @@
             font-size: 0.88rem;
             line-height: 1.45;
             color: rgba(var(--fg), 0.95);
-            background: var(--surface-input);
+            /* Match the canvas card surface so the field reads as a piece of the
+               canvas, raised above the panel's --bg backdrop. */
+            background: var(--surface-1);
             border: 1px solid rgba(var(--fg), 0.12);
             border-radius: 10px;
             padding: 0.7rem 0.85rem;
@@ -949,7 +953,9 @@
             bottom: 0;
             width: min(20rem, 32vw);
             z-index: 19;
-            background: var(--surface-1);
+            /* Match the stepped-back outer margin (--bg) rather than a raised
+               surface, so the panel reads as part of the zoomed-out backdrop. */
+            background: var(--bg);
             border-right: 1px solid rgba(var(--fg), 0.08);
             /* Top clearance kept generous so it reads right with no title bar
                too (fullscreen), not just under the windowed title bar. */
