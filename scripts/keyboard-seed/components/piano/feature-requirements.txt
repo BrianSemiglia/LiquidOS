@@ -1,7 +1,0 @@
-A two-octave piano keyboard spanning C4 through C6 with the standard layout of white and black keys.
-Each key plays its note when clicked or tapped, using the Web Audio API — no audio files needed.
-Holding a key sustains the note; releasing the pointer ends it with a soft fade.
-Dragging the pointer across keys glides between notes (glissando) by pressing and releasing as the pointer moves.
-The QWERTY row also plays notes: A through ; cover the first octave-plus, with W/E/T/Y/U for the corresponding sharps.
-Pressed keys highlight visually and the last-played note is shown in the footer.
-The keyboard scrolls horizontally if the canvas slot is too narrow to fit it.
