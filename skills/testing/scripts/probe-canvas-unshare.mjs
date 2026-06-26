@@ -21,9 +21,9 @@ export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[pageerror]', err.message));
 
     const onScreen  = (text, timeout = 10000) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout });
+        t => visibleText().includes(t), text, { timeout });
     const offScreen = (text, timeout = 10000) => page.waitForFunction(
-        t => !document.body.innerText.includes(t), text, { timeout });
+        t => !visibleText().includes(t), text, { timeout });
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     // Wait for the fixture's component content to confirm the canvas loaded.
@@ -58,7 +58,7 @@ export default async ({ url, page }) => {
     await onScreen('Type to search', 5000);
     await page.locator('#browse-query').fill('home');
     // The bundle name "home" appears in the results list (input values are
-    // not part of document.body.innerText, so this is the result row text).
+    // not part of visibleText(), so this is the result row text).
     await onScreen('home', 10000).catch(() => {
         throw new Error('"home" bundle did not appear in own Browse after sharing ON');
     });

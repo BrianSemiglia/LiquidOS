@@ -42,7 +42,7 @@ const expect = (label, predicate, detail) => {
 
 export default async ({ url, workspace, page }) => {
     const onScreen = (text) => page.evaluate(
-        t => document.body.innerText.includes(t), text);
+        t => visibleText().includes(t), text);
     const targetHtmlPath = workspace + '/home/components/target/component.html';
     const beforeFile = fs.readFileSync(targetHtmlPath, 'utf8');
     expect('baseline component.html is the authored shape',
@@ -101,7 +101,7 @@ export default async ({ url, workspace, page }) => {
 
     // --- and the user-visible side: what they asked for is on screen ---
     await page.waitForFunction(
-        m => document.body.innerText.includes(m), persistMark, { timeout: 8000 }
+        m => visibleText().includes(m), persistMark, { timeout: 8000 }
     ).catch(() => {});
     expect('the persisted change is visible on screen',
         await onScreen(persistMark),

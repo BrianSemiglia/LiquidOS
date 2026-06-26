@@ -23,9 +23,9 @@ export default async ({ url, page }) => {
   page.on('pageerror', err => console.log('[pageerror]', err.message));
 
   const onScreen = (text, timeout = 6000) => page.waitForFunction(
-    t => document.body.innerText.includes(t), text, { timeout });
+    t => visibleText().includes(t), text, { timeout });
   const offScreen = (text, timeout = 6000) => page.waitForFunction(
-    t => !document.body.innerText.includes(t), text, { timeout });
+    t => !visibleText().includes(t), text, { timeout });
 
   const WIDGET = 'A component with some content to render inside the requirements modal';
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -59,7 +59,7 @@ export default async ({ url, page }) => {
   await onScreen('Build').catch(() => {
     throw new Error('clicking the canvas Requirements button did not open the docked panel');
   });
-  const widgetStillThere = await page.evaluate(t => document.body.innerText.includes(t), WIDGET);
+  const widgetStillThere = await page.evaluate(t => visibleText().includes(t), WIDGET);
   if (!widgetStillThere) throw new Error('canvas content vanished when the requirements panel docked (should sit beside it)');
 
   // 4b. Focused mode: opening the panel hides the other meta controls — the

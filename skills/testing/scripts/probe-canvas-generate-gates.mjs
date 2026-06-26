@@ -28,7 +28,7 @@ export default async ({ url, page }) => {
 
     // Neither "Generate" nor "Repair" should be visible — the gate blocks
     // the recover callback when there are zero components.
-    const text = await page.evaluate(() => document.body.innerText);
+    const text = await page.evaluate(() => visibleText());
     if (text.includes('Generate')) {
         throw new Error('"Generate" is visible despite the canvas having zero components');
     }

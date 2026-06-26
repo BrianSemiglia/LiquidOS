@@ -18,9 +18,9 @@ export default async ({ url, page }) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const onScreen  = (text, timeout = 10000) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout });
+        t => visibleText().includes(t), text, { timeout });
     const offScreen = (text, timeout = 10000) => page.waitForFunction(
-        t => !document.body.innerText.includes(t), text, { timeout });
+        t => !visibleText().includes(t), text, { timeout });
 
     // The user-facing affordance: a visible "Repair" label on first paint.
     await onScreen('Repair').catch(() => {

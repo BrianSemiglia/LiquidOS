@@ -15,9 +15,9 @@ export default async ({ url, page }) => {
   page.on('pageerror', err => console.log('[pageerror]', err.message));
 
   const onScreen = (text, timeout = 6000) => page.waitForFunction(
-    t => document.body.innerText.includes(t), text, { timeout });
+    t => visibleText().includes(t), text, { timeout });
   const offScreen = (text, timeout = 6000) => page.waitForFunction(
-    t => !document.body.innerText.includes(t), text, { timeout });
+    t => !visibleText().includes(t), text, { timeout });
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.getByRole('textbox', { name: 'Prompt' }).waitFor({ timeout: 20000 });

@@ -21,9 +21,9 @@ export default async ({ url, page }) => {
     await sleep(1500);
 
     const onScreen  = (text, timeout = 5000) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout });
+        t => visibleText().includes(t), text, { timeout });
     const offScreen = (text, timeout = 5000) => page.waitForFunction(
-        t => !document.body.innerText.includes(t), text, { timeout });
+        t => !visibleText().includes(t), text, { timeout });
 
     // Open the canvas requirements modal.
     await page.getByRole('button', { name: 'Edit canvas requirements' }).dispatchEvent('click');

@@ -125,7 +125,7 @@ export default async ({ url, workspace, page }) => {
     const switchCanvasVia = async (p, name) => {
         await p.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
         await p.getByRole('button', { name: `Open ${name} space` }).dispatchEvent('click');
-        await p.waitForFunction(t => document.body.innerText.includes(t), canvasContent[name], { timeout: 8000 });
+        await p.waitForFunction(t => visibleText().includes(t), canvasContent[name], { timeout: 8000 });
     };
 
     await page.setViewportSize({ width: 1280, height: 840 });

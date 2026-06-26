@@ -27,7 +27,7 @@ export default async ({ url, page }) => {
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForFunction(
-        () => document.body.innerText.includes('placed by old-shape canvas'),
+        () => visibleText().includes('placed by old-shape canvas'),
         undefined, { timeout: 15000 });
     await sleep(400);
 

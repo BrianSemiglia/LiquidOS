@@ -6,7 +6,7 @@
 // this same JS, so verifying the toggle in a sandbox is verifying
 // what the menu drives.
 //
-// Visibility is asserted via document.body.innerText: the panel
+// Visibility is asserted via visibleText(): the panel
 // contains a "Copy" button that is only visible when the panel is
 // open. When hidden, "Copy" is absent from the page's text.
 //
@@ -20,7 +20,7 @@ export const fixture = './probe-debug-panel-toggle.liquidos';
 const PANEL_LABEL = 'Copy';
 
 const panelVisible = (page) => page.evaluate(
-    label => document.body.innerText.includes(label),
+    label => visibleText().includes(label),
     PANEL_LABEL
 );
 

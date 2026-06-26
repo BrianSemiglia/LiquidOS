@@ -26,10 +26,10 @@ import { CHAT_STUB_REPLY } from '../../../agent/test/chat-stub-agent.js';
 
 export const fixture = null;
 
-const onScreen = (page, text) => page.evaluate(t => document.body.innerText.includes(t), text);
+const onScreen = (page, text) => page.evaluate(t => visibleText().includes(t), text);
 const waitForOnScreen = async (page, text, ms = 15000) => {
     try {
-        await page.waitForFunction(t => document.body.innerText.includes(t), text, { timeout: ms });
+        await page.waitForFunction(t => visibleText().includes(t), text, { timeout: ms });
         return true;
     } catch {
         return false;

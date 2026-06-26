@@ -26,9 +26,9 @@ export const fixture = './probe-relationship-peer-remount.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const sees = (page, text) =>
-    page.evaluate(t => (document.body.innerText || '').includes(t), text);
+    page.evaluate(t => (visibleText() || '').includes(t), text);
 const seesText = (page, text, timeout) =>
-    page.waitForFunction(t => (document.body.innerText || '').includes(t), text, { timeout });
+    page.waitForFunction(t => (visibleText() || '').includes(t), text, { timeout });
 
 export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));

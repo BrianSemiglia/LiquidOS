@@ -10,7 +10,7 @@
 //     harness's normal fs.watch path. No fake runtime, no scripted
 //     dispatch.
 //
-// Every assertion is a visible-string check — `document.body.innerText`,
+// Every assertion is a visible-string check — `visibleText()`,
 // or the value the user sees in an editable field. The probe never reads
 // the wire protocol, an endpoint, a data-* attribute, or the DOM shape, so
 // the rendering, the protocol, and where state persists can all change
@@ -64,17 +64,17 @@ export default async ({ url, workspace, page, browser }) => {
 
     // --- visible-text assertions ------------------------------------------
     // The only thing a probe is allowed to assert: is the string on screen?
-    const onScreen = (p, text) => p.evaluate(t => document.body.innerText.includes(t), text);
+    const onScreen = (p, text) => p.evaluate(t => visibleText().includes(t), text);
     const waitOnScreen = async (p, text, timeout = 5000) => {
         try {
-            await p.waitForFunction(t => document.body.innerText.includes(t), text, { timeout });
+            await p.waitForFunction(t => visibleText().includes(t), text, { timeout });
         } catch {
             throw new Error('never appeared on screen: ' + JSON.stringify(text));
         }
     };
     const waitOffScreen = async (p, text, timeout = 5000) => {
         try {
-            await p.waitForFunction(t => !document.body.innerText.includes(t), text, { timeout });
+            await p.waitForFunction(t => !visibleText().includes(t), text, { timeout });
         } catch {
             throw new Error('still on screen: ' + JSON.stringify(text));
         }

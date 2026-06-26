@@ -40,9 +40,9 @@ export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[pageerror]', err.message));
 
     const onScreen = (text, timeout = 8000) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout });
+        t => visibleText().includes(t), text, { timeout });
     const offScreen = (text, timeout = 8000) => page.waitForFunction(
-        t => !document.body.innerText.includes(t), text, { timeout });
+        t => !visibleText().includes(t), text, { timeout });
 
     // The component's Requirements button is system chrome. When the card is
     // folded the harness must keep it visible to the user — present, a real box,

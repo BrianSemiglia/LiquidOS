@@ -21,9 +21,9 @@ export default async ({ url, page }) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const onScreen  = (text, timeout = 5000) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout });
+        t => visibleText().includes(t), text, { timeout });
     const offScreen = (text, timeout = 5000) => page.waitForFunction(
-        t => !document.body.innerText.includes(t), text, { timeout });
+        t => !visibleText().includes(t), text, { timeout });
 
     await page.getByRole('button', { name: 'Edit canvas requirements' }).click();
 
@@ -49,7 +49,7 @@ export default async ({ url, page }) => {
     // Neither "Generate" nor "Repair" should appear on screen.
     await sleep(300);
     const recoverVisible = await page.evaluate(
-        () => document.body.innerText.includes('Generate') || document.body.innerText.includes('Repair')
+        () => visibleText().includes('Generate') || visibleText().includes('Repair')
     );
     if (recoverVisible) {
         throw new Error('recover callback (Generate or Repair) became visible after the user cleared the textarea on a zero-component canvas');

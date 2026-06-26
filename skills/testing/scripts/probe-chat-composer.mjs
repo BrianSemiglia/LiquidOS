@@ -27,10 +27,10 @@ export const fixture = null;
 const COMPOSER = 'textarea[name="message"]';
 const SEND = 'button[type="submit"]';
 
-const onScreen = (page, text) => page.evaluate(t => document.body.innerText.includes(t), text);
+const onScreen = (page, text) => page.evaluate(t => visibleText().includes(t), text);
 const waitForOnScreen = async (page, text, ms = 15000) => {
     try {
-        await page.waitForFunction(t => document.body.innerText.includes(t), text, { timeout: ms });
+        await page.waitForFunction(t => visibleText().includes(t), text, { timeout: ms });
         return true;
     } catch {
         return false;
@@ -38,7 +38,7 @@ const waitForOnScreen = async (page, text, ms = 15000) => {
 };
 // How many reply bubbles are on screen — one per successful send.
 const replyCount = (page) => page.evaluate(t => {
-    const text = document.body.innerText;
+    const text = visibleText();
     let n = 0, i = 0;
     while ((i = text.indexOf(t, i)) !== -1) { n++; i += t.length; }
     return n;

@@ -21,9 +21,9 @@ export default async ({ url, workspace, page }) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const onScreen = (text) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout: 10000 });
+        t => visibleText().includes(t), text, { timeout: 10000 });
     const offScreen = (text) => page.waitForFunction(
-        t => !document.body.innerText.includes(t), text, { timeout: 5000 });
+        t => !visibleText().includes(t), text, { timeout: 5000 });
 
     // The fixture boots with a broken index.json → "Repair" appears.
     await onScreen('Repair').catch(() => {

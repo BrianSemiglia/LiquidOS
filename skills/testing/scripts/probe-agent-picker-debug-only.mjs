@@ -9,7 +9,7 @@
 //
 // FLAG: the picker is a <select> whose only text is the dynamic agent
 // names it's populated with — it has no static label of its own, and a
-// <select>'s option text is not reliably present in document.body.innerText
+// <select>'s option text is not reliably present in visibleText()
 // across engines. So, like the geometry assertion in
 // probe-debug-panel-toggle.mjs, visibility here is asserted by the
 // element's actual rendered state (isVisible() — display:none vs shown),

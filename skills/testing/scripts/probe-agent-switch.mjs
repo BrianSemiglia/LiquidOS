@@ -36,9 +36,9 @@ export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
 
     const onScreen = (text, timeout = 10000) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout });
+        t => visibleText().includes(t), text, { timeout });
     const offScreen = (text, timeout = 10000) => page.waitForFunction(
-        t => !document.body.innerText.includes(t), text, { timeout });
+        t => !visibleText().includes(t), text, { timeout });
     const selectedAgentLabel = () => page.evaluate(() => {
         const sel = document.getElementById('agent-select');
         return sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent.trim() : '';

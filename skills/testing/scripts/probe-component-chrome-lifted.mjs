@@ -29,7 +29,7 @@ export default async ({ url, page }) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     // Wait for the fixture's component content ("200px wide") to confirm render.
     await page.waitForFunction(
-        t => document.body.innerText.includes(t),
+        t => visibleText().includes(t),
         '200px wide',
         { timeout: 15000 }
     );

@@ -54,6 +54,39 @@ const withTimeout = (promise, label) => Promise.race([
 ]);
 
 const { chromium } = await import('playwright');
+
+// What a person sees on the screen — nothing about how it's built.
+//
+// Probes assert on visible strings and must stay zero-knowledge of the
+// implementation: a component's content renders the same to a user whether
+// it sits in the light DOM or behind a harness-owned shadow boundary. The
+// built-in `document.body.innerText` is the wrong proxy for that — by spec
+// it does NOT descend into shadow trees, so it goes blind the moment the
+// harness isolates a component. `visibleText()` reads the page the way a
+// user does: the rendered, visible text, skipping hidden/script/style and
+// descending THROUGH open shadow roots. Probes call visibleText() in place
+// of document.body.innerText; this init script defines it on every page
+// (including ones a probe opens itself, via the newPage wrapper below).
+const VISIBLE_TEXT_INIT = `
+window.visibleText = () => {
+  const out = [];
+  const walk = (node) => {
+    const t = node.nodeType;
+    if (t === 3) { out.push(node.nodeValue); return; }
+    if (t === 1) {
+      const tag = node.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TEMPLATE') return;
+      const cs = getComputedStyle(node);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return;
+      if (node.shadowRoot) node.shadowRoot.childNodes.forEach(walk);
+    }
+    if (t === 1 || t === 9 || t === 11) node.childNodes.forEach(walk);
+  };
+  if (document.body) walk(document.body);
+  return out.join(' ').replace(/\\s+/g, ' ').trim();
+};
+`;
+
 let exitCode = 0;
 
 for (const probe of probes) {
@@ -93,6 +126,16 @@ for (const probe of probes) {
   }
 
   const browser = await chromium.launch({ headless: true });
+  // Make visibleText() available on every page this probe touches — the one
+  // we hand it, and any it opens itself via browser.newPage() (multi-peer
+  // probes). Wrap newPage so the init script is registered before each page
+  // navigates, so visibleText exists by the time the probe reads the screen.
+  const rawNewPage = browser.newPage.bind(browser);
+  browser.newPage = async (...args) => {
+    const p = await rawNewPage(...args);
+    await p.addInitScript(VISIBLE_TEXT_INIT);
+    return p;
+  };
   const page = await browser.newPage();
   try {
     await withTimeout(run({ url: sandbox.url, workspace: sandbox.workspace, page, browser }), name);

@@ -22,9 +22,9 @@ export default async ({ url, page }) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const onScreen = (text, timeout = 15000) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout });
+        t => visibleText().includes(t), text, { timeout });
     const offScreen = (text, timeout = 10000) => page.waitForFunction(
-        t => !document.body.innerText.includes(t), text, { timeout });
+        t => !visibleText().includes(t), text, { timeout });
 
     // Wait for the runtime Repair button to surface (component has thrown).
     await onScreen('Repair', 15000).catch(() => {
@@ -39,7 +39,7 @@ export default async ({ url, page }) => {
     //   failure → writes "contract failed:" to the screen (with the prompt)
     await onScreen('runtime repaired', 10000).catch(async () => {
         // Check whether a contract failure was surfaced instead.
-        const screenText = await page.evaluate(() => document.body.innerText);
+        const screenText = await page.evaluate(() => visibleText());
         if (screenText.includes('contract failed:')) {
             console.error('--- screen text at failure ---');
             console.error(screenText);

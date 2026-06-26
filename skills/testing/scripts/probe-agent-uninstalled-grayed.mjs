@@ -14,7 +14,7 @@
 // disabled nothing — or everything — would fail.
 //
 // FLAG: like probe-agent-picker-debug-only.mjs, a <select>'s option text is
-// not reliably in document.body.innerText across engines, and "grayed out"
+// not reliably in visibleText() across engines, and "grayed out"
 // is exactly the browser's native rendering of a disabled <option>. So the
 // grayed state is asserted by the option's actual disabled state — precisely
 // what a person perceives — rather than by scraping text.

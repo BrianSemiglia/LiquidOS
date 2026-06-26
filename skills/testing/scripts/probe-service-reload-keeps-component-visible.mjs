@@ -42,7 +42,7 @@ export default async ({ url, workspace, page }) => {
     await page.waitForFunction(() => !!window.__lqpatch, undefined, { timeout: 10000 });
 
     const onScreen = (text) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout: 10000 });
+        t => visibleText().includes(t), text, { timeout: 10000 });
 
     // Wait for both visible strings to appear on screen.
     await onScreen('MARKER_BEFORE').catch(() => {
@@ -85,8 +85,8 @@ export default async ({ url, workspace, page }) => {
     await sleep(1200);
 
     // Assert both visible strings are still on screen — the user-visible test.
-    const markerPresent = await page.evaluate(() => document.body.innerText.includes('MARKER_BEFORE'));
-    const statusPresent = await page.evaluate(() => document.body.innerText.includes('INITIAL'));
+    const markerPresent = await page.evaluate(() => visibleText().includes('MARKER_BEFORE'));
+    const statusPresent = await page.evaluate(() => visibleText().includes('INITIAL'));
     expect('after service reload: MARKER_BEFORE still on screen', markerPresent,
         'component content disappeared after service restart');
     expect('after service reload: INITIAL still on screen', statusPresent,

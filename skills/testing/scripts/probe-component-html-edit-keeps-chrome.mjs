@@ -44,7 +44,7 @@ export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[pageerror]', err.message));
 
     const onScreen = (text, timeout = 8000) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout });
+        t => visibleText().includes(t), text, { timeout });
     // The requirements button — the flip affordance the user reaches for to
     // open a component's requirements — is harness chrome on every component.
     // It has no text to read, but it's a real, user-facing thing, so assert

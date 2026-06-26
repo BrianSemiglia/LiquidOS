@@ -30,10 +30,10 @@ export default async ({ url, page }) => {
   page.on('pageerror', err => console.log('[pageerror]', err.message));
 
   const onScreen = (text, timeout = 6000) => page.waitForFunction(
-    t => document.body.innerText.includes(t), text, { timeout });
+    t => visibleText().includes(t), text, { timeout });
   const offScreen = (text, timeout = 6000) => page.waitForFunction(
-    t => !document.body.innerText.includes(t), text, { timeout });
-  const visible = text => page.evaluate(t => document.body.innerText.includes(t), text);
+    t => !visibleText().includes(t), text, { timeout });
+  const visible = text => page.evaluate(t => visibleText().includes(t), text);
 
   const WIDGET = 'A component with some content to render inside the requirements modal';
   const openModal = () => page.getByRole('button', { name: 'Edit Widget requirements' }).dispatchEvent('click');

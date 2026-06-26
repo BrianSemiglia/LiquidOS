@@ -22,9 +22,9 @@ export default async ({ url, workspace, page }) => {
     await sleep(1500);
 
     const onScreen = (text) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout: 8000 });
+        t => visibleText().includes(t), text, { timeout: 8000 });
     const offScreen = (text) => page.waitForFunction(
-        t => !document.body.innerText.includes(t), text, { timeout: 8000 });
+        t => !visibleText().includes(t), text, { timeout: 8000 });
 
     // Pre-condition: no visible "Repair" text yet (an undamaged canvas
     // with no failing components shouldn't show one).

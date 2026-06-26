@@ -28,9 +28,9 @@ const gitLog = workspace => execFileSync('git', ['log', '--format=%B'], { cwd: w
 export default async ({ url, workspace, page }) => {
   page.on('pageerror', err => console.log('[pageerror]', err.message));
   const onScreen = (text, timeout = 8000) => page.waitForFunction(
-    t => document.body.innerText.includes(t), text, { timeout });
+    t => visibleText().includes(t), text, { timeout });
   const offScreen = (text, timeout = 15000) => page.waitForFunction(
-    t => !document.body.innerText.includes(t), text, { timeout });
+    t => !visibleText().includes(t), text, { timeout });
 
   const spaces = page.getByRole('button', { name: 'Show all spaces' });
 

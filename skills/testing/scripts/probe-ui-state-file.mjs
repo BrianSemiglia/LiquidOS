@@ -32,9 +32,9 @@ export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
 
     const onScreen = (text, timeout = 6000) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout });
+        t => visibleText().includes(t), text, { timeout });
     const offScreen = (text, timeout = 6000) => page.waitForFunction(
-        t => !document.body.innerText.includes(t), text, { timeout });
+        t => !visibleText().includes(t), text, { timeout });
 
     const uiStateFile = path.join(workspace, 'ui-state.json');
     const write = (state) => {

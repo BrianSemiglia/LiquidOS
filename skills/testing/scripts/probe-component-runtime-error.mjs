@@ -24,13 +24,13 @@ export default async ({ url, workspace, page }) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const onScreen = (text) => page.waitForFunction(
-        t => document.body.innerText.includes(t), text, { timeout: 8000 });
+        t => visibleText().includes(t), text, { timeout: 8000 });
     const offScreen = (text) => page.waitForFunction(
-        t => !document.body.innerText.includes(t), text, { timeout: 8000 });
+        t => !visibleText().includes(t), text, { timeout: 8000 });
 
     // The component renders its own content.
     await page.waitForFunction(
-        t => document.body.innerText.includes(t),
+        t => visibleText().includes(t),
         'component that throws asynchronously after mount', { timeout: 20000 });
 
     // 1) The thrown error surfaces a "Repair" affordance the user can see.

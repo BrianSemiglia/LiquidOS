@@ -31,9 +31,9 @@ export default async ({ url, workspace, page }) => {
   page.on('pageerror', err => console.log('[page error]', err.message));
 
   const onScreen = (text, timeout = 8000) => page.waitForFunction(
-    t => document.body.innerText.includes(t), text, { timeout });
+    t => visibleText().includes(t), text, { timeout });
   const offScreen = (text, timeout = 8000) => page.waitForFunction(
-    t => !document.body.innerText.includes(t), text, { timeout });
+    t => !visibleText().includes(t), text, { timeout });
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   // Wait for both components' visible text to confirm the canvas rendered.
@@ -44,7 +44,7 @@ export default async ({ url, workspace, page }) => {
 
   // --- Step 1: working relationship → no Repair button on screen ----------
   const hasRepair = await page.evaluate(
-    () => document.body.innerText.includes('Repair')
+    () => visibleText().includes('Repair')
   );
   if (hasRepair) {
     throw new Error('source already shows Repair before any failure');
@@ -66,7 +66,7 @@ export const mount = () => {
   // --- Step 3: source's Repair must surface on screen -------------------
   // The runtime repair button starts hidden (display:none); when the harness
   // attributes the throw to the sender, it un-hides it so "Repair" appears
-  // in document.body.innerText.
+  // in visibleText().
   await onScreen('Repair', 15000).catch(() => {
     throw new Error('source Repair never surfaced on screen after relationship broke');
   });
@@ -77,7 +77,7 @@ export const mount = () => {
   // buttons. Count occurrences of "Repair" in the visible text — more than
   // one means the sink has also un-hidden its repair button.
   const repairCount = await page.evaluate(
-    () => (document.body.innerText.match(/Repair/g) || []).length
+    () => (visibleText().match(/Repair/g) || []).length
   );
   if (repairCount > 1) {
     throw new Error('sink showed Repair too — receiver must not claim relationship ownership (' + repairCount + ' Repair buttons visible)');

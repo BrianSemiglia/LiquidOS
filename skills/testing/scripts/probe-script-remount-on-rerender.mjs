@@ -25,7 +25,7 @@ export const fixture = './probe-script-remount-on-rerender.liquidos';
 
 const seesText = (page, text, timeout) =>
     page.waitForFunction(
-        t => (document.body.innerText || '').includes(t),
+        t => (visibleText() || '').includes(t),
         text,
         { timeout }
     );

@@ -41,7 +41,7 @@ export default async ({ url, page }) => {
     // "other" is empty, so home's rendered content ("Gizmo") leaving the screen
     // is the visible proof the switch landed — no private flag to read.
     await page.waitForFunction(
-        () => !document.body.innerText.includes('Gizmo'),
+        () => !visibleText().includes('Gizmo'),
         undefined, { timeout: 5000 }
     );
     await sleep(500);
