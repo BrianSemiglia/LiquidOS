@@ -75,6 +75,10 @@ The `run` element spawns the file at its `path` as a process. Conventional layou
 - internal state in `components/<name>/data/`
 - diagnostics on **stderr** (the harness logs it) — `stdout` is reserved for the view (below)
 
+**Native helpers (Swift, etc.) are host-compiled.** Ship the source (`IO.swift`), never the compiled binary. Build it on the running host into a disposable cache (`data/.runtime/`) and `.gitignore` that cache. A compiled binary that travels inside a copied or downloaded workspace is Gatekeeper-blocked on another Mac, costing the user a second "developer cannot be verified" approval on top of the app itself.
+
+Never trust a binary that arrived from elsewhere: if the cached binary carries `com.apple.quarantine`, it came from a copied/downloaded workspace and may not match the `IO.swift` you can read — **rebuild from source** rather than running it, so the binary provably is the visible source. A freshly compiled binary isn't quarantined, so only as a fallback (build skipped) strip `com.apple.quarantine` before launch. See the `programmatic-native` example.
+
 Reach for this shape only when something genuinely external is producing the content — a process that watches files, holds a socket, talks to native APIs. Self-contained interactive components don't need it; their DOM goes inline.
 
 ### How a service updates the view

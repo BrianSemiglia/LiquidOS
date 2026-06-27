@@ -34,11 +34,27 @@ stop() {
 
 trap stop TERM INT EXIT
 
-if [ ! -x "${io_binary}" ] || [ IO.swift -nt "${io_binary}" ]; then
+# IO is a host-specific build artifact: compile it here, on the machine that
+# runs it, into data/.runtime/ — a disposable per-host cache. Never commit or
+# distribute the compiled binary; ship only IO.swift and let each host build it.
+#
+# Rebuild when the binary is missing or stale, AND when it arrived quarantined:
+# a com.apple.quarantine attr means the binary came from elsewhere (a copied or
+# downloaded workspace), so never trust it — it may not match the IO.swift you
+# can read. Rebuilding from source guarantees the binary IS this IO.swift.
+if [ ! -x "${io_binary}" ] \
+   || [ IO.swift -nt "${io_binary}" ] \
+   || xattr -p com.apple.quarantine "${io_binary}" >/dev/null 2>&1; then
   log "compiling IO.swift -> ${io_binary}"
   swiftc IO.swift -o "${io_binary}" -framework AVFoundation >> "${log_path}" 2>&1
   chmod +x "${io_binary}"
 fi
+
+# Fallback: a freshly compiled binary is never quarantined, but if one slipped
+# through unbuilt (e.g. swiftc unavailable), strip the attr so macOS Gatekeeper
+# doesn't block its launch with a separate "developer cannot be verified" prompt
+# — a second approval on top of the app itself.
+xattr -d com.apple.quarantine "${io_binary}" 2>/dev/null || true
 
 node render.js >> "${log_path}" 2>&1 &
 render_pid=$!

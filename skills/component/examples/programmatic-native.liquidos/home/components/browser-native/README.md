@@ -16,17 +16,20 @@ browser-native/
   component.html
   feature-requirements.txt
   rendered.html             (painted output the canvas displays)
+  .gitignore                (excludes the disposable build cache below)
   services/
     start.sh
     render.js
-    IO.swift
+    IO.swift                (source — ships; the compiled binary does not)
     package.json
   data/
     truth.json              (fast-changing state from the Swift process)
-    .runtime/
-      IO
+    .runtime/               (disposable per-host cache — never commit or ship)
+      IO                    (compiled on each host from IO.swift)
       service.log
 ```
+
+Only `IO.swift` is distributed; `data/.runtime/IO` is compiled on the host that runs it and is excluded by `.gitignore`. Shipping the compiled binary inside a copied or downloaded workspace makes macOS Gatekeeper block its first launch on another Mac with a separate "developer cannot be verified" prompt, so `start.sh` rebuilds it from source and strips any leftover quarantine before launch.
 
 `services/start.sh` starts the Swift microphone monitor and a renderer HTTP service. The Swift process writes fast-changing microphone state to `data/truth.json`. The renderer streams updates to the already-rendered view via Server-Sent Events, so the harness doesn't need to re-render the canvas for every volume update. The renderer writes `rendered.html` once when the service starts so the view has the current local stream URL.
 

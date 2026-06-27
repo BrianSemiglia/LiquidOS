@@ -1,0 +1,4 @@
+# Disposable per-host build cache: compiled native helpers (IO), service logs.
+# Never commit or distribute these — IO is rebuilt from IO.swift on each host,
+# and a copied binary trips macOS Gatekeeper on another Mac.
+data/.runtime/
