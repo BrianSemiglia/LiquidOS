@@ -92,33 +92,14 @@ Browser console is free of relevant runtime errors.
 
 ## Applying changes back to the source workspace
 
-When the changes verify in the sandbox, POST the batch to the **source** server's writes endpoint:
+When the changes verify in the sandbox, land each changed file into the source
+workspace by writing it through the workspace endpoint: `PUT /workspace/<path>`,
+one file per call, where `<path>` is workspace-relative (e.g.
+`home/components/foo/component.html`). For a file you produced in the sandbox,
+read its bytes and PUT them; there is no separate batch or copy endpoint.
 
-```sh
-curl -X POST http://127.0.0.1:<source-port>/workspace/writes \
-    -H 'content-type: application/json' \
-    -d '{
-      "sandbox": "<sandbox-workspace-path>",
-      "writes": [
-        { "path": "<workspace-relative>", "from": "<sandbox-relative>" },
-        { "path": "<workspace-relative>", "content": <inline JSON value> }
-      ]
-    }'
-```
-
-Each `write` entry is one of:
-
-- `{ path, content }` — inline JSON value, written to the workspace as pretty JSON.
-- `{ path, from }` — copy from disk. `from` resolves against the optional top-level `sandbox` when relative, or can be absolute.
-
-What the endpoint does, in one shot:
-
-- Validates each path is workspace-relative; resolves inside the workspace; if a `from` is sandbox-relative, also inside the sandbox.
-- Pauses the source server's filesystem watcher.
-- Processes each write in order, creating parent directories as needed.
-- Resumes the watcher and emits one refresh broadcast.
-
-The user sees a single coherent update instead of a per-file flicker. If any write fails partway, the response is 500 with a count of how many landed; the workspace is left in a partial state and a refresh is emitted so the client sees what actually happened. Workspace-relative paths look like `"home/components/foo/component.html"`. Absolute paths and `..` traversal are rejected for `path`.
+The source server's watcher sees the writes and coalesces the burst into a
+single refresh, so the user gets one coherent update — no per-file flicker.
 
 ## Services during testing
 

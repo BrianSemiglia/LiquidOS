@@ -837,6 +837,7 @@ const processOutputJob = async job => {
             canvasPath: jobCanvasPath,
             indexPath: path.join(jobCanvasPath, 'index.json'),
             workingDirectory: WORKSPACE_PATH,
+            origin: 'http://127.0.0.1:' + PORT,
             systemPromptPath: AGENTS_RUNTIME_PATH
         });
 
@@ -1048,9 +1049,12 @@ const applyActiveAgentFromFile = () => {
 // One @parcel/watcher subscription on the whole workspace replaces the
 // fs.watch instances this used to juggle. @parcel/watcher drives the native
 // FSEvents/inotify backends directly and reliably reports every change —
-// including the server's own writes (the lqpatch writeFile PUT, /writes,
-// /canvas) — so no endpoint needs to announce its own writes; the watcher is
-// the single source of "a file changed → tell the clients". It's
+// including writes through the workspace PUT endpoint and /canvas — so no
+// endpoint needs to announce its own writes; the watcher is
+// the single source of "a file changed → tell the clients". It also
+// coalesces a burst of writes (e.g. an agent landing several files) into a
+// single graph refresh, so no caller needs a batch endpoint to get one
+// coherent update. It's
 // workspace-scoped (WORKSPACE_PATH never changes for the life of the server),
 // so the subscription is established once and never torn down on a canvas
 // switch — the close/reopen cycle that used to race FSEvents and drop events
@@ -2117,115 +2121,6 @@ const server = http.createServer(async (req, res) => {
             } catch (error) {
                 send(res, 400, error.message);
             }
-            return;
-        }
-
-        if (req.method === 'POST' && url.pathname === '/writes') {
-            // One endpoint for any workspace write — inline content
-            // (browser persisting state) or files copied from a sandbox
-            // (agent landing a verified batch). Each write entry takes one
-            // of two shapes:
-            //   { path, content }        — inline; content is a JSON-encodable
-            //                              value, written as JSON to path.
-            //   { path, from }           — copy; from is absolute or
-            //                              sandbox-relative if `sandbox` is set.
-            // The watcher pauses for the full batch and emits one refresh
-            // when the writes finish, so the client sees one coherent update.
-            let body;
-            try {
-                body = JSON.parse(await readBody(req) || '{}');
-            } catch (error) {
-                send(res, 400, 'invalid json: ' + error.message);
-                return;
-            }
-
-            const sandbox = body.sandbox != null ? String(body.sandbox) : null;
-            const writes = Array.isArray(body.writes) ? body.writes : null;
-
-            if (sandbox && !path.isAbsolute(sandbox)) {
-                send(res, 400, 'sandbox must be an absolute path when provided');
-                return;
-            }
-            if (sandbox && (!fs.existsSync(sandbox) || !fs.statSync(sandbox).isDirectory())) {
-                send(res, 400, 'sandbox path does not exist');
-                return;
-            }
-            if (!writes || writes.length === 0) {
-                send(res, 400, 'writes must be a non-empty array');
-                return;
-            }
-
-            const planned = [];
-            for (const write of writes) {
-                if (!write || typeof write !== 'object') {
-                    send(res, 400, 'each write must be an object');
-                    return;
-                }
-                const rel = typeof write.path === 'string' ? write.path : '';
-                if (!rel || path.isAbsolute(rel)) {
-                    send(res, 400, 'write.path must be a non-empty workspace-relative string');
-                    return;
-                }
-                const toAbs = path.resolve(WORKSPACE_PATH, rel);
-                if (!pathIsInside(toAbs, WORKSPACE_PATH)) {
-                    send(res, 400, 'write.path escapes workspace: ' + rel);
-                    return;
-                }
-                if (write.content !== undefined) {
-                    planned.push({ rel, toAbs, kind: 'inline', content: write.content });
-                } else if (typeof write.from === 'string' && write.from.length > 0) {
-                    const fromAbs = path.isAbsolute(write.from)
-                        ? path.resolve(write.from)
-                        : (sandbox ? path.resolve(sandbox, write.from) : null);
-                    if (!fromAbs) {
-                        send(res, 400, 'write.from is relative but no sandbox was provided: ' + rel);
-                        return;
-                    }
-                    if (sandbox && !pathIsInside(fromAbs, sandbox)) {
-                        send(res, 400, 'write.from escapes sandbox: ' + rel);
-                        return;
-                    }
-                    if (!fs.existsSync(fromAbs)) {
-                        send(res, 400, 'write.from does not exist: ' + rel);
-                        return;
-                    }
-                    planned.push({ rel, toAbs, kind: 'copy', fromAbs });
-                } else {
-                    send(res, 400, 'write must include either `content` or `from`: ' + rel);
-                    return;
-                }
-            }
-
-            const applied = [];
-            try {
-                for (const write of planned) {
-                    fs.mkdirSync(path.dirname(write.toAbs), { recursive: true });
-                    if (write.kind === 'inline') {
-                        // String content writes raw (for plain-text files like
-                        // feature-requirements.txt, feature-requirements.txt).
-                        // Anything else is JSON-encodable structured data and
-                        // gets pretty-printed (canvas/component state.json,
-                        // view.json, index.json, etc.).
-                        const body = typeof write.content === 'string'
-                            ? write.content
-                            : JSON.stringify(write.content, null, 2) + '\n';
-                        fs.writeFileSync(write.toAbs, body);
-                    } else {
-                        fs.copyFileSync(write.fromAbs, write.toAbs);
-                    }
-                    applied.push(write.rel);
-                }
-            } catch (error) {
-                logServer('workspace', 'writes failed mid-batch', { error: error.message, applied });
-                send(res, 500, 'write failed after ' + applied.length + ' of ' + planned.length + ': ' + error.message);
-                return;
-            }
-            // No explicit broadcast: the workspace watcher sees these writes —
-            // it coalesces the batch into one workspace-file event per file
-            // plus a single graph refresh — so the client gets one coherent
-            // update without this endpoint announcing anything itself.
-            logServer('workspace', 'writes complete', { files: applied });
-            send(res, 200, JSON.stringify({ applied }), 'application/json; charset=utf-8');
             return;
         }
 
