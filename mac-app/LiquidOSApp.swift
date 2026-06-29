@@ -650,8 +650,8 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
           <main>
             \(messageHTML)
             <div class="actions">
-              <button onclick="window.webkit.messageHandlers.liquidosMac.postMessage('open')">Open</button>
-              <button class="secondary" onclick="window.webkit.messageHandlers.liquidosMac.postMessage('create')">Create</button>
+              <button class="secondary" onclick="window.webkit.messageHandlers.liquidosMac.postMessage('open')">Open</button>
+              <button onclick="window.webkit.messageHandlers.liquidosMac.postMessage('create')">Create</button>
             </div>
           </main>
         </body>
