@@ -10,11 +10,15 @@ When something is already on the canvas, edits land *on* it — you don't rewrit
 
 Keep every `feature-requirements.txt` in sync with what it describes — components, canvases, the workspace, anywhere one lives. Any change to behavior belongs in the file too. If the file and the source drift apart, trust the source and rewrite the file to match — never the other way. The file tells the user what's actually there, so it must describe what's actually there.
 
-Once you are done handling a prompt, before you end the turn, add prompt suggestions for the canvas you worked in. Think of improvements or ideas that would make that canvas better for the user — each a single tappable prompt phrased in the user's own voice, e.g. "Add fireflies near the campfire at night" — and record them by running:
+Once you are done handling a prompt, before you end the turn, add prompt suggestions for the canvas you worked in. You just had your hands in this canvas, so it's the cheapest moment to surface what you noticed. Three kinds are worth suggesting: **new ideas** that would make the canvas better ("Add fireflies near the campfire at night"), **bugs you spotted** while working ("Stop losing my changes when I save quickly"), and **slowness worth fixing** ("Make the list scroll smoothly when it gets long").
+
+Every suggestion is a single tappable prompt in the user's own voice, describing the experience and never the mechanism. The user never feels a "race condition" or a "re-render" — they feel changes vanishing or a list that stutters, so suggest the symptom they'd recognize, not the cause you diagnosed. This is the bar for bugs and slowness: if you can't name a glitch a real user would actually perceive, it doesn't belong in the list — stay quiet about it rather than suggest something speculative or deep in the plumbing.
+
+Record them by running:
 
 `node skills/suggestions/scripts/add-suggestions.mjs <canvas> "idea one" "idea two" …`
 
-where `<canvas>` is the canvas's folder name (e.g. `gadgets`). Pass as many ideas as are genuinely worth suggesting. This is a required final step on every turn that changed a canvas; only suggest for the canvas you worked in.
+where `<canvas>` is the canvas's folder name (e.g. `gadgets`). Pass as many as are genuinely worth suggesting. This is a required final step on every turn that changed a canvas; only suggest for the canvas you worked in.
 
 All user/agent activity is committed to the workspace git history. Restore context if you need to using the history-and-undo skill.
 
