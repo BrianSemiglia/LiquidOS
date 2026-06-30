@@ -61,4 +61,4 @@ DOM ops (`replace`, `append`, `prepend`, `setAttr`, `remove`) are matched agains
 
 Emit markers directly — not in markdown code fences, not as quoted examples in prose — the sniffer treats every well-formed marker as a real dispatch. To describe the syntax in prose, omit the angle brackets.
 
-Markers with unknown ops, missing targets, or targets outside the page's allow-list are rejected and logged.
+Markers with unknown ops or missing targets are rejected and logged. A `writeFile` is rejected too unless its path is workspace-relative with an allowed extension (`.json`, `.txt`, `.js`, `.html`, `.css`).

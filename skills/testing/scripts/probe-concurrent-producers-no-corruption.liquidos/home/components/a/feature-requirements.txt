@@ -1,2 +1,0 @@
-Holds a streaming patch open across a delay so the other producer's
-patches land in the gap. Its stream must complete in #a-status uncorrupted.

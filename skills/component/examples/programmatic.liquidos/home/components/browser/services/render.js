@@ -82,9 +82,6 @@ const renderView = origin => {
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ done: this.checked })
           })
-          .then(() => fetch('${origin}/view'))
-          .then(response => response.text())
-          .then(html => this.closest('.todo-app').outerHTML = html)
           .catch(error => this.closest('.todo-app').querySelector('[data-status]').textContent = error.message);
         ">
         <span class="todo-title">${escapeHtml(todo.text)}</span>
@@ -93,9 +90,6 @@ const renderView = origin => {
         this.closest('.todo-item').classList.add('is-removing');
         setTimeout(() => {
           fetch('${origin}/api/todos/${encodeURIComponent(todo.id)}', { method: 'DELETE' })
-            .then(() => fetch('${origin}/view'))
-            .then(response => response.text())
-            .then(html => this.closest('.todo-app').outerHTML = html)
             .catch(error => this.closest('.todo-app').querySelector('[data-status]').textContent = error.message);
         }, 180);
       ">×</button>
@@ -381,9 +375,6 @@ const renderView = origin => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: this.text.value })
       })
-      .then(() => fetch('${origin}/view'))
-      .then(response => response.text())
-      .then(html => this.closest('.todo-app').outerHTML = html)
       .catch(error => {
         this.querySelector('button').disabled = false;
         this.querySelector('.todo-input').style.transform = '';
@@ -399,13 +390,17 @@ const renderView = origin => {
 </section>`;
 };
 
-// The component's body is whatever component.html includes — here a plain
-// rendered.html this service rewrites with the current todo list. The canvas
-// re-renders it on every write; the inline handlers in the markup keep it live
-// by fetching /view directly between writes.
-const writeView = origin => {
-  fs.writeFileSync(path.join(component, 'rendered.html'), renderView(origin));
-  log('writeView', { origin, path: path.join(component, 'rendered.html') });
+// The component shell (component.html) gives us a #todo-root region; this
+// service streams the rendered list into it as an <lqpatch> on fd 3 — the
+// harness's view-patch channel — so each change lands live with no file write.
+// stdout/stderr stay free for the logging above.
+let viewOrigin = '';
+const writeView = () => {
+  // The component renders rendered.html through a <liquidos-file>; rewriting that
+  // file IS the whole view channel — the watcher morphs each change into the DOM,
+  // the same path the agent's file writes take. No fd 3, no lqpatch.
+  fs.writeFileSync(path.join(component, 'rendered.html'), renderView(viewOrigin));
+  log('writeView', { origin: viewOrigin });
 };
 
 const server = http.createServer((request, response) => {
@@ -415,36 +410,43 @@ const server = http.createServer((request, response) => {
     return send(response, 204, {}, '');
   }
 
-  if (request.method === 'GET' && request.url === '/view') {
-    return send(response, 200, { 'content-type': 'text/html; charset=utf-8' }, renderView(`http://127.0.0.1:${server.address().port}`));
-  }
-
   if (request.method === 'GET' && request.url === '/api/todos') {
     return json(response, 200, readTodos());
   }
 
   if (request.method === 'POST' && request.url === '/api/todos') {
     return readJson(request)
-      .then(body => json(response, 201, writeTodos([...readTodos(), { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text: String(body.text || '').trim() || 'Untitled todo', done: false }])))
+      .then(body => {
+        const todos = writeTodos([...readTodos(), { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, text: String(body.text || '').trim() || 'Untitled todo', done: false }]);
+        writeView();
+        return json(response, 201, todos);
+      })
       .catch(error => json(response, 400, { error: error.message }));
   }
 
   if (request.method === 'PATCH' && request.url.startsWith('/api/todos/')) {
     return readJson(request)
-      .then(patch => json(response, 200, writeTodos(readTodos().map(todo => todo.id === decodeURIComponent(request.url.split('/').pop() || '') ? { ...todo, ...patch } : todo))))
+      .then(patch => {
+        const todos = writeTodos(readTodos().map(todo => todo.id === decodeURIComponent(request.url.split('/').pop() || '') ? { ...todo, ...patch } : todo));
+        writeView();
+        return json(response, 200, todos);
+      })
       .catch(error => json(response, 400, { error: error.message }));
   }
 
   if (request.method === 'DELETE' && request.url.startsWith('/api/todos/')) {
-    return json(response, 200, writeTodos(readTodos().filter(todo => todo.id !== decodeURIComponent(request.url.split('/').pop() || ''))));
+    const todos = writeTodos(readTodos().filter(todo => todo.id !== decodeURIComponent(request.url.split('/').pop() || '')));
+    writeView();
+    return json(response, 200, todos);
   }
 
   return json(response, 404, { error: 'not found' });
 });
 
 server.listen(0, '127.0.0.1', () => {
-  log('started', `http://127.0.0.1:${server.address().port}`);
-  writeView(`http://127.0.0.1:${server.address().port}`);
+  viewOrigin = `http://127.0.0.1:${server.address().port}`;
+  log('started', viewOrigin);
+  writeView();
 });
 
 process.on('SIGTERM', () => {

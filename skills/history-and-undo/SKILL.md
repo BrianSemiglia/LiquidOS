@@ -1,6 +1,10 @@
 ---
 name: history-and-undo
 description: Restore LiquidOS context from git history and undo changes safely
+triggers:
+  - User asks to undo, revert, or roll back a change
+  - User asks what happened, what changed, or why something changed
+  - You need to restore context about prior prompts or activity before acting
 ---
 
 # Conversation History, Memory and Undo

@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-// Service "A" — the one the probe starts with. It paints its own marker into
-// the component's #svc region so a running service is visible on screen. When
-// the probe swaps component.html to service-b.js, the harness kills this; A's
-// marker stops being repainted and service-b paints SERVICE_B_LIVE instead —
-// the swap, made visible. The harness must do this without tearing down the
-// component's rendered view (the SURVIVED_THE_SWAP marker).
-//
-// Convention: stdout is the view-patch channel (lqpatch); stderr is diagnostics.
-const paint = () => process.stdout.write('<lqpatch op="replace" target="#svc">SERVICE_A_LIVE</lqpatch>\n');
+// Run service for the html-edit-swaps probe. It paints its liveness marker by
+// rewriting its own svc.html — a plain file write, no fd 3, no lqpatch. The
+// <liquidos-file> rendering svc.html morphs it in; on swap the harness kills
+// this one and the other rewrites svc.html with its own marker.
+const fs = require('fs');
+const path = require('path');
+const svcPath = path.join(__dirname, 'svc.html');
+const paint = () => fs.writeFileSync(svcPath, '<p id="svc">SERVICE_A_LIVE</p>\n');
 paint();
 setInterval(paint, 200);
 process.on('SIGTERM', () => process.exit(0));

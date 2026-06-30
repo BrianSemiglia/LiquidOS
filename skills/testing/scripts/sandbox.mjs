@@ -6,7 +6,7 @@
 // imports `bootSandbox` to bring them up and tears them down in a `finally`.
 //
 //   import { bootSandbox } from './sandbox.mjs';
-//   const peer = await bootSandbox('canvas-build.liquidos', { agent: 'none' });
+//   const peer = await bootSandbox('canvas-build.liquidos');  // omit agent → no-op runtime
 //   try { /* drive peer.url / peer.workspace */ } finally { peer.teardown(); }
 //
 // teardown SIGTERMs the launcher, whose own handler tears the server down

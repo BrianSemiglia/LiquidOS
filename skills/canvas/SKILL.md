@@ -66,8 +66,8 @@ export default (root, context) => {
 
     return {
         place(items, components) {
-            // Called on every change. items[i] is the already-mounted DOM
-            // element for components[i] — position it, that's all.
+            // Optional. Called on every change. items[i] is the already-mounted
+            // DOM element for components[i] — position it, that's all.
         },
         teardown() {
             // Cleanup before the next factory call (or canvas swap).
@@ -128,7 +128,7 @@ The harness owns the **canvas frame** (the `.canvas-shell` element `root` lives 
 
 **System chrome always sits above content, and survives whatever you do to a card.** The harness reserves the top of the z-order for its own chrome — the prompt bar and canvas buttons (above the whole frame), and each component's **Requirements** button (above that component's card). Your canvas content, including any per-card buttons or controls you add, must use **modest z-indices** so it never paints over that chrome. The frame's containment keeps your z-indices scoped to the canvas, so "modest" just means low — don't try to out-stack the harness.
 
-The per-component Requirements button lives in the component's own frame, so it lands in the right place and rides any transform you apply to the card (a 3D scene rotates it along with everything else). But if you *hide* the card — fold it to a pill with `opacity: 0` / `max-height: 0` on an ancestor, say — the harness detects that and **lifts** the button out into its own body-level overlay, pinned over the card's nearest still-visible box, then lowers it back when the card returns. (z-index can't rescue a descendant from an ancestor's `opacity`/`overflow: hidden`; moving it out of that subtree can.) So the button is resilient to whatever you do to a card without being flattened out of your coordinate space. You never host, position, or make room for system chrome — just build your card. If your card has its own top-right controls, they share that corner with the Requirements button (which stays on top); put yours elsewhere if you want them clear of it.
+The per-component Requirements button lives in the component's own frame, so it lands in the right place and rides any transform you apply to the card (a 3D scene rotates it along with everything else). If you *clip* the card away — fold it to a pill with `max-height: 0; overflow: hidden`, or `display: none` on an ancestor — the harness lifts the button into a body-level overlay over the card's nearest visible box, then lowers it back when the card returns. (Folding with `opacity: 0` alone doesn't clip the card, so the button stays where it is.) So the button survives whatever you do to a card. You never host, position, or make room for system chrome — just build your card. If your card has its own top-right controls, they share that corner with the Requirements button (which stays on top); put yours elsewhere if you want them clear of it.
 
 ### Hot reload
 
@@ -145,7 +145,7 @@ Multi-file refactors, or anything that touches `canvas.js` and a component toget
 bash skills/canvas/scripts/create-instance.sh <canvas> /path/to/Workspace.liquidos
 ```
 
-Lays down the file layout above and registers the canvas in the workspace. The shipped `canvas.js` delegates to `/lib/css-layout.js` (CSS stack); edit it or rewrite — the only fixed shape is the default-export factory and the `{ place, teardown }` return.
+Lays down the file layout above and registers the canvas in the workspace. The shipped `canvas.js` delegates to `/lib/css-layout.js` (CSS stack); edit it or rewrite — the only fixed shape is the default-export factory returning an object. `place(items, components)` and `teardown()` are both optional; the shipped default implements only `teardown` and lets CSS handle layout.
 
 ## Delete a canvas
 
@@ -153,4 +153,4 @@ Lays down the file layout above and registers the canvas in the workspace. The s
 bash skills/canvas/scripts/delete-instance.sh <canvas> /path/to/Workspace.liquidos
 ```
 
-Removes the canvas folder and commits the deletion to the workspace git timeline. This is a thin wrapper over the app's `canvas/delete-canvas.js` — the same module the in-app DELETE endpoint (the picker's ✕ button) calls — so deleting from the agent and deleting from the UI behave identically.
+Removes the canvas folder and commits the deletion to the workspace git timeline. Deleting from the agent and deleting from the UI's picker behave identically.

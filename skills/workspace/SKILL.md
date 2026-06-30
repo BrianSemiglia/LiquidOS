@@ -13,7 +13,7 @@ triggers:
 
 # Workspace
 
-A LiquidOS workspace is a folder whose name ends in `.liquidos`. It holds one or more canvases as direct children, a single `ui-state.json` that names the active canvas and which system panels are open, and an opt-in `.share/` subtree for distribution.
+A LiquidOS workspace is a folder whose name ends in `.liquidos`. It holds one or more canvases as direct children, a single `ui-state.json` that names the active canvas, the active agent, and which system panels are open, and an opt-in `.share/` subtree for distribution.
 
 Workspace files are the source of truth: the harness watches them, and writes from the agent or the HTTP endpoints converge — edit the file, the harness sees it.
 
@@ -40,7 +40,7 @@ A canvas is any direct child folder that contains `index.json`.
 bash skills/workspace/scripts/set-ui-state.sh <workspace> --canvas <canvas-name>
 ```
 
-The active canvas is a key in `ui-state.json`; the tool read-merge-writes it so the panel state is left alone. The harness watches the file, validates the canvas exists, tears down the previous canvas runtime, starts the new one, and tells the client to reload. If the named canvas doesn't exist, the change is ignored and active stays where it was. There is no dedicated endpoint — this goes through the generic `PUT /workspace/ui-state.json` path like every other workspace write.
+The active canvas is a key in `ui-state.json`; the tool read-merge-writes it so the panel state is left alone. The harness watches the file, validates the canvas exists, and switches to it; if the named canvas doesn't exist, the change is ignored and active stays where it was. There's no dedicated endpoint — `ui-state.json` is a normal workspace file the harness watches, written like any other.
 
 ### Show/hide system panels (escape mode, canvas picker, requirements editors)
 
@@ -64,6 +64,8 @@ bash skills/workspace/scripts/set-ui-state.sh <workspace> --engaged --no-compone
 ```
 
 `<scope>` is the component's folder path — the same scope string used for agent jobs. The harness watches the resulting `ui-state.json` and every open client applies the new state live.
+
+The same tool also takes `--agent <label>` to set the workspace's active agent (also a key in `ui-state.json`).
 
 ### List canvases
 

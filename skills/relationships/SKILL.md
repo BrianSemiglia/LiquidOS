@@ -9,7 +9,7 @@ triggers:
 
 # Relationships
 
-A *relationship* is a small unit of wiring that subscribes to one component's output and forwards data — possibly transformed — into another component's input. It lives under `<canvas>/relationships/<name>/`, is discovered by the server scanning that folder, and is **not** listed in `index.json`. The harness mounts each one onto a hidden surface and runs its `connect()` once with a map of every peer.
+A *relationship* is a small unit of wiring that subscribes to one component's output and forwards data — possibly transformed — into another component's input. It lives under `<canvas>/relationships/<name>/` and is **not** listed in `index.json`. The harness runs its `connect()` once with a map of every peer.
 
 ## Where things live
 
@@ -20,7 +20,7 @@ A *relationship* is a small unit of wiring that subscribes to one component's ou
   test.js                      — optional behavior test, runnable by hand
 ```
 
-Only `functions.js` is required by the harness. Relationships don't render — the harness synthesizes the relationship's component shape from convention (empty html, `functions.js` at the folder root).
+Only `functions.js` is required. Relationships don't render — there's nothing to paint, just wiring.
 
 ## Naming convention
 
@@ -48,7 +48,7 @@ A relationship is **pure wiring**: it connects, then forwards events as they hap
 
 An **endpoint declares its complete interface once** — every channel it publishes via `on` and every channel it accepts via `send`, with their meanings — independent of any wire. Declare the emit hooks even when nothing is subscribed yet; don't leave `on` a no-op stub to flesh out when a relationship finally needs it. An endpoint never names a peer or relationship, never branches on where a value came from, and never changes because a wire was added or removed. The relationship is the only piece that knows both ends. This holds for every peer — a component on its card, or the canvas on `root`; same protocol, no special cases.
 
-Wiring is **reactive, not timed**. The harness connects a relationship the instant the peers it declared are present — no polling, no timeout. A peer that mounts later wires it then; a peer that's missing shows as a derived `waiting` status in the relationship's `diagnostics/status.json` (`connect.missing`), and connects if/when it appears. A relationship that declares no `peers` falls back to the `<from>-to-<to>` folder name; with neither, it connects best-effort against whatever is present. Re-mounting a relationship (a live edit) re-runs `connect()`.
+Wiring is **reactive, not timed**: a relationship connects the instant the peers it declared are present — no polling, no timeout. A peer that mounts later wires then; a missing peer leaves the wire waiting (surfaced in the relationship's `diagnostics/status.json`) and connects if/when it appears. A relationship **must** declare its `peers` — one that declares none never wires. Re-mounting a relationship (a live edit) re-runs `connect()`.
 
 ## What `connect()` typically does
 
@@ -58,6 +58,7 @@ Look up the two peers, subscribe to one, transform the payload, send it to the o
 export const mount = (surface) => {
     let off = null;
     surface.__io = {
+        peers: ['foo', 'bar'],                   // required: the local names this wire connects
         on() { return () => {}; },
         send() {},
         connect(peers) {
@@ -125,6 +126,7 @@ export const mount = (surface) => {
     let off = null;
     let count = 0;
     surface.__io = {
+        peers: ['foo-source', 'bar-sink'],
         on() { return () => {}; },
         send() {},
         connect(peers) {
@@ -150,7 +152,7 @@ Other patterns this enables:
 
 Each of these shapes *how* an event forwards; none of them remembers a value past the work of forwarding it.
 
-Mount-closure state resets on every re-mount (live edits, app restart), and that's correct — the wire is meant to be stateless across re-mounts. Anything that must survive a reload (the last value an acceptor should rehydrate to, a setting, a running total the user expects to persist) lives in the endpoint that owns it — a publisher or acceptor caching to its own `data/` — never in the relationship. If an acceptor needs to come up showing the last value, the acceptor stores and reloads it; the wire just delivers new ones.
+Mount-closure state resets on every re-mount (live edits, app restart), and that's correct — the wire is stateless across re-mounts. Anything that must survive a reload (the last value an acceptor rehydrates to, a setting, a running total) lives in the endpoint that owns it — never in the relationship.
 
 ## One-to-many and many-to-one
 

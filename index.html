@@ -312,15 +312,11 @@
             });
         };
 
-        // Each producer source resolves its DOM targets against a "root":
-        // the element its patches are allowed to touch. A service is
-        // confined to its own component (registered by the run-mode
-        // <liquidos-file> before the service can emit), so it can't patch
-        // another component's region. The agent has no entry and resolves
-        // against the whole document — it owns structure across components.
-        const sourceRoots = new Map();
+        // Patches resolve their DOM targets against the whole document. Only the
+        // agent streams ops now — services update the view by writing their own
+        // files — so there's no per-source confinement to maintain.
         const makeSniffConfig = (source) => {
-          const root = () => sourceRoots.get(source) || document;
+          const root = () => document;
           return {
             allowedOps: new Set(['replace', 'append', 'prepend', 'setAttr', 'remove', 'stream', 'writeFile']),
             streamingOps: new Set(['stream', 'replace', 'append', 'prepend']),
@@ -505,18 +501,7 @@
             }
         };
 
-        // The run-mode <liquidos-file> registers its service's scope here
-        // before spawning, keyed by the same script path the server tags
-        // the service's slices with. Confines the service's patches to its
-        // component; the agent is never registered and stays document-wide.
         window.liquidos = window.liquidos || {};
-        window.liquidos.bindProducerScope = (source, el) => {
-            if (source && el) sourceRoots.set(source, el);
-        };
-        window.liquidos.unbindProducerScope = (source) => {
-            sourceRoots.delete(source);
-            handlersBySource.delete(source);
-        };
 
         const src = new EventSource('/agent/stream');
         // The server demuxes every producer into framed, sequenced `slice`

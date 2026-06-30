@@ -1,4 +1,0 @@
-Two run-mode services patch their own regions on the shared view channel
-at the same time. One holds a streaming patch open while the other emits
-complete patches into the gap. Each service's updates must land only in
-its own region, with no cross-contamination.

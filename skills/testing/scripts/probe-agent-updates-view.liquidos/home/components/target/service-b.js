@@ -1,9 +1,7 @@
 #!/usr/bin/env node
-// Service "B" — the one the probe swaps to. Paints SERVICE_B_LIVE into the
-// component's #svc region, replacing service-a's marker once the harness
-// spawns it. Convention: stdout is the view-patch channel (lqpatch).
-const paint = () => process.stdout.write('<lqpatch op="replace" target="#svc">SERVICE_B_LIVE</lqpatch>\n');
-paint();
-setInterval(paint, 200);
-process.on('SIGTERM', () => process.exit(0));
-process.on('SIGINT', () => process.exit(0));
+// A running service for the agent-updates-view probe. The probe asserts only on
+// the marker the AGENT writes to component.html, never on this service's output,
+// so it just needs to stay alive. It uses no view channel (no fd 3, no lqpatch).
+const keepAlive = setInterval(() => {}, 1000);
+process.on('SIGTERM', () => { clearInterval(keepAlive); process.exit(0); });
+process.on('SIGINT', () => { clearInterval(keepAlive); process.exit(0); });

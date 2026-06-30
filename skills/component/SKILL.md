@@ -73,7 +73,7 @@ The `run` element spawns the file at its `path` as a process. Conventional layou
 
 - service scripts in `components/<name>/services/`
 - internal state in `components/<name>/data/`
-- diagnostics on **stderr** (the harness logs it) — `stdout` is reserved for the view (below)
+- the view: the service writes its own files (a `<liquidos-file>` renders them; see below); **stdout** and **stderr** are ordinary logs the harness captures
 
 **Native helpers (Swift, etc.) are host-compiled.** Ship the source (`IO.swift`), never the compiled binary. Build it on the running host into a disposable cache (`data/.runtime/`) and `.gitignore` that cache. A compiled binary that travels inside a copied or downloaded workspace is Gatekeeper-blocked on another Mac, costing the user a second "developer cannot be verified" approval on top of the app itself.
 
@@ -83,19 +83,20 @@ Reach for this shape only when something genuinely external is producing the con
 
 ### How a service updates the view
 
-A `run` service has two ways to change what the user sees:
+A `run` service has **no view channel of its own** — it changes the view the same way the agent does: by **writing files.** The deciding factor is **persistence** — should the view state survive a reload, or is it transient real-time data?
 
-- **Rewrite a file.** Write a file that a default `<liquidos-file>` renders; the harness re-renders on the change. Simple, but it replaces the whole rendered region each time — runtime DOM state (typed inputs, scroll, focus) in that region is lost.
-- **Patch the live view over stdout.** Everything the service prints to **stdout** is read as `<lqpatch>` markers — the same protocol the agent uses — and applied to the live view as it streams. Target a region the component's `component.html` shell already defined. This lands incremental updates with no re-render, so sibling state survives.
+- **Write your own file — durable.** The service writes a file a `<liquidos-file>` renders (its own fragment, or a `data/*.json` a script reads). The watcher morphs each change into the DOM — only the delta, and sibling runtime state (typed inputs, focus, scroll) is preserved — and the file persists, so the view survives a reload. Each write is a real workspace write, so write at element/line granularity, not per character. Right for durable view state at human-interaction frequency: a list, a feed, a status line.
+- **Serve your own content — transient.** Run a localhost HTTP server in the service and have the view consume it with standard browser APIs — `fetch`, or an `EventSource` for a live stream. This updates the live DOM only; **nothing persists**. Right for high-frequency transient data — an audio meter, a cursor, anything updating many times a second. See the `programmatic-native` example.
 
 ```js
-// service.js — append a row to a region the shell defined, live, no re-render
-process.stdout.write('<lqpatch op="append" target="#feed-list"><li>' + item + '</li></lqpatch>\n');
+// service.js — append a row to a list the component renders. Writing the file
+// IS the view update: a <liquidos-file path="feed.html"> morphs the new <li> in.
+const fs = require('fs');
+items.push('<li>' + item + '</li>');
+fs.writeFileSync(__dirname + '/../feed.html', '<ul id="feed">' + items.join('') + '</ul>\n');
 ```
 
-**stdout is the view-patch channel; stderr is diagnostics.** Keep all service logging on stderr (or a log file) so it never reaches the view.
-
-A service may only patch **its own component** — its selectors resolve within its component's subtree, so it cannot write into another component's region. Within that subtree, patches apply as they arrive; the runtime does not arbitrate, so if two producers write the same element the last write wins (a flicker, never garbled output). Giving each producer its own region so they don't collide is your job to coordinate, not the runtime's to police.
+A service has no special output stream — **stdout and stderr are ordinary logs**, neither reaches the view. The view changes only through the files the service writes, and because those files live in the component's own folder a service can only ever touch its own component. Concurrent writers don't corrupt each other either: each file write is atomic and the morph reconciles whatever the file says, so there's no stream to interleave.
 
 ## Feature requirements
 
@@ -110,7 +111,7 @@ A service may only patch **its own component** — its selectors resolve within 
 
 While the agent is mutating a component, intermediate writes must set `disabled` on any inputs that would mutate the same data. Disabled inputs don't fire events; otherwise concurrent user input races the in-progress mutation and silently loses edits.
 
-Inputs wrapped in `<liquidos-callback>` are auto-disabled by the harness while their callback's request is in flight, so they don't need manual `disabled` for that case. The rule covers plain HTML inputs whose value the agent rewrites programmatically.
+Controls wrapped in `<liquidos-callback>` are auto-disabled by the harness while a request for their component is in flight — every callback in the component goes inert together, not just the one that fired — so they don't need manual `disabled` for that case. The rule covers plain HTML inputs whose value the agent rewrites programmatically.
 
 Before each rewrite, narrate the intent: which inputs are being disabled or restored, and why.
 
@@ -197,7 +198,7 @@ Let the rest throw. A failed `JSON.parse`, an unexpected schema, "tried to call 
 
 ## Diagnostics
 
-When something looks broken, look in `<component>/diagnostics/` first. Status is in `status.json`; service diagnostics are in `service.log` (stderr — a service's stdout is its view-patch channel, not a log).
+When something looks broken, read `<component>/diagnostics/status.json` first. A `run` service's diagnostics are whatever it logs to **stdout or stderr**; that output goes to the server log, not into `diagnostics/`.
 
 ### Escalation
 

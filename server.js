@@ -1558,19 +1558,12 @@ const server = http.createServer(async (req, res) => {
                 env: { ...process.env, LIQUIDOS_DISPATCH_ID: dispatchId, ...(body.env || {}) }
             });
             const id = newShapeNewServiceId();
-            newShapeServices.set(id, { child, label: body.label || path.basename(abs), dispatchId, abs, source: 'service:' + body.script });
-            child.stdout.on('data', d => {
-                const text = d.toString();
-                // A service's stdout is its view-patch channel: feed it to
-                // the serializer under the service's script path — the
-                // stable key the client knows before spawning, so it can
-                // confine the service to its component before any slice
-                // arrives. The server frames it in isolation from the agent
-                // and other services. Diagnostics belong on stderr (below),
-                // which stays in the server log.
-                serializeProducerChunk('service:' + body.script, text);
-                process.stdout.write('[' + id + '] ' + text.replace(/\n$/, '') + '\n');
-            });
+            newShapeServices.set(id, { child, label: body.label || path.basename(abs), dispatchId, abs });
+            // A service has no view channel of its own: it changes the view by
+            // writing its own files — a <liquidos-file> renders them and the
+            // watcher morphs each change in, the same path the agent's file
+            // writes take. stdout and stderr are ordinary logs the server captures.
+            child.stdout.on('data', d => process.stdout.write('[' + id + '] ' + d.toString().replace(/\n$/, '') + '\n'));
             child.stderr.on('data', d => process.stderr.write('[' + id + '] ' + d.toString().replace(/\n$/, '') + '\n'));
             // A service that can't even launch (a non-executable script, a
             // missing interpreter, anything spawn rejects) is treated like any
