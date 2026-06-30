@@ -1,5 +1,5 @@
 // Minimal canvas: just attach each component item to a container. Enough to
-// render new-shape components (their entry <liquidos-file> + scripts) so the
+// render components (their entry <liquidos-file> + scripts) so the
 // probe can exercise the script re-mount path.
 export default (root) => {
     const world = document.createElement('div');

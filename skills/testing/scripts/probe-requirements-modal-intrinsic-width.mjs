@@ -32,8 +32,8 @@ export default async ({ url, page }) => {
   const layout = await page.evaluate(() => {
     const overlay = document.querySelector('.requirements-overlay');
     const item    = overlay?.querySelector('.item');
-    const front   = overlay?.querySelector('.component-front');
-    const back    = overlay?.querySelector('.component-back');
+    const front   = overlay?.querySelector('.component-content');
+    const back    = overlay?.querySelector('.component-requirements');
     const widget  = overlay?.querySelector('[data-narrow]');
     return {
       widgetW:    widget ? widget.getBoundingClientRect().width  : -1,

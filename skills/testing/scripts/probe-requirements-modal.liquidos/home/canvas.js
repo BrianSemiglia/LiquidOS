@@ -12,7 +12,7 @@
 //      and back into the canvas tree. (Killed the bare "move item to body"
 //      approach.)
 //
-// Both behaviors are reproduced here in the new-shape style: the canvas
+// Both behaviors are reproduced here in the canvas style: the canvas
 // owns its render loop and components are <liquidos-file path="component.html">
 // inside .item wrappers; the canvas never touches lib internals.
 

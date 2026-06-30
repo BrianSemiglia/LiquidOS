@@ -5,8 +5,8 @@
 // <liquidos-component>, the component disappears (or progressively buries
 // itself) because persistHostComponent serializes the LIVE DOM — which
 // includes the runtime chrome that liquidos-component's buildShell()
-// constructs (section.item > div.harness-component-frame-watcher >
-// .component-chrome / .component-front > .surface, all as direct children
+// constructs (section.item > div.component-frame >
+// .component-chrome / .component-content > .surface, all as direct children
 // of the component). On the next render, buildShell runs again and wraps
 // the file-baked chrome inside *new* chrome. Each lqpatch adds a layer.
 //
@@ -16,8 +16,8 @@
 //      #target-status (a DOM op inside the target <liquidos-component>).
 //   2. After the dispatch lands, reading target/component.html on disk.
 //   3. Asserting that the file does NOT contain runtime-chrome strings
-//      (`harness-component-frame-watcher`, `class="surface"`,
-//      `class="component-face`, `data-runtime-repair-callback`) — those
+//      (`component-frame`, `class="surface"`,
+//      `class="component-content`, `data-runtime-repair-callback`) — those
 //      are produced by buildShell at render time, not authored source.
 //   4. Asserting the component's authored content is still visible in the
 //      page (#target-status exists and contains the persisted mark).
@@ -46,7 +46,7 @@ export default async ({ url, workspace, page }) => {
     const targetHtmlPath = workspace + '/home/components/target/component.html';
     const beforeFile = fs.readFileSync(targetHtmlPath, 'utf8');
     expect('baseline component.html is the authored shape',
-        !beforeFile.includes('harness-component-frame-watcher')
+        !beforeFile.includes('component-frame')
         && !beforeFile.includes('class="surface"'),
         'fixture is already chrome-poisoned: ' + beforeFile.slice(0, 200));
 
@@ -83,14 +83,14 @@ export default async ({ url, workspace, page }) => {
         'file: ' + afterFile.slice(0, 300));
 
     // --- the real assertion: runtime chrome must NOT leak into the file ---
-    expect('persisted file has NO harness-component-frame-watcher',
-        !afterFile.includes('harness-component-frame-watcher'),
+    expect('persisted file has NO component-frame',
+        !afterFile.includes('component-frame'),
         'chrome leaked: ' + afterFile.slice(0, 400));
     expect('persisted file has NO class="surface" wrapper',
         !afterFile.includes('class="surface"'),
         'chrome leaked: ' + afterFile.slice(0, 400));
-    expect('persisted file has NO component-face wrapper',
-        !afterFile.includes('component-face'),
+    expect('persisted file has NO component-content wrapper',
+        !afterFile.includes('component-content'),
         'chrome leaked: ' + afterFile.slice(0, 400));
     expect('persisted file has NO runtime-repair-callback wrapper',
         !afterFile.includes('data-runtime-repair-callback'),

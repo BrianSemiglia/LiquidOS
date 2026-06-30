@@ -34,14 +34,14 @@ export default async ({ url, page }) => {
         { timeout: 15000 }
     );
     // Hover to surface the chrome.
-    await page.locator('.harness-component-frame-watcher').first().hover();
+    await page.locator('.component-frame').first().hover();
     await sleep(200);
 
     const layout = await page.evaluate(() => {
-        const frame  = document.querySelector('.harness-component-frame-watcher');
+        const frame  = document.querySelector('.component-frame');
         const item   = frame?.closest('.item');
         const chrome = document.querySelector('.component-chrome');
-        const front  = frame?.querySelector('.component-front');
+        const front  = frame?.querySelector('.component-content');
         const rect = (el) => el ? el.getBoundingClientRect() : null;
         return {
             item:   rect(item),

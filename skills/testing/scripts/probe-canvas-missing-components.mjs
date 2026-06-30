@@ -3,7 +3,7 @@
 //
 // Canvas's index.json references a component that doesn't have a real
 // entry file (the foo7-style case: entries are folder paths from the
-// old shape, the new shape needs component.html). The canvas is broken
+// the canvas needs component.html). The canvas is broken
 // from the user's perspective — the user should see the canvas-level
 // Repair card (same one probe-canvas-damaged exercises for malformed
 // index.json), not a silently empty canvas.

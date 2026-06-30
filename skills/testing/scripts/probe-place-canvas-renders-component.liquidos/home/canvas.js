@@ -1,7 +1,7 @@
 // Old-shape canvas: defines place(items, components) and paints its own
 // decorative DOM (overlay) — mirrors the woof canvas shape from
-// foo7. The point of this fixture: when an old-shape place() canvas
-// references a new-shape component (component.html entry), the
+// foo7. The point of this fixture: when an place() canvas
+// references a component (component.html entry), the
 // component must still render inside the items the canvas places.
 
 export default (root) => {

@@ -53,7 +53,7 @@ export default async ({ url, workspace, page }) => {
     // surface, which is exactly the bug where content stays but the button
     // disappears.)
     const requirementsButtonShown = () => page.evaluate(() =>
-        !!document.querySelector('[data-component-flip]'));
+        !!document.querySelector('[data-requirements-button]'));
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForFunction(() => !!window.__lqpatch, undefined, { timeout: 10000 });

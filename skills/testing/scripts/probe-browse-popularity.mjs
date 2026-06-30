@@ -67,7 +67,7 @@ const normalizeBullet = s => s
     .trim()
     .toLowerCase();
 
-// Lay down a component in new shape: component.html at the folder root
+// Lay down a component: component.html at the folder root
 // (referenced from index.json), feature-requirements.txt alongside.
 // The publisher's UI mounts the component the same way a real canvas would.
 const writeComponent = (workspace, name, bullets, lookup) => {

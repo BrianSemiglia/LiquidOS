@@ -51,7 +51,7 @@ export default async ({ url, page }) => {
 
   // --- Guard 1: clicking the requirements panel must NOT dismiss. Click the
   //     panel header (the textarea is covered by the "Repair" recover button).
-  await page.locator('.requirements-overlay .component-back-header').first().click();
+  await page.locator('.requirements-overlay .component-requirements-header').first().click();
   await sleep(300);
   if (!(await visible('Repair'))) {
     throw new Error('clicking inside the requirements panel wrongly dismissed the editor');
@@ -68,7 +68,7 @@ export default async ({ url, page }) => {
   //     box, but on neither the component nor the panel) must dismiss.
   const gap = await page.evaluate(() => {
     const surface = document.querySelector('.requirements-overlay .surface');
-    const panel = document.querySelector('.requirements-overlay .component-back');
+    const panel = document.querySelector('.requirements-overlay .component-requirements');
     if (!surface || !panel) return null;
     const s = surface.getBoundingClientRect();
     const p = panel.getBoundingClientRect();

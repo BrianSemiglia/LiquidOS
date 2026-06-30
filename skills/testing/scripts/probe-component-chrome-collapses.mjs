@@ -27,15 +27,15 @@ export default async ({ url, page }) => {
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForFunction(
-        () => visibleText().includes('placed by old-shape canvas'),
+        () => visibleText().includes('placed by place() canvas'),
         undefined, { timeout: 15000 });
     await sleep(400);
 
     // Reserved space = the gap between the component frame's top and its
     // content face's top (i.e. the height of the chrome row above the card).
     const chromeRowGap = () => page.evaluate(() => {
-        const frame = document.querySelector('.harness-component-frame-watcher');
-        const front = frame?.querySelector('.component-front');
+        const frame = document.querySelector('.component-frame');
+        const front = frame?.querySelector('.component-content');
         if (!frame || !front) return null;
         return front.getBoundingClientRect().top - frame.getBoundingClientRect().top;
     });
