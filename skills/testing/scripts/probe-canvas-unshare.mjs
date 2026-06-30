@@ -34,17 +34,10 @@ export default async ({ url, page }) => {
     await onScreen('Build').catch(() => {
         throw new Error('canvas requirements editor did not open');
     });
-    await page.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
-    await page.locator('#canvas-share-switch').click();
+    await page.getByRole('switch', { name: 'Toggle sharing for this canvas' }).click();
     // Wait for the async toggle to settle (re-enables after the PUT resolves).
-    await page.waitForFunction(
-        () => {
-            const btn = document.getElementById('canvas-share-switch');
-            return btn && !btn.hasAttribute('disabled');
-        },
-        undefined,
-        { timeout: 30000 }
-    );
+    await page.getByRole('switch', { name: 'Toggle sharing for this canvas', disabled: false })
+        .waitFor({ timeout: 30000 });
     await page.locator('#canvas-requirements-cancel').click();
     await offScreen('Build').catch(() => {
         throw new Error('canvas requirements editor did not close');
@@ -76,17 +69,10 @@ export default async ({ url, page }) => {
     await onScreen('Build').catch(() => {
         throw new Error('canvas requirements editor did not reopen');
     });
-    await page.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
-    await page.locator('#canvas-share-switch').click();
+    await page.getByRole('switch', { name: 'Toggle sharing for this canvas' }).click();
     // Wait for the async toggle to settle.
-    await page.waitForFunction(
-        () => {
-            const btn = document.getElementById('canvas-share-switch');
-            return btn && !btn.hasAttribute('disabled');
-        },
-        undefined,
-        { timeout: 30000 }
-    );
+    await page.getByRole('switch', { name: 'Toggle sharing for this canvas', disabled: false })
+        .waitFor({ timeout: 30000 });
     await page.locator('#canvas-requirements-cancel').click();
     await offScreen('Build').catch(() => {
         throw new Error('canvas requirements editor did not close after share OFF');

@@ -38,18 +38,10 @@ export default async ({ url, page, browser }) => {
         await pubPage.goto(publisher.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await pubPage.waitForSelector('liquidos-component[path="components/gizmo"]', { timeout: 20000 });
         await pubPage.getByRole('button', { name: 'Edit canvas requirements' }).click();
-        await pubPage.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
-        await pubPage.locator('#canvas-share-switch').click();
-        await pubPage.waitForFunction(
-            () => {
-                const btn = document.getElementById('canvas-share-switch');
-                return btn
-                    && btn.getAttribute('aria-checked') === 'true'
-                    && !btn.hasAttribute('disabled');
-            },
-            undefined,
-            { timeout: 30000 }
-        );
+        await pubPage.getByRole('switch', { name: 'Toggle sharing for this canvas' }).click();
+        // Server-committed ON: checked and interactive again (not disabled mid-PUT).
+        await pubPage.getByRole('switch', { name: 'Toggle sharing for this canvas', checked: true, disabled: false })
+            .waitFor({ timeout: 30000 });
         console.log('publisher: Shared ON');
 
         // --- setup: dial publisher from consumer ------------------------------

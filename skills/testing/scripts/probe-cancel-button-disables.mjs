@@ -13,10 +13,11 @@
 // leaves the screen via the undo).
 //
 // We LISTEN for the button's state transitions with a MutationObserver (not a
-// poll loop), recording every (disabled, hidden) pair, then assert none was
-// "visible and enabled" after the click. `disabled` is the exact interactive
-// state under test (a person sees a dimmed, unclickable button), not internal
-// structure.
+// poll loop), recording every (enabled, visible) pair, then assert none was
+// "visible and enabled" after the click. Disabled is the exact interactive
+// state under test — a person sees a dimmed, unclickable button — read the
+// accessible way: the ✕ located by its role + name, its :disabled state and
+// real visibility, never an internal flag reached by id.
 //
 // Run it:  node run-probe.mjs probe-cancel-button-disables.mjs
 //
@@ -46,23 +47,23 @@ export default async ({ url, page }) => {
         throw new Error('the ✕ was disabled before any cancellation was queued');
     }
 
-    // Start listening to the ✕'s disabled/hidden transitions before clicking.
-    await page.evaluate(() => {
-        const button = document.getElementById('global-cancel');
+    // Start listening to the ✕'s enabled/visible transitions before clicking.
+    // The element is the one located by role + name above; read its accessible
+    // interactive state (:disabled) and real visibility, not raw flags.
+    const stopEl = await stop.elementHandle();
+    await page.evaluate((button) => {
         window.__cancelStates = [];
-        window.__cancelObserver = new MutationObserver(() => {
-            window.__cancelStates.push({ disabled: button.disabled, hidden: button.hidden });
-        });
-        window.__cancelObserver.observe(button, { attributes: true, attributeFilter: ['disabled', 'hidden'] });
-    });
+        const snapshot = () => ({ enabled: !button.matches(':disabled'), visible: button.checkVisibility() });
+        window.__cancelObserver = new MutationObserver(() => window.__cancelStates.push(snapshot()));
+        window.__cancelObserver.observe(button, { attributes: true });
+    }, stopEl);
 
     // Click it and read the disabled state in the same tick — it must disable
     // the instant the cancellation is queued.
-    const disabledRightAfterClick = await page.evaluate(() => {
-        const button = document.getElementById('global-cancel');
+    const disabledRightAfterClick = await page.evaluate((button) => {
         button.click();
-        return button.disabled;
-    });
+        return button.matches(':disabled');
+    }, stopEl);
     if (!disabledRightAfterClick) {
         throw new Error('the ✕ stayed enabled after the cancellation was queued');
     }
@@ -75,7 +76,7 @@ export default async ({ url, page }) => {
     // Every transition was recorded by listening — none may be "visible AND
     // enabled", which would mean it re-enabled mid-cancel.
     const reEnabledWhileVisible = await page.evaluate(() =>
-        window.__cancelStates.some(s => s.disabled === false && s.hidden === false));
+        window.__cancelStates.some(s => s.enabled && s.visible));
     if (reEnabledWhileVisible) {
         throw new Error('the ✕ re-enabled while the job it submitted was still in flight');
     }

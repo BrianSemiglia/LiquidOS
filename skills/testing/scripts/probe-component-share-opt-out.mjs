@@ -45,18 +45,11 @@ export default async ({ url, page, browser }) => {
         await pubPage.waitForSelector('liquidos-component[path="components/gizmo"]', { timeout: 20000 });
         await pubPage.waitForSelector('liquidos-component[path="components/widget"]', { timeout: 20000 });
         await pubPage.getByRole('button', { name: 'Edit canvas requirements' }).click();
-        await pubPage.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
-        await pubPage.locator('#canvas-share-switch').click();
-        await pubPage.waitForFunction(
-            () => {
-                const btn = document.getElementById('canvas-share-switch');
-                return btn
-                    && btn.getAttribute('aria-checked') === 'true'
-                    && !btn.hasAttribute('disabled');
-            },
-            undefined,
-            { timeout: 30000 }
-        );
+        await pubPage.getByRole('switch', { name: 'Toggle sharing for this canvas' }).click();
+        // Server-committed ON, not just the optimistic flip: the switch reads
+        // checked and is interactive again (no longer disabled mid-request).
+        await pubPage.getByRole('switch', { name: 'Toggle sharing for this canvas', checked: true, disabled: false })
+            .waitFor({ timeout: 30000 });
         await pubPage.locator('#canvas-requirements-cancel').click();
         await pubPage.waitForFunction(
             () => document.getElementById('canvas-requirements-overlay')?.hidden === true,
@@ -67,30 +60,17 @@ export default async ({ url, page, browser }) => {
 
         // --- publisher: opt widget OUT via its Requirements modal -------------
         await pubPage.getByRole('button', { name: 'Edit Widget requirements' }).click();
-        await pubPage.waitForSelector('.requirements-overlay [data-component-share-switch]', { timeout: 8000 });
-        // Wait for the switch to populate as ON (inherited from canvas).
-        await pubPage.waitForFunction(
-            () => {
-                const btn = document.querySelector('.requirements-overlay [data-component-share-switch]');
-                return btn
-                    && btn.getAttribute('aria-checked') === 'true'
-                    && !btn.hasAttribute('disabled');
-            },
-            undefined,
-            { timeout: 8000 }
-        );
+        // Wait for the switch to populate as ON (inherited from canvas), settled.
+        const widgetShare = pubPage.locator('.requirements-overlay')
+            .getByRole('switch', { name: 'Toggle sharing for this component' });
+        await pubPage.locator('.requirements-overlay')
+            .getByRole('switch', { name: 'Toggle sharing for this component', checked: true, disabled: false })
+            .waitFor({ timeout: 8000 });
         // Click it off; wait for server-committed OFF state.
-        await pubPage.locator('.requirements-overlay [data-component-share-switch]').click();
-        await pubPage.waitForFunction(
-            () => {
-                const btn = document.querySelector('.requirements-overlay [data-component-share-switch]');
-                return btn
-                    && btn.getAttribute('aria-checked') === 'false'
-                    && !btn.hasAttribute('disabled');
-            },
-            undefined,
-            { timeout: 30000 }
-        );
+        await widgetShare.click();
+        await pubPage.locator('.requirements-overlay')
+            .getByRole('switch', { name: 'Toggle sharing for this component', checked: false, disabled: false })
+            .waitFor({ timeout: 30000 });
         console.log('publisher: widget Share toggled OFF');
 
         // --- setup: dial publisher from consumer ------------------------------

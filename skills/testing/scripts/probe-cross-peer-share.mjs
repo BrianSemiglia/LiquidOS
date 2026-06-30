@@ -55,20 +55,12 @@ export default async ({ url, page, browser }) => {
     // The canvas-level Share toggle lives inside the Canvas Requirements modal
     // — open it via the Info button.
     await pubPage.getByRole('button', { name: 'Edit canvas requirements' }).click();
-    await pubPage.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
-    await pubPage.locator('#canvas-share-switch').click();
-    // Wait for the server to actually accept the toggle, not just the
-    // optimistic UI flip. The button stays disabled until the PUT
-    // /share/<canvas> response lands (which is when share.sh has finished
-    // publishing).
-    await pubPage.waitForFunction(
-      () => {
-        const btn = document.getElementById('canvas-share-switch');
-        return btn && btn.getAttribute('aria-checked') === 'true' && !btn.hasAttribute('disabled');
-      },
-      undefined,
-      { timeout: 30000 }
-    );
+    await pubPage.getByRole('switch', { name: 'Toggle sharing for this canvas' }).click();
+    // Wait for the server to actually accept the toggle, not just the optimistic
+    // UI flip. The switch stays disabled until the PUT /share/<canvas> response
+    // lands (when share.sh has finished publishing), then reads checked+enabled.
+    await pubPage.getByRole('switch', { name: 'Toggle sharing for this canvas', checked: true, disabled: false })
+      .waitFor({ timeout: 30000 });
     console.log('publisher canvas share toggle: ON (server committed)');
 
     // Close the Canvas Requirements modal so the gizmo component is reachable
@@ -84,14 +76,9 @@ export default async ({ url, page, browser }) => {
     // reflects the inherited canvas-level state (aria-checked=true, not
     // disabled).
     await pubPage.getByRole('button', { name: 'Edit Gizmo requirements' }).click();
-    await pubPage.waitForFunction(
-      () => {
-        const btn = document.querySelector('.requirements-overlay [data-component-share-switch]');
-        return btn && btn.getAttribute('aria-checked') === 'true' && !btn.hasAttribute('disabled');
-      },
-      undefined,
-      { timeout: 8000 }
-    );
+    await pubPage.locator('.requirements-overlay')
+      .getByRole('switch', { name: 'Toggle sharing for this component', checked: true, disabled: false })
+      .waitFor({ timeout: 8000 });
     console.log('publisher per-component share switch inherits ON');
 
     // Close the modal so the publisher is back at rest.

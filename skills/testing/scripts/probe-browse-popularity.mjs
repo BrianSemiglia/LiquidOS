@@ -116,8 +116,8 @@ export default async ({ url, page, browser }) => {
         }
 
         // --- Share each publisher's home canvas through the UI ------------
-        // One tab per publisher: open Canvas Info, click Shared, wait for
-        // aria-checked='true' AND !disabled (server-committed, not just the
+        // One tab per publisher: open Canvas Info, click Shared, wait for the
+        // switch to read checked AND enabled (server-committed, not just the
         // optimistic flip).
         for (const pub of publishers) {
             const tab = await browser.newPage();
@@ -125,18 +125,9 @@ export default async ({ url, page, browser }) => {
             await tab.goto(pub.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await tab.getByRole('button', { name: 'Edit canvas requirements' }).waitFor({ timeout: 20000 });
             await tab.getByRole('button', { name: 'Edit canvas requirements' }).click();
-            await tab.locator('#canvas-share-switch').waitFor({ state: 'visible', timeout: 10000 });
-            await tab.locator('#canvas-share-switch').click();
-            await tab.waitForFunction(
-                () => {
-                    const btn = document.getElementById('canvas-share-switch');
-                    return btn
-                        && btn.getAttribute('aria-checked') === 'true'
-                        && !btn.hasAttribute('disabled');
-                },
-                undefined,
-                { timeout: 30000 }
-            );
+            await tab.getByRole('switch', { name: 'Toggle sharing for this canvas' }).click();
+            await tab.getByRole('switch', { name: 'Toggle sharing for this canvas', checked: true, disabled: false })
+                .waitFor({ timeout: 30000 });
             console.log(`publisher ${pub.label}: share toggle ON`);
             await tab.close();
         }
