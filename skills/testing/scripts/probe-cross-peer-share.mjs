@@ -66,11 +66,9 @@ export default async ({ url, page, browser }) => {
     // Close the Canvas Requirements modal so the gizmo component is reachable
     // for the per-component check.
     await pubPage.locator('#canvas-requirements-cancel').click();
-    await pubPage.waitForFunction(
-      () => document.getElementById('canvas-requirements-overlay')?.hidden === true,
-      undefined,
-      { timeout: 5000 }
-    );
+    // Overlay closed: its canvas share switch is no longer on screen.
+    await pubPage.getByRole('switch', { name: 'Toggle sharing for this canvas' })
+      .waitFor({ state: 'hidden', timeout: 5000 });
 
     // Open gizmo's Requirements modal and check the per-component share switch
     // reflects the inherited canvas-level state (aria-checked=true, not

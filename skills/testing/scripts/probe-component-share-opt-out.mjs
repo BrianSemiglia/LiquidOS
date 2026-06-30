@@ -51,11 +51,9 @@ export default async ({ url, page, browser }) => {
         await pubPage.getByRole('switch', { name: 'Toggle sharing for this canvas', checked: true, disabled: false })
             .waitFor({ timeout: 30000 });
         await pubPage.locator('#canvas-requirements-cancel').click();
-        await pubPage.waitForFunction(
-            () => document.getElementById('canvas-requirements-overlay')?.hidden === true,
-            undefined,
-            { timeout: 5000 }
-        );
+        // Overlay closed: its canvas share switch is no longer on screen.
+        await pubPage.getByRole('switch', { name: 'Toggle sharing for this canvas' })
+            .waitFor({ state: 'hidden', timeout: 5000 });
         console.log('publisher: canvas Shared ON');
 
         // --- publisher: opt widget OUT via its Requirements modal -------------
