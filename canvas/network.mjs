@@ -1,10 +1,11 @@
 //
 // network.mjs — libp2p node lifecycle for LiquidOS.
 //
-// Each workspace gets a stable peer identity (Ed25519 keypair, stored
-// at `<workspace>/.network/identity.bin`) and runs a libp2p node that
-// joins the public DHT via well-known bootstrap peers. The pubkey IS
-// the workspace's network identity — same shape as IPFS peer IDs.
+// Each running node mints a fresh Ed25519 keypair at launch — the peer
+// identity is ephemeral, scoped to this instance of the app and never
+// persisted, so it can't travel with (or collide across copies of) a
+// workspace. The pubkey IS the node's network identity — same shape as
+// an IPFS peer ID, just regenerated every start.
 //
 // This module deliberately does NOT speak any LiquidOS-specific
 // protocol yet. It just establishes connectivity. Bundle exchange,
@@ -19,7 +20,7 @@ import { identify } from '@libp2p/identify';
 import { ping } from '@libp2p/ping';
 import { bootstrap } from '@libp2p/bootstrap';
 import { kadDHT } from '@libp2p/kad-dht';
-import { generateKeyPair, privateKeyFromProtobuf, privateKeyToProtobuf } from '@libp2p/crypto/keys';
+import { generateKeyPair } from '@libp2p/crypto/keys';
 import { multiaddr } from '@multiformats/multiaddr';
 import { peerIdFromString } from '@libp2p/peer-id';
 import { CID } from 'multiformats/cid';
@@ -46,23 +47,10 @@ const BOOTSTRAP_PEERS = [
     '/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt'
 ];
 
-const loadOrCreateIdentity = async (identityPath) => {
-    if (fs.existsSync(identityPath)) {
-        const bytes = fs.readFileSync(identityPath);
-        return privateKeyFromProtobuf(bytes);
-    }
+export const createNetworkNode = async () => {
+    // Ephemeral identity: a brand-new keypair per launch, never written to
+    // disk. Nothing to load, nothing to clean up.
     const privateKey = await generateKeyPair('Ed25519');
-    fs.mkdirSync(path.dirname(identityPath), { recursive: true });
-    // Write to a temp path then rename to avoid leaving a half-written
-    // identity if the process is killed mid-write.
-    const tempPath = identityPath + '.tmp';
-    fs.writeFileSync(tempPath, privateKeyToProtobuf(privateKey));
-    fs.renameSync(tempPath, identityPath);
-    return privateKey;
-};
-
-export const createNetworkNode = async ({ identityPath }) => {
-    const privateKey = await loadOrCreateIdentity(identityPath);
     const node = await createLibp2p({
         privateKey,
         addresses: { listen: ['/ip4/0.0.0.0/tcp/0'] },
@@ -432,9 +420,7 @@ export const createNetworkManager = ({ workspacePath, log = console.log, logErro
 
     const start = async () => {
         try {
-            node = await createNetworkNode({
-                identityPath: path.join(workspacePath, '.network', 'identity.bin')
-            });
+            node = await createNetworkNode();
             registerShareProtocols(node, path.join(workspacePath, '.share'), workspacePath);
             feed = await startPeerFeedCache(node, workspacePath);
             log('Network: peer ID', node.peerId.toString());
