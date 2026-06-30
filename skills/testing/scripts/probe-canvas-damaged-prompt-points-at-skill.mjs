@@ -1,43 +1,44 @@
 //
-// probe-canvas-damaged-prompt-carries-contract.mjs
+// probe-canvas-damaged-prompt-points-at-skill.mjs
 //
-// The Repair card surfaced for a canvas-damaged condition must hand
+// The Repair card surfaced for a "Canvas is damaged" condition must hand
 // the agent enough context to act without guessing. Skill discovery is
-// LLM-decided and unreliable — the prompt is the only signal we
-// control. The probe asserts the canvas-Repair callback's prompt names
-// the contract (index.json entries must end in component.html, the
-// agent must write the file AND update index.json), so a dispatched
-// agent has the recipe without needing to find any specific skill.
+// LLM-decided and unreliable — the dispatched prompt is the only signal we
+// control, so it must both name the original error AND point at the canvas
+// skill.
+//
+// Proven through the UI: click Repair, and a stub agent paints the verbatim
+// prompt it received back onto the (now healed) canvas. The probe asserts
+// the on-screen readout carries both halves of the contract — never reading
+// the callback's attribute or any dispatch internal.
 //
 // Run it:  node run-probe.mjs probe-canvas-damaged-prompt-points-at-skill.mjs
 //
 
 export const fixture = './probe-canvas-damaged-prompt-points-at-skill.liquidos';
+export const agent = 'agent/test/canvas-damaged-prompt-echo-agent.js';
 
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // Wait for the canvas Repair card.
-    await page.waitForSelector('[role="group"][data-repair-level="canvas"]', { timeout: 10000 });
+    // The damaged canvas surfaces its Repair card. Scope to that card by its
+    // accessible name so we click its button, not some other Repair affordance.
+    const repair = page.getByRole('group', { name: 'Canvas is damaged' })
+        .getByRole('button', { name: 'Repair' });
+    await repair.waitFor({ state: 'visible', timeout: 10000 });
+    await repair.click();
 
-    // Read the callback's prompt — that's what gets dispatched on click.
-    const prompt = await page.evaluate(() => {
-        const card = document.querySelector('[role="group"][data-repair-level="canvas"]');
-        const cb = card?.querySelector('liquidos-callback');
-        return cb?.getAttribute('prompt') || '';
-    });
-
-    const expectations = [
-        { name: 'names the original error',     ok: /Repair required due to error/.test(prompt) },
-        { name: 'points at the canvas skill',   ok: /skills\/canvas\/SKILL\.md/i.test(prompt) }
-    ];
-    const failed = expectations.filter(e => !e.ok);
-    if (failed.length > 0) {
-        console.error('prompt missing contract:', failed.map(f => f.name).join(', '));
-        console.error('--- prompt as carried ---');
-        console.error(prompt);
-        console.error('---');
-        throw new Error('prompt missing contract: ' + failed.map(f => f.name).join(', '));
-    }
+    // Clicking Repair dispatches the prompt to the agent, which paints it back
+    // onto the canvas. The dispatched prompt must carry the whole contract:
+    // it names the original error AND points the agent at the canvas skill.
+    await page.waitForFunction(
+        () => {
+            const text = visibleText();
+            return text.includes('Repair required due to error')
+                && /skills\/canvas\/SKILL\.md/i.test(text);
+        },
+        undefined,
+        { timeout: 10000 }
+    );
 };
