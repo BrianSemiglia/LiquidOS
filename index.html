@@ -4795,6 +4795,9 @@
                 card.type = 'button';
                 card.className = 'canvas-grid-card' + (name === currentCanvasName ? ' current' : '');
                 card.dataset.canvas = name;
+                // Mark the current canvas accessibly, not just by color, so the
+                // selected one is perceivable to assistive tech (and assertable).
+                if (name === currentCanvasName) card.setAttribute('aria-current', 'page');
                 // Explicit accessible name so the card reads as one action rather
                 // than concatenating its name text with the nested delete button.
                 card.setAttribute('aria-label', 'Open ' + name + ' space');

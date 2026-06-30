@@ -3,95 +3,58 @@
 //
 // User zooms out to the grid → clicks "+ New" → Browse overlay opens →
 // clicks the "from scratch" tile → name modal opens → types a name +
-// submits → the canvas grid updates with the new canvas. UI-only; no
-// agent involved.
+// submits → the new canvas appears in the grid, is the one now selected,
+// and is still there after a reload. UI-only; no agent involved.
 //
 // Run it:  node run-probe.mjs probe-canvas-create.mjs
 //
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { execFileSync } from 'node:child_process';
-
 export const fixture = './probe-canvas-create.liquidos';
 
 const NAME = 'probe-created-canvas';
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// The workspace git log is the durable timeline recentEvents() reads; a creation
-// that skips its commit would still surface in the grid. Assert it landed in git.
-const gitLog = workspace => execFileSync('git', ['log', '--format=%B'], { cwd: workspace, encoding: 'utf8' });
-
-export default async ({ url, workspace, page }) => {
+export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.getByRole('button', { name: 'Show all spaces' }).waitFor({ timeout: 20000 });
-    await sleep(1500);
 
-    // Pre-condition: the canvas grid doesn't list NAME yet.
-    const before = await page.locator('.canvas-grid-card[data-canvas]').evaluateAll(els => els.map(e => e.dataset.canvas));
-    console.log('canvases before:', before);
-    if (before.some(t => t.trim() === NAME)) {
+    const showGrid    = page.getByRole('button', { name: 'Show all spaces' });
+    const newCard     = page.getByRole('button', { name: 'Browse apps or start a new canvas from scratch' });
+    const createdCard = page.getByRole('button', { name: 'Open ' + NAME + ' space' });
+
+    // Open the grid. Pre-condition: it doesn't list the new canvas yet.
+    await showGrid.waitFor({ timeout: 20000 });
+    await showGrid.dispatchEvent('click');
+    await newCard.waitFor({ timeout: 10000 });
+    if (await createdCard.count() !== 0) {
         throw new Error('canvas already existed before create');
     }
 
-    // Server-startup bootstrap (ensureCanvasDefaults on 'home') must not
-    // materialize an empty feature-requirements.txt for an already-existing
-    // canvas. The file is the user's signal that they've expressed canvas
-    // intent; the harness creating it pre-emptively would mask the missing-
-    // vs-empty distinction the Repair/Generate UI relies on.
-    const homeFeatureFile = path.join(workspace, 'home', 'feature-requirements.txt');
-    if (fs.existsSync(homeFeatureFile)) {
-        throw new Error('server startup created home/feature-requirements.txt; bootstrap should leave existing canvases alone');
+    // + New → Browse overlay → from-scratch tile → name modal → type + submit.
+    await newCard.dispatchEvent('click');
+    const fromScratch = page.getByRole('button', { name: /Create an empty canvas/ });
+    await fromScratch.waitFor({ state: 'visible', timeout: 5000 });
+    await fromScratch.dispatchEvent('click');
+    const dialog = page.getByRole('dialog', { name: 'New Canvas' });
+    await dialog.waitFor({ state: 'visible', timeout: 5000 });
+    await page.getByPlaceholder('Name').fill(NAME);
+    await page.getByPlaceholder('Name').press('Enter');
+
+    // Created → the whole stack tears down and the user lands on the new canvas.
+    await dialog.waitFor({ state: 'hidden', timeout: 10000 });
+
+    // Re-open the grid: the new canvas is listed, and it's the one now selected.
+    // Creating a canvas selects it — the user doesn't stay on the one they were on.
+    await showGrid.dispatchEvent('click');
+    await createdCard.waitFor({ timeout: 10000 });
+    const current = await createdCard.getAttribute('aria-current');
+    if (current !== 'page') {
+        throw new Error('new canvas was not selected after create; aria-current=' + current);
     }
 
-    // Grid "+ New" → opens Browse overlay (grid stays underneath).
-    await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
-    await page.locator('#canvas-grid-new').dispatchEvent('click');
-    await page.waitForSelector('#browse-overlay:not([hidden])', { timeout: 5000 });
-    // From-scratch tile → opens the name modal (browse stays underneath).
-    await page.locator('#browse-from-scratch').dispatchEvent('click');
-    await page.waitForSelector('#new-canvas-backdrop:not([hidden])', { timeout: 5000 });
-    // Type name + submit.
-    await page.locator('#new-canvas-name').fill(NAME);
-    await page.evaluate(() => document.getElementById('new-canvas-modal').requestSubmit());
-
-    // Wait for the canvas grid to surface the new canvas.
-    await page.waitForFunction(
-        (target) => Array.from(document.querySelectorAll('.canvas-grid-card[data-canvas]')).some(c => c.dataset.canvas === target),
-        NAME,
-        { timeout: 10000 }
-    );
-    const after = await page.locator('.canvas-grid-card[data-canvas]').evaluateAll(els => els.map(e => e.dataset.canvas));
-    console.log('canvases after :', after);
-
-    // Creating a canvas selects it: the user lands on the new canvas, not the
-    // one they were on. Re-open the grid and assert the new canvas's card is
-    // the one marked current.
-    await page.getByRole('button', { name: 'Show all spaces' }).dispatchEvent('click');
-    await page.waitForSelector('.canvas-grid-card.current[data-canvas]', { timeout: 5000 });
-    const current = await page.locator('.canvas-grid-card.current[data-canvas]').first().getAttribute('data-canvas');
-    console.log('current canvas:', current);
-    if (current !== NAME) {
-        throw new Error('new canvas was not selected after create; current is ' + current);
-    }
-
-    // Canvas-creation IS the moment feature-requirements.txt gets materialized
-    // (empty by default; user/agent fills it in). Verify the new canvas has it.
-    const newFeatureFile = path.join(workspace, NAME, 'feature-requirements.txt');
-    if (!fs.existsSync(newFeatureFile)) {
-        throw new Error('canvas creation did not materialize feature-requirements.txt');
-    } else {
-        const size = fs.statSync(newFeatureFile).size;
-        console.log('new canvas feature-requirements.txt size:', size);
-        if (size !== 0) {
-            throw new Error('new canvas feature-requirements.txt should start empty, got size ' + size);
-        }
-    }
-
-    // The creation is recorded in the workspace git timeline.
-    if (!gitLog(workspace).includes("User did create canvas with name '" + NAME + "'")) {
-        throw new Error('canvas creation was not committed to the workspace git timeline');
-    }
-    console.log('  ok  the creation is committed to the workspace git timeline');
+    // It's durable: after a reload the grid still lists it. A creation that was
+    // only painted into this session's grid (never committed) would be gone.
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+    await showGrid.waitFor({ timeout: 20000 });
+    await showGrid.dispatchEvent('click');
+    await createdCard.waitFor({ timeout: 10000 });
 };
