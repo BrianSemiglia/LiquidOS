@@ -4126,6 +4126,13 @@
             trackedChromeItems.delete(item);
         };
 
+        // Chrome-lifting is a harness service any component frame registers with
+        // — the body-level #component-chrome-layer is harness-owned, so the
+        // <liquidos-component> element (which builds its own chrome) hands its
+        // frame+chrome here rather than re-implementing the lift.
+        window.liquidos.registerComponentChrome = registerComponentChrome;
+        window.liquidos.detachComponentChrome = detachComponentChrome;
+
         // The component's nearest box that still occupies space. When a canvas
         // folds the card to nothing the frame's rect collapses, so climb to the
         // first ancestor that still has a real box (the canvas's own pill, say)
