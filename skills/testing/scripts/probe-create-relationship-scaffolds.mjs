@@ -2,12 +2,14 @@
 // probe-create-relationship-scaffolds.mjs
 //
 // Scaffold a relationship with create-relationship.sh between two
-// components, fill in the scaffold's channel placeholders, and drive the
-// UI: clicking the source button must update the sink. This tests that the
-// scaffold is structurally correct — it declares __io.peers and its
-// connect() wires the two peers — so the harness picks it up and the wire
-// works end to end. If the scaffold dropped peers or shaped connect wrong,
-// the click doesn't propagate and the probe times out.
+// components, name the channel both sides speak, and drive the UI:
+// pressing the source's button must make the sink read "wired".
+//
+// This is the only probe that exercises the create-relationship.sh
+// scaffolder itself. The probe-relationship-* tests all load hand-authored
+// fixtures, so they prove the harness wires a relationship — not that the
+// scaffold emits a working one. If the scaffold drops a peer or shapes its
+// wiring wrong, the press never reaches the sink and the probe times out.
 //
 // The two components are written directly in the current (inline
 // <liquidos-component>) shape; only the relationship comes from the
@@ -98,15 +100,11 @@ export default async ({ browser }) => {
         throw new Error('create-relationship exited ' + r.status + '\n' + r.stderr);
     }
 
-    // Fill in the scaffold's channel placeholder. We keep the scaffold's
-    // declared peers and its connect() passthrough untouched — that's what we're
-    // testing — and only name the channel both sides speak.
+    // Name the channel both sides speak — the scaffold's only placeholder.
+    // Everything else (peers, wiring) is left exactly as the scaffold emits
+    // it; the press→"wired" assertion below is what proves it's correct.
     const relFn = path.join(canvasDir, 'relationships', 'source-to-sink', 'functions.js');
     fs.writeFileSync(relFn, fs.readFileSync(relFn, 'utf8').replace(/<channel>/g, 'val'));
-    if (!/peers:\s*\[/.test(fs.readFileSync(relFn, 'utf8'))) {
-        fs.rmSync(tmp, { recursive: true, force: true });
-        throw new Error('scaffold did not declare __io.peers');
-    }
 
     // Boot the sandbox internally (dynamic workspace — no static fixture).
     const sandbox = await bootSandbox(ws, { agent: 'agent/none-agent.js' });
@@ -116,14 +114,16 @@ export default async ({ browser }) => {
         page.on('pageerror', err => console.log('[page error]', err.message));
         await page.goto(sandbox.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        await page.waitForSelector('[data-source-btn]', { timeout: 20000 });
-        await page.waitForSelector('[data-sink]', { timeout: 20000 });
+        // Both components on screen: the source's button and the sink's
+        // starting text.
+        const press = page.getByRole('button', { name: 'Press' });
+        await press.waitFor({ timeout: 20000 });
+        await page.waitForFunction(() => visibleText().includes('nothing yet'), undefined, { timeout: 20000 });
 
-        await page.locator('[data-source-btn]').click();
-        await page.waitForFunction(
-            () => document.querySelector('[data-sink]')?.textContent === 'wired',
-            { timeout: 5000 }
-        );
+        // Press the source; the scaffolded relationship must carry the value
+        // through to the sink, which repaints to read "wired".
+        await press.click();
+        await page.waitForFunction(() => visibleText().includes('wired'), undefined, { timeout: 5000 });
     } finally {
         try { sandbox.teardown(); } catch {}
         try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
