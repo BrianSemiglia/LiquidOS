@@ -41,9 +41,8 @@ export default async ({ url, workspace, page }) => {
 
     const before = await page.evaluate(() => ({
         wrapsInWorld: document.querySelectorAll('.test-world > .test-card').length,
-        itemsInWorld: document.querySelectorAll('.test-world .item').length,
-        bodyHasAlpha: !!document.body.querySelector('[data-test-card-alpha]'),
-        bodyHasBeta: !!document.body.querySelector('[data-test-card-beta]')
+        alphaInWorld: !!document.querySelector('.test-world [data-test-card-alpha]'),
+        betaInWorld: !!document.querySelector('.test-world [data-test-card-beta]')
     }));
     console.log('before edit:', before);
 
@@ -60,9 +59,8 @@ export default async ({ url, workspace, page }) => {
 
     const after = await page.evaluate(() => ({
         wrapsInWorld: document.querySelectorAll('.test-world > .test-card').length,
-        itemsInWorld: document.querySelectorAll('.test-world .item').length,
-        bodyHasAlpha: !!document.body.querySelector('[data-test-card-alpha]'),
-        bodyHasBeta: !!document.body.querySelector('[data-test-card-beta]'),
+        alphaInWorld: !!document.querySelector('.test-world [data-test-card-alpha]'),
+        betaInWorld: !!document.querySelector('.test-world [data-test-card-beta]'),
         worldExists: !!document.querySelector('.test-world')
     }));
     console.log('after edit:', after);
@@ -73,7 +71,9 @@ export default async ({ url, workspace, page }) => {
     if (after.wrapsInWorld !== 2) {
         throw new Error('expected 2 .test-card wraps inside new .test-world, got ' + after.wrapsInWorld);
     }
-    if (after.itemsInWorld !== 2) {
-        throw new Error('expected 2 .item nodes inside new .test-world, got ' + after.itemsInWorld);
+    // Both components must have re-placed INTO the new world, not been stranded
+    // in the previous canvas's now-detached wrappers.
+    if (!after.alphaInWorld || !after.betaInWorld) {
+        throw new Error('a component did not reach the new world (alpha=' + after.alphaInWorld + ', beta=' + after.betaInWorld + ')');
     }
 };

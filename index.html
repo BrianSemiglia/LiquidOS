@@ -3992,7 +3992,7 @@
         const scheduleRepositionAfterModal = () => {
             if (typeof renderCanvas !== 'function') return;
             const items = latestComponents.map(component =>
-                renderedItemsByPath.get(component.scope) || renderComponent(component));
+                renderedItemsByPath.get(component.scope) || buildComponentItem(component));
             renderCanvas(items, null);
         };
 
@@ -4448,7 +4448,50 @@
             morphChildren(target, tpl.content);
         };
 
+        // A component item built by buildComponentItem renders itself: its
+        // entry <liquidos-file> loads component.html, whose <liquidos-component>
+        // builds the chrome and mounts. The harness has nothing to paint or
+        // re-paint into it — the file watcher + element drive every update — so
+        // the morph/remount path below is a no-op for these.
+        const buildComponentItem = (component) => {
+            const item = document.createElement('section');
+            item.className = 'item';
+            item.dataset.componentPath = component.scope || '';
+            item.dataset.repairLevel = component.repairLevel || '';
+            item.classList.toggle('canvas-repair-item', component.repairLevel === 'canvas');
+            const entryPath = component.entryPath || '';
+            if (entryPath.endsWith('.html')) {
+                item.__selfRendering = true;
+                const file = document.createElement('liquidos-file');
+                file.setAttribute('path', entryPath);
+                item.appendChild(file);
+            } else {
+                // No entry file: a server-provided card (e.g. the canvas-damaged
+                // Repair card). Render its markup directly; it carries no chrome.
+                item.innerHTML = component.html || '';
+            }
+            return item;
+        };
+
         const updateComponentItem = (item, component, forceRemount = false) => {
+            if (item.__selfRendering) {
+                // Canvas.js reloaded (pendingCanvasRemount) and wiped the
+                // canvas-owned DOM. Recreate the entry <liquidos-file> so the
+                // component's mount() re-runs and re-injects anything it placed
+                // into the canvas (e.g. a stage backdrop) — a reconnected file
+                // would otherwise no-op on its _initialized guard.
+                if (forceRemount) {
+                    const entryPath = component.entryPath
+                        || item.querySelector(':scope > liquidos-file')?.getAttribute('path');
+                    item.replaceChildren();
+                    if (entryPath) {
+                        const file = document.createElement('liquidos-file');
+                        file.setAttribute('path', entryPath);
+                        item.appendChild(file);
+                    }
+                }
+                return;
+            }
             const prev = item.__component;
             item.__component = component;
             item.dataset.componentPath = component.scope || '';
@@ -4730,7 +4773,7 @@
                     currentCanvasCacheKey = null;
                 }
                 const items = latestComponents.map(component =>
-                    renderedItemsByPath.get(component.scope) || renderComponent(component));
+                    renderedItemsByPath.get(component.scope) || buildComponentItem(component));
                 renderCanvas(items, null);
                 lastCanvasSnapshot = snapshot;
                 return;
@@ -4761,7 +4804,7 @@
             // Reuse existing DOM items when possible — only create a new
             // <section> for components we haven't seen before.
             const items = latestComponents.map(component =>
-                renderedItemsByPath.get(component.scope) || renderComponent(component));
+                renderedItemsByPath.get(component.scope) || buildComponentItem(component));
             renderCanvas(items, null);
             lastCanvasSnapshot = snapshot;
         };
