@@ -1,4 +1,4 @@
-A target component with a long-running service (service.js) and
-static marker content inlined in component.html. Probes drive the
-stub agent to rewrite service.js, which triggers the harness's
-run-mode liquidos-file to schedule a service restart.
+The component under test: a long-running service (service.js) and static
+marker content (MARKER_BEFORE, INITIAL) inlined in component.html. Its
+view stays inert; on a relationship signal it rewrites its own service.js,
+triggering the harness's run-mode liquidos-file to restart the service.

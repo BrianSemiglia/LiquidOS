@@ -1,5 +1,6 @@
 {
   "components": [
-    "components/target/component.html"
+    "components/target/component.html",
+    "components/controls/component.html"
   ]
 }

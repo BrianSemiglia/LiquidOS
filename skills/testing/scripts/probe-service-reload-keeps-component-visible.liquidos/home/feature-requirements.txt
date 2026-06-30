@@ -1,3 +1,5 @@
-Fixture for the service-restart probe.
-One component whose component.html includes a run-mode liquidos-file
-pointing at a service script and marker content rendered alongside.
+Fixture for the service-restart probe. A `target` component under test
+(inert view + run-mode service) and a `controls` component (button +
+BOOT readout), wired by a relationship: clicking the button rewrites
+target/service.js, which restarts the service; the service bumps the
+BOOT counter shown in controls.

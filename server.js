@@ -1525,6 +1525,11 @@ const server = http.createServer(async (req, res) => {
                 fs.mkdirSync(path.dirname(abs), { recursive: true });
                 const tmp = abs + '.tmp-' + process.pid + '-' + Date.now();
                 fs.writeFileSync(tmp, body);
+                // Editing a file in place must not change its permissions: the
+                // temp file defaults to 0644, so without this a rewrite of an
+                // executable service script would strip its +x and the next
+                // spawn would EACCES (a crash). Carry the existing mode over.
+                try { fs.chmodSync(tmp, fs.statSync(abs).mode); } catch {}
                 fs.renameSync(tmp, abs);
                 newShapeSendJson(res, 200, { ok: true });
                 return;
