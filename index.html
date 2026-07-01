@@ -4813,16 +4813,23 @@
             else    document.body.removeAttribute(attr);
         };
 
-        // Keep the send button disabled until there's something to send. The
-        // form clears the textarea on submit without firing 'input', so re-sync
-        // after submit too.
+        // Keep the send button disabled until there's something to send, and
+        // disable the whole prompt bar when the active agent is unavailable —
+        // there's no agent to send to. loadAgentChoices() flips
+        // activeAgentAvailable and re-syncs. The form clears the textarea on
+        // submit without firing 'input', so re-sync after submit too.
         const promptTextField = document.getElementById('global-text');
         const promptFormEl = document.getElementById('global-prompt');
+        const promptSendBtn = promptFormEl?.querySelector('button[type="submit"]');
+        let activeAgentAvailable = true;
+        const syncPrompt = () => {
+            if (promptTextField) promptTextField.disabled = !activeAgentAvailable;
+            if (promptSendBtn) {
+                const empty = !promptTextField || promptTextField.value.trim().length === 0;
+                promptSendBtn.disabled = !activeAgentAvailable || empty;
+            }
+        };
         if (promptTextField) {
-            const promptSendBtn = promptFormEl?.querySelector('button[type="submit"]');
-            const syncPrompt = () => {
-                if (promptSendBtn) promptSendBtn.disabled = promptTextField.value.trim().length === 0;
-            };
             promptTextField.addEventListener('input', syncPrompt);
             promptFormEl?.addEventListener('submit', () => requestAnimationFrame(syncPrompt));
             syncPrompt();
@@ -4860,6 +4867,13 @@
             if (active && agentSelect.value !== active) {
                 agentSelect.value = active;
             }
+
+            // Gate the prompt bar on the active agent: an unavailable agent
+            // (installed === false, same signal that disables its option) means
+            // there's nothing to send to.
+            const activeChoice = choices.find(choice => (choice.id || '') === active);
+            activeAgentAvailable = !activeChoice || activeChoice.installed !== false;
+            syncPrompt();
 
             return data;
         };
