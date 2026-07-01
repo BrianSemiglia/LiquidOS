@@ -78,17 +78,13 @@ export default (root, context) => {
 
 ### Splitting canvas.js into modules
 
-`canvas.js` can grow into several files. Import them with plain relative paths —
-`import { MANSION } from './forest/env.js'` — and split however you like: the
-server versions the whole import graph, so editing any module in it hot-reloads
-the canvas exactly as editing `canvas.js` does. Write ordinary `import`/`export`;
-no cache-busting query strings, no dynamic-import tricks.
+Split `canvas.js` into as many files as you want. Import them with ordinary
+`import`/`export` and static relative paths — `import { MANSION } from
+'./forest/env.js'`. Every module imported this way hot-reloads like `canvas.js`.
 
-Only imports the server can read statically are tracked — static `import`s and
-`import('./literal.js')`. A computed dynamic import (`import('./' + name)`) is
-opaque, so a module reached only that way won't hot-reload; import it by a
-literal path if you want live edits. Absolute (`/lib/...`) and bare (npm/CDN)
-specifiers are external and left untouched.
+- Don't add `?v=` or any cache-busting to import paths.
+- Don't import a module by a computed path (`import('./' + name)`) if you want it
+  to hot-reload — use a literal path.
 
 ### What canvas.js sees
 
