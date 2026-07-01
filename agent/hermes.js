@@ -24,14 +24,34 @@ const timeoutMilliseconds = () => {
     const value = Number.parseInt(argValue('--agent-timeout-ms', ''), 10);
     return Number.isFinite(value) && value > 0 ? value : null;
 };
-const command = argValue('--agent', argValue('--agent-command', argValue('--hermes-command', 'hermes')));
+const commandCandidates = () => [
+    process.env.LIQUIDOS_HERMES_COMMAND,
+    argValue('--hermes-command', null),
+    argValue('--agent-command', null),
+    process.env.HOME ? path.join(process.env.HOME, '.local/bin/hermes') : null,
+    '/opt/homebrew/bin/hermes',
+    '/usr/local/bin/hermes',
+    'hermes'
+].filter(candidate => typeof candidate === 'string' && candidate.trim());
+
+const commandExists = candidate => {
+    if (!candidate) {
+        return false;
+    }
+
+    if (path.isAbsolute(candidate)) {
+        return fs.existsSync(candidate);
+    }
+
+    return String(process.env.PATH || '')
+        .split(path.delimiter)
+        .some(directory => directory && fs.existsSync(path.join(directory, candidate)));
+};
+
+const command = commandCandidates().find(commandExists) || 'hermes';
 const rawAgentArguments = () => argValue('--agent-args', argValue('--hermes-args', '')).split(' ').filter(Boolean);
 
-const commandInstalled = () => path.isAbsolute(command)
-    ? fs.existsSync(command)
-    : String(process.env.PATH || '')
-        .split(path.delimiter)
-        .some(directory => directory && fs.existsSync(path.join(directory, command)));
+const commandInstalled = () => commandExists(command);
 
 const filteredAgentArguments = () => {
     const skippedValueFlags = new Set([

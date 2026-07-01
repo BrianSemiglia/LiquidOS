@@ -24,7 +24,31 @@ const timeoutMilliseconds = () => {
     const value = Number.parseInt(argValue('--agent-timeout-ms', ''), 10);
     return Number.isFinite(value) && value > 0 ? value : null;
 };
-const command = 'pi';
+const commandCandidates = () => [
+    process.env.LIQUIDOS_PI_COMMAND,
+    argValue('--pi-command', null),
+    argValue('--agent-command', null),
+    process.env.HOME ? path.join(process.env.HOME, '.local/bin/pi') : null,
+    '/opt/homebrew/bin/pi',
+    '/usr/local/bin/pi',
+    'pi'
+].filter(candidate => typeof candidate === 'string' && candidate.trim());
+
+const commandExists = candidate => {
+    if (!candidate) {
+        return false;
+    }
+
+    if (path.isAbsolute(candidate)) {
+        return fs.existsSync(candidate);
+    }
+
+    return String(process.env.PATH || '')
+        .split(path.delimiter)
+        .some(directory => directory && fs.existsSync(path.join(directory, candidate)));
+};
+
+const command = commandCandidates().find(commandExists) || 'pi';
 
 const systemPromptArgument = systemPromptPath => {
     if (!systemPromptPath || !fs.existsSync(systemPromptPath)) {
@@ -35,15 +59,7 @@ const systemPromptArgument = systemPromptPath => {
     return text ? ['--append-system-prompt', text] : [];
 };
 
-const commandInstalled = () => {
-    if (path.isAbsolute(command)) {
-        return fs.existsSync(command);
-    }
-
-    return String(process.env.PATH || '')
-        .split(path.delimiter)
-        .some(directory => directory && fs.existsSync(path.join(directory, command)));
-};
+const commandInstalled = () => commandExists(command);
 
 const configurePiAgent = nextHost => {
     host = {

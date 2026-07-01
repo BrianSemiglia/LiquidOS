@@ -1,0 +1,1 @@
+- Surfaces when a queued follow-up job reconciles the canvas to include this component.
