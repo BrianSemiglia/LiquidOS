@@ -76,6 +76,20 @@ export default (root, context) => {
 };
 ```
 
+### Splitting canvas.js into modules
+
+`canvas.js` can grow into several files. Import them with plain relative paths —
+`import { MANSION } from './forest/env.js'` — and split however you like: the
+server versions the whole import graph, so editing any module in it hot-reloads
+the canvas exactly as editing `canvas.js` does. Write ordinary `import`/`export`;
+no cache-busting query strings, no dynamic-import tricks.
+
+Only imports the server can read statically are tracked — static `import`s and
+`import('./literal.js')`. A computed dynamic import (`import('./' + name)`) is
+opaque, so a module reached only that way won't hot-reload; import it by a
+literal path if you want live edits. Absolute (`/lib/...`) and bare (npm/CDN)
+specifiers are external and left untouched.
+
 ### What canvas.js sees
 
 Each `place()` call hands you:
@@ -132,7 +146,7 @@ The per-component Requirements button lives in the component's own frame, so it 
 
 ### Hot reload
 
-- Edit `canvas.js` → `teardown()` runs on the prior instance, factory runs again, `place()` is called fresh.
+- Edit `canvas.js` — or any module it imports (see *Splitting canvas.js into modules*) → `teardown()` runs on the prior instance, the factory runs again, `place()` is called fresh.
 - Edit a component → harness re-runs `place()` with updated metadata. Identity persists across the update; preserve position if you've assigned one.
 
 ### Non-trivial edits

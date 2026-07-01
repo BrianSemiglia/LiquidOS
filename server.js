@@ -1106,14 +1106,10 @@ const dispatchWorkspaceEvent = absPath => {
     // re-render (component edits repaint through their own morph).
     broadcast({ type: 'workspace-file', path: rel });
 
-    // The presentation's module graph (canvas.js and everything it imports), the
-    // relationships under relationships/, and index.json (the component list) have
-    // no element watching them — they re-render through the graph. Membership is
-    // the actual import closure, so a deep module edit re-renders and a data file
-    // no module imports does not.
-    return canvasGraph.canvasModuleRels().has(rel)
-        || rel.startsWith(activeName + '/relationships/')
-        || rel === activeName + '/index.json';
+    // The graph module owns which files the render depends on (its module
+    // closure, index.json, the relationships tree) — everything else is watched
+    // by its own <liquidos-file> and repaints through a morph, not the graph.
+    return canvasGraph.graphDependsOn(rel);
 };
 
 const startWorkspaceWatch = () => {

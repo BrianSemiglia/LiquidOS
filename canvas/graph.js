@@ -239,16 +239,28 @@ const createCanvasGraph = ({
     // (however deep) bumps it, while a file nobody imports leaves it untouched.
     const canvasJsVersion = () => moduleGraph.closureVersion(fs, canvasJsPath());
 
-    // The presentation's dependency set, as workspace-relative paths — what the
-    // watcher consults to decide a change is a canvas-module change (vs. state or
-    // data no one imports). Derived from the imports the code declares, so there
+    // Workspace-relative form of a canvas file — relative to the workspace root
+    // (the canvas folder's parent), matching the watcher's event paths.
+    const workspaceRel = file =>
+        path.relative(path.dirname(getCanvasPath()), file).split(path.sep).join('/');
+
+    // The presentation's module dependency set: canvas.js and every module it
+    // imports, transitively. Derived from the imports the code declares, so there
     // is nothing to special-case by extension or folder.
-    const canvasModuleRels = () => {
-        const workspaceRoot = path.dirname(getCanvasPath());
-        return new Set(
-            [...moduleGraph.closure(fs, canvasJsPath())]
-                .map(file => path.relative(workspaceRoot, file).split(path.sep).join('/'))
-        );
+    const canvasModuleRels = () =>
+        new Set([...moduleGraph.closure(fs, canvasJsPath())].map(workspaceRel));
+
+    // Does the rendered graph depend on this workspace file? The three inputs
+    // that have no element watching them, and so must re-render through the graph:
+    // the presentation's module closure, the component manifest (index.json), and
+    // the relationships tree (wiring modules and their diagnostics). Everything a
+    // <liquidos-file> already watches — component files, state, data — is false
+    // and repaints through its own morph instead.
+    const graphDependsOn = rel => {
+        const name = path.basename(getCanvasPath());
+        return canvasModuleRels().has(rel)
+            || rel === name + '/index.json'
+            || rel.startsWith(name + '/relationships/');
     };
 
     // Relationships are component-shaped folders under <canvas>/relationships/.
@@ -388,7 +400,7 @@ const createCanvasGraph = ({
         componentScope,
         componentFolderPath,
         canvasJsPath,
-        canvasModuleRels,
+        graphDependsOn,
         updateDiagnostics,
         renderedInput,
         findLeafComponentByPath,
