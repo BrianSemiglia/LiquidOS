@@ -16,6 +16,7 @@ const { eventWithParameter } = require('./canvas/git-timeline');
 // the canvas vocabulary stays with the operation, out of the timeline machinery.
 const didCreateCanvasEvent = name => eventWithParameter('User did create canvas', 'name', name);
 const { createCanvasGraph } = require('./canvas/graph');
+const moduleGraph = require('./canvas/module-graph');
 const { createOutputQueue } = require('./canvas/output-queue');
 const crashRecovery = require('./canvas/crash-recovery');
 const { createPromptBuilder } = require('./canvas/prompt-builder');
@@ -1105,10 +1106,12 @@ const dispatchWorkspaceEvent = absPath => {
     // re-render (component edits repaint through their own morph).
     broadcast({ type: 'workspace-file', path: rel });
 
-    // canvas.js (presentation), the relationships under relationships/, and
-    // index.json (the component list) have no element watching them — they
-    // re-render through the graph.
-    return rel === activeName + '/canvas.js'
+    // The presentation's module graph (canvas.js and everything it imports), the
+    // relationships under relationships/, and index.json (the component list) have
+    // no element watching them — they re-render through the graph. Membership is
+    // the actual import closure, so a deep module edit re-renders and a data file
+    // no module imports does not.
+    return canvasGraph.canvasModuleRels().has(rel)
         || rel.startsWith(activeName + '/relationships/')
         || rel === activeName + '/index.json';
 };
@@ -1505,6 +1508,19 @@ const server = http.createServer(async (req, res) => {
             if (!abs) { res.writeHead(400); res.end('path escapes workspace'); return; }
             if (req.method === 'GET') {
                 if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) { res.writeHead(404); res.end(); return; }
+                // A workspace module requested under a version token is served
+                // through the presentation's version graph: its relative import
+                // specifiers are rewritten to carry the same token, so the whole
+                // subtree loads (and re-loads) as one. Author code stays plain
+                // `import './x.js'`; only relative specifiers move.
+                const ext = path.extname(abs).toLowerCase();
+                const token = url.searchParams.get('v');
+                if (token && (ext === '.js' || ext === '.mjs')) {
+                    const source = moduleGraph.versionImports(fs.readFileSync(abs, 'utf8'), token);
+                    res.writeHead(200, { 'content-type': newShapeMimeFor(abs), 'cache-control': 'no-cache' });
+                    res.end(source);
+                    return;
+                }
                 res.writeHead(200, { 'content-type': newShapeMimeFor(abs) });
                 fs.createReadStream(abs).pipe(res);
                 return;

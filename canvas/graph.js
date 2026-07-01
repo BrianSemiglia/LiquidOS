@@ -1,4 +1,5 @@
 const path = require('path');
+const moduleGraph = require('./module-graph');
 
 const createCanvasGraph = ({
     fs,
@@ -233,10 +234,21 @@ const createCanvasGraph = ({
 
     const canvasJsPath = () => path.join(getCanvasPath(), 'canvas.js');
 
-    const canvasJsVersion = () => {
-        const file = canvasJsPath();
-        if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return '';
-        return String(fs.statSync(file).mtimeMs);
+    // The token the client cache-busts canvas.js with: the newest mtime across
+    // canvas.js's transitive import graph, so an edit to any module it depends on
+    // (however deep) bumps it, while a file nobody imports leaves it untouched.
+    const canvasJsVersion = () => moduleGraph.closureVersion(fs, canvasJsPath());
+
+    // The presentation's dependency set, as workspace-relative paths — what the
+    // watcher consults to decide a change is a canvas-module change (vs. state or
+    // data no one imports). Derived from the imports the code declares, so there
+    // is nothing to special-case by extension or folder.
+    const canvasModuleRels = () => {
+        const workspaceRoot = path.dirname(getCanvasPath());
+        return new Set(
+            [...moduleGraph.closure(fs, canvasJsPath())]
+                .map(file => path.relative(workspaceRoot, file).split(path.sep).join('/'))
+        );
     };
 
     // Relationships are component-shaped folders under <canvas>/relationships/.
@@ -376,6 +388,7 @@ const createCanvasGraph = ({
         componentScope,
         componentFolderPath,
         canvasJsPath,
+        canvasModuleRels,
         updateDiagnostics,
         renderedInput,
         findLeafComponentByPath,
