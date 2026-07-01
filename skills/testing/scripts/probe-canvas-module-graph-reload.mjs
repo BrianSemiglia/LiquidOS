@@ -24,7 +24,14 @@ import path from 'node:path';
 export const fixture = './probe-canvas-module-graph-reload.liquidos';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const mountCount = page => page.evaluate(() => window.__mountCount || 0);
+// The canvas paints its mount number on screen ("HOUSE-LEFT #1"). Read it the way
+// a user does — off the rendered text — so a re-mount shows a higher number and a
+// no-op leaves it unchanged. No prying at internals.
+const onScreen = page => page.evaluate(() => window.visibleText());
+const shownMount = async page => {
+    const match = (await onScreen(page)).match(/#(\d+)/);
+    return match ? Number(match[1]) : 0;
+};
 
 export default async ({ url, workspace, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
@@ -33,7 +40,7 @@ export default async ({ url, workspace, page }) => {
 
     // The value from the deep module (b.js, via a.js) is on screen.
     await page.waitForFunction(() => window.visibleText().includes('HOUSE-LEFT'), { timeout: 20000 });
-    const mountsAtStart = await mountCount(page);
+    const mountsAtStart = await shownMount(page);
 
     // Edit the two-hops-deep module. It must go live — and the canvas must
     // actually re-mount (fresh transitive fetch, not a stale cached b.js).
@@ -43,9 +50,9 @@ export default async ({ url, workspace, page }) => {
         { timeout: 20000 }
     ).catch(() => { throw new Error('editing a deep import (b.js) did not go live — transitive graph not tracked/re-fetched'); });
 
-    const mountsAfterEdit = await mountCount(page);
+    const mountsAfterEdit = await shownMount(page);
     if (!(mountsAfterEdit > mountsAtStart)) {
-        throw new Error(`b.js edit did not re-mount the canvas (mounts ${mountsAtStart} -> ${mountsAfterEdit})`);
+        throw new Error(`b.js edit did not re-mount the canvas (shown mount ${mountsAtStart} -> ${mountsAfterEdit})`);
     }
 
     // Edit a file nobody imports. It must NOT re-mount the canvas: reloads follow
@@ -53,11 +60,11 @@ export default async ({ url, workspace, page }) => {
     fs.writeFileSync(path.join(workspace, 'home', 'unused.js'), "export const UNUSED = 'v2';\n");
     await sleep(3000);
 
-    const mountsAfterUnused = await mountCount(page);
+    const mountsAfterUnused = await shownMount(page);
     if (mountsAfterUnused !== mountsAfterEdit) {
-        throw new Error(`editing an un-imported file re-mounted the canvas (mounts ${mountsAfterEdit} -> ${mountsAfterUnused}) — reload not scoped to the import graph`);
+        throw new Error(`editing an un-imported file re-mounted the canvas (shown mount ${mountsAfterEdit} -> ${mountsAfterUnused}) — reload not scoped to the import graph`);
     }
-    if (!(await page.evaluate(() => window.visibleText().includes('HOUSE-RIGHT')))) {
+    if (!(await onScreen(page)).includes('HOUSE-RIGHT')) {
         throw new Error('the moved value "HOUSE-RIGHT" is no longer on screen after the un-imported edit');
     }
 };
