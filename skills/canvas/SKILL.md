@@ -86,6 +86,16 @@ Split `canvas.js` into as many files as you want. Import them with ordinary
 - Don't import a module by a computed path (`import('./' + name)`) if you want it
   to hot-reload — use a literal path.
 
+### Streamable regions
+
+A canvas can host authored content the agent streams into — not just component
+cards. Place a render-mode file marked `stream-surface`:
+`<liquidos-file path="regions/hero.html" stream-surface>`. It renders that file,
+re-renders when it changes, and — because of the `stream-surface` attribute — the
+agent's stream persists into that file. Put several addressable elements (ids) in
+one file if you want multiple targets. A prompt scoped to the file's path streams
+into it, exactly like a component streams into its `component.html`.
+
 ### What canvas.js sees
 
 Each `place()` call hands you:

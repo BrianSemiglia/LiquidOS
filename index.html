@@ -287,10 +287,16 @@
         const nodeAtPath = (rootNode, path) =>
             path.reduce((n, i) => (n ? n.childNodes[i] : null), rootNode);
 
-        const writeComponentOp = (host, targetEl, applyToTwin) => {
-            if (!host || !host.workspacePath) return;
-            const path = indexPath(host, targetEl);
-            const clone = host.cloneNode(true);
+        // A stream surface owns a backing workspace file and how to serialize its
+        // mutated clone into it (a component → component.html / outerHTML; a canvas
+        // region → its own file / innerHTML). Clone the surface, map the live target
+        // to its twin, apply the mutation, then PUT the serialized clone — the
+        // file's own watcher morphs the result back. One writer, one renderer.
+        const writeSurfaceOp = (surface, targetEl, applyToTwin) => {
+            const file = surface?.streamSurfaceFile?.();
+            if (!file) return;
+            const path = indexPath(surface, targetEl);
+            const clone = surface.cloneNode(true);
             const twin = path.length ? nodeAtPath(clone, path) : clone;
             if (!twin) return;
             applyToTwin(twin);
@@ -301,13 +307,12 @@
                 for (const child of Array.from(el.children)) visit(child);
             };
             visit(clone);
-            fetch('/workspace/' + host.workspacePath + '/component.html', {
+            fetch('/workspace/' + file, {
                 method: 'PUT',
                 headers: { 'content-type': 'text/plain' },
-                body: clone.outerHTML
+                body: surface.streamSurfaceSerialize(clone)
             }).catch(err => {
-                state.rejects.push({ reason: 'persist-failed: ' + err.message,
-                    attrs: { workspacePath: host.workspacePath } });
+                state.rejects.push({ reason: 'persist-failed: ' + err.message, attrs: { file } });
             });
         };
 
@@ -350,24 +355,23 @@
                     return;
                 }
                 const el = root().querySelector(attrs.target);
-                const host = el.closest('liquidos-component');
+                const surface = el.closest('[data-stream-surface]');
                 state.dispatches.push({ op: attrs.op, target: attrs.target, inner: inner.slice(0, 80) });
                 const apply = (target) => {
                     if (attrs.op === 'setAttr') target.setAttribute(attrs.attr, attrs.value);
                     else if (attrs.op === 'remove') target.remove();
                 };
-                // A component change is written to its file and rendered by
-                // the watcher morph — never painted here. Page chrome (no host
-                // component, e.g. #agent-activity) has no file, so it applies
-                // to the live DOM directly.
-                if (host && host.workspacePath) writeComponentOp(host, el, apply);
+                // A surface-backed change is written to its file and rendered by
+                // the watcher morph — never painted here. Host-less page chrome
+                // (e.g. #agent-activity) has no file, so it applies to live DOM.
+                if (surface && surface.streamSurfaceFile?.()) writeSurfaceOp(surface, el, apply);
                 else apply(el);
             },
             onStreamOpen: (attrs) => {
                 const el = root().querySelector(attrs.target);
                 if (!el) return null;
-                const host = el.closest('liquidos-component');
-                const toFile = !!(host && host.workspacePath);
+                const surface = el.closest('[data-stream-surface]');
+                const toFile = !!(surface && surface.streamSurfaceFile?.());
                 let buffer = '';
                 let chunks = 0;
 
@@ -398,7 +402,7 @@
                         },
                         close: () => {
                             if (toFile) {
-                                writeComponentOp(host, el, (twin) => {
+                                writeSurfaceOp(surface, el, (twin) => {
                                     if (attrs.op === 'replace') twin.innerHTML = buffer;
                                     else twin.insertAdjacentHTML(
                                         attrs.op === 'append' ? 'beforeend' : 'afterbegin', buffer);
@@ -421,7 +425,7 @@
                 return {
                     appendChunk: (text) => { buffer += text; if (!toFile) node.appendData(text); },
                     close: () => {
-                        if (toFile) writeComponentOp(host, el, (twin) =>
+                        if (toFile) writeSurfaceOp(surface, el, (twin) =>
                             twin.appendChild(document.createTextNode(buffer)));
                         state.dispatches.push({
                             op: 'stream-close', target: attrs.target, chars: buffer.length
