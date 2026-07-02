@@ -220,7 +220,11 @@ const createCanvasGraph = ({
                 {
                     ...resource,
                     url: resourceUrl(componentPath, name, resource),
-                    version: localResourceFile(resource) && fs.existsSync(localResourceFile(resource)) ? String(fs.statSync(localResourceFile(resource)).mtimeMs) : ''
+                    // Cache-bust token = newest mtime across the resource's import
+                    // graph, so editing a module a functions.js imports bumps it and
+                    // the re-mount re-fetches the whole subtree. For a non-module
+                    // resource (no imports) this is just the file's own mtime.
+                    version: localResourceFile(resource) ? moduleGraph.closureVersion(fs, localResourceFile(resource)) : ''
                 }
             ])
         );
@@ -250,15 +254,23 @@ const createCanvasGraph = ({
     const canvasModuleRels = () =>
         new Set([...moduleGraph.closure(fs, canvasJsPath())].map(workspaceRel));
 
-    // Does the rendered graph depend on this workspace file? The three inputs
-    // that have no element watching them, and so must re-render through the graph:
-    // the presentation's module closure, the component manifest (index.json), and
-    // the relationships tree (wiring modules and their diagnostics). Everything a
-    // <liquidos-file> already watches — component files, state, data — is false
-    // and repaints through its own morph instead.
+    // Each relationship's functions.js and everything it imports, transitively —
+    // the wiring's module graph, wherever those modules live (a relationship may
+    // import a shared module from outside its own folder).
+    const relationshipModuleRels = () =>
+        new Set(relationshipEntries().flatMap(entry =>
+            [...moduleGraph.closure(fs, path.join(entry.componentPath, 'functions.js'))].map(workspaceRel)));
+
+    // Does the rendered graph depend on this workspace file? The inputs that have
+    // no element watching them, and so must re-render through the graph: the
+    // presentation's module closure, each relationship's module closure, the
+    // component manifest (index.json), and the relationships tree (which also
+    // carries their diagnostics). Everything a <liquidos-file> already watches —
+    // component files, state, data — is false and repaints through its own morph.
     const graphDependsOn = rel => {
         const name = path.basename(getCanvasPath());
         return canvasModuleRels().has(rel)
+            || relationshipModuleRels().has(rel)
             || rel === name + '/index.json'
             || rel.startsWith(name + '/relationships/');
     };
