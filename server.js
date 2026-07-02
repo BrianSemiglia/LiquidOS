@@ -1954,6 +1954,19 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        // The transitive import closure of a workspace module, as workspace-
+        // relative paths. A <liquidos-file run/script> element reads its own
+        // closure so it re-runs when any module it depends on changes, not just
+        // its entry file — the same import-graph the canvas re-renders through.
+        if (req.method === 'GET' && url.pathname === '/module-closure') {
+            const abs = newShapeGuardAbs(String(url.searchParams.get('path') || ''));
+            const files = abs
+                ? [...moduleGraph.closure(fs, abs)].map(f => path.relative(WORKSPACE_PATH, f).split(path.sep).join('/'))
+                : [];
+            send(res, 200, JSON.stringify(files), 'application/json; charset=utf-8');
+            return;
+        }
+
         if (req.method === 'GET' && url.pathname === '/input') {
             const rendered = canvasGraph.renderedInput();
             send(res, 200, JSON.stringify(rendered), 'application/json; charset=utf-8');
