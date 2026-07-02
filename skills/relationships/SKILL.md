@@ -20,7 +20,7 @@ A *relationship* is a small unit of wiring that subscribes to one component's ou
   test.js                      — optional behavior test, runnable by hand
 ```
 
-Only `functions.js` is required. Relationships don't render — there's nothing to paint, just wiring.
+Only `functions.js` is required. Relationships don't render — there's nothing to paint, just wiring. Split `functions.js` into more files if you like: import them with plain relative paths, and editing any module it imports re-wires the relationship, same as editing `functions.js`.
 
 ## Naming convention
 
