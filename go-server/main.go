@@ -317,18 +317,25 @@ func (c config) handleWorkspaceFile(w http.ResponseWriter, r *http.Request, rel 
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		// TODO(phase 2): when a ?v=<token> is present on a .js/.mjs request,
-		// rewrite relative import specifiers to carry the token
-		// (canvas/module-graph versionImports). For now serve raw.
 		data, err := os.ReadFile(abs)
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		w.Header().Set("Content-Type", mimeFor(abs))
-		if r.URL.Query().Get("v") != "" {
+		// A workspace module requested under a version token is served through
+		// the presentation's version graph: its relative import specifiers are
+		// rewritten to carry the same token, so the whole subtree loads (and
+		// re-loads) as one (server.js /workspace GET + module-graph).
+		ext := strings.ToLower(filepath.Ext(abs))
+		if token := r.URL.Query().Get("v"); token != "" && (ext == ".js" || ext == ".mjs") {
+			data = []byte(versionImports(string(data), token))
+			w.Header().Set("Content-Type", mimeFor(abs))
 			w.Header().Set("Cache-Control", "no-cache")
+			w.WriteHeader(http.StatusOK)
+			w.Write(data)
+			return
 		}
+		w.Header().Set("Content-Type", mimeFor(abs))
 		w.WriteHeader(http.StatusOK)
 		w.Write(data)
 
