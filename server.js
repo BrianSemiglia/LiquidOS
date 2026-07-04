@@ -37,6 +37,9 @@ child.on('error', err => {
 });
 
 child.on('exit', (code, signal) => {
-    if (signal) process.kill(process.pid, signal);
-    else process.exit(code == null ? 0 : code);
+    // Mirror the child's death. Node ignores SIGPIPE by default, so re-raising
+    // it wouldn't exit us — which matters for force-quit: the app closes our
+    // stdout, the Go server's next write dies with SIGPIPE, and we must follow
+    // it down (not linger as an orphan). So on any signal death, just exit.
+    process.exit(signal ? 1 : (code == null ? 0 : code));
 });

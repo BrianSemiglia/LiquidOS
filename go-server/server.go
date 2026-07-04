@@ -6,10 +6,10 @@ package main
 // recovery. /share + /network are minimal here (go-libp2p deferred).
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,21 +21,16 @@ import (
 	"time"
 )
 
-//go:embed recovery_page.html
-var recoveryPageHTML string
-
 const serverBuild = "hermes-output-server-2026-05-10-canvases-git-timeline"
 
 type server struct {
 	cfg config
 
-	mu                   sync.RWMutex
-	canvasPath           string
-	activeAgentKind      string
-	recovering           bool
-	activeOutputJob      *outputJob
-	canceledJobIDs       map[string]bool
-	pendingCrashDispatch func()
+	mu              sync.RWMutex
+	canvasPath      string
+	activeAgentKind string
+	activeOutputJob *outputJob
+	canceledJobIDs  map[string]bool
 
 	bridge   *agentBridge
 	queue    *outputQueue
@@ -145,14 +140,6 @@ func (s *server) emitNativeNotification(title, body string) {
 	fmt.Printf("LIQUIDOS_NATIVE_NOTIFICATION %s\n", b)
 }
 
-func (s *server) emitRecoveryState(state string) {
-	if os.Getenv("LIQUIDOS_RUNTIME_KIND") != "mac-app" {
-		return
-	}
-	b, _ := json.Marshal(map[string]string{"state": state})
-	fmt.Printf("LIQUIDOS_RECOVERY %s\n", b)
-}
-
 // --- dispatch -------------------------------------------------------------
 
 func (s *server) appendOutput(body []byte) error {
@@ -173,6 +160,15 @@ func (s *server) appendOutput(body []byte) error {
 	if !isCanvasPrompt {
 		jobScope = s.absoluteScope(scope)
 	}
+	// A server-log line to stdout (server.js logServer). Besides logging, this
+	// is the write that fails with EPIPE — and, on fd 1, exits the process — when
+	// the app that owns our stdout force-quits and its read end goes away. That
+	// clean orphan-exit is all that remains of the old crash path.
+	kind := "canvas prompt"
+	if !isCanvasPrompt {
+		kind = "scoped prompt"
+	}
+	fmt.Printf("[%s] [callback] received %s scope=%s\n", nowISO(), kind, jobScope)
 	s.queue.appendOutputJob(&outputJob{
 		ID: newJobID(), Scope: jobScope, Status: "pending", CreatedAt: nowISO(),
 		ComponentKey: jobScope, Prompt: prompt,
@@ -306,43 +302,10 @@ func (s *server) cancelActiveAgentJob() bool {
 	return true
 }
 
-// --- crash recovery -------------------------------------------------------
-
-func (s *server) dispatchCrashRecovery() {
-	report, ok := consumeCrashReport(s.cfg.workspace)
-	if ok {
-		s.mu.Lock()
-		s.recovering = true
-		s.pendingCrashDispatch = func() {
-			s.appendInternalOutputJob(s.cfg.workspace, crashRepairPrompt(report.Reason, report.Stack), recoverEvent)
-		}
-		s.mu.Unlock()
-		if s.stream.agent.count() > 0 {
-			s.firePendingCrashDispatch()
-		} else {
-			afterDelay(8000, s.firePendingCrashDispatch)
-		}
-		return
-	}
-	s.dispatchPermanentFixIfOwed()
-}
-
-func (s *server) firePendingCrashDispatch() {
-	s.mu.Lock()
-	fire := s.pendingCrashDispatch
-	s.pendingCrashDispatch = nil
-	s.mu.Unlock()
-	if fire != nil {
-		fire()
-	}
-}
-
-func (s *server) dispatchPermanentFixIfOwed() {
-	if !permanentFixOwed(s.activity.recentEvents(50)) {
-		return
-	}
-	s.appendInternalOutputJob(s.cfg.workspace, permanentFixPrompt(), fixEvent)
-}
+// Crash recovery was removed: in the JS server, workspace/agent code ran
+// in-process and could take the server down, so it recovered from a crash
+// marker on the next boot. The Go server runs the agent in an isolated sidecar,
+// so workspace content can't crash it — there is nothing to recover from.
 
 // --- ui-state driven switches (from the watcher) --------------------------
 
@@ -492,8 +455,6 @@ func (s *server) router() http.Handler {
 			s.handleEvents(w, r)
 		case method == "GET" && path == "/agent/stream":
 			s.handleAgentStream(w, r)
-		case method == "GET" && path == "/recovery":
-			send(w, 200, recoveryPageHTML, "text/html; charset=utf-8")
 		case method == "GET" && path == "/agents/probe":
 			s.handleAgentsProbe(w, r)
 		case method == "GET" && path == "/input":
@@ -545,13 +506,11 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleAgentStream(w http.ResponseWriter, r *http.Request) {
-	// The recovery screen tuning in releases Phase 1 (see dispatchCrashRecovery).
 	go func() {
 		time.Sleep(5 * time.Millisecond)
 		s.stream.agent.broadcast("event: debug-ready\ndata: {\"type\":\"debug-ready\"}\n\n")
 		snap, _ := json.Marshal(map[string]any{"type": "debug-snapshot", "snapshot": s.agentDebugSnapshot()})
 		s.stream.agent.broadcast("event: debug-snapshot\ndata: " + string(snap) + "\n\n")
-		s.firePendingCrashDispatch()
 	}()
 	s.stream.agent.serve(w, r)
 }
@@ -736,13 +695,6 @@ func (s *server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleSpawn(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	recovering := s.recovering
-	s.mu.RUnlock()
-	if recovering {
-		sendJSON(w, 200, map[string]any{"deferred": true})
-		return
-	}
 	var in struct {
 		Script     string            `json:"script"`
 		Label      string            `json:"label"`
@@ -942,18 +894,7 @@ func (s *server) run() error {
 		shortText:              shortText,
 		logf:                   func(kind, msg string) {},
 	})
-	s.queue.setProcessJob(func(job *outputJob) {
-		defer func() {
-			if job != nil && job.Event == recoverEvent {
-				s.mu.Lock()
-				s.recovering = false
-				s.mu.Unlock()
-				s.emitRecoveryState("ready")
-				s.dispatchPermanentFixIfOwed()
-			}
-		}()
-		s.processOutputJob(job)
-	})
+	s.queue.setProcessJob(s.processOutputJob)
 
 	// The workspace watcher.
 	watcher, err := newFSWatcher(s.cfg.workspace, []string{"node_modules", ".git", ".liquidos"}, s.onWatchEvents, s.onWatchRescan)
@@ -971,21 +912,35 @@ func (s *server) run() error {
 		os.Exit(0)
 	}()
 
+	// Force-quit path: the app that owns our stdout vanishes (uncatchable
+	// SIGKILL), so it never runs a clean shutdown; our next stdout write hits a
+	// readerless pipe. By default Go would terminate on SIGPIPE for fd 1/2
+	// silently — instead we catch it, note the EPIPE on stderr (still readable),
+	// and exit cleanly. This is orphan cleanup, NOT a crash: no marker is
+	// written (crash recovery was removed), so no phantom recovery next launch.
+	pipe := make(chan os.Signal, 1)
+	signal.Notify(pipe, syscall.SIGPIPE)
+	go func() {
+		<-pipe
+		fmt.Fprintln(os.Stderr, "EPIPE: stdout reader went away (app force-quit); exiting")
+		killOwnSubtree()
+		os.Exit(0)
+	}()
+
+	// Bind first so we can report the actual port: --port 0 asks the OS for an
+	// ephemeral one, and callers (e.g. the force-quit probe) read the resolved
+	// port from this line, exactly as server.js does via server.address().port.
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", s.cfg.port))
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	resolvedPort := listener.Addr().(*net.TCPAddr).Port
+
 	fmt.Println("Build: " + serverBuild)
-	fmt.Printf("Server at http://127.0.0.1:%d\n", s.cfg.port)
+	fmt.Printf("Server at http://127.0.0.1:%d\n", resolvedPort)
 	fmt.Println("Canvas: " + s.getCanvasPath())
 
-	s.dispatchCrashRecovery()
-	s.mu.RLock()
-	recovering := s.recovering
-	s.mu.RUnlock()
-	if recovering {
-		s.emitRecoveryState("recovering")
-	} else {
-		s.emitRecoveryState("ready")
-	}
-
-	return http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", s.cfg.port), s.router())
+	return http.Serve(listener, s.router())
 }
 
 func main() {
