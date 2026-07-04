@@ -124,10 +124,8 @@ func newGitTimeline(workspacePath string, currentCanvasPath func() string, logf 
 func (t *gitTimeline) ensureWorkspaceGitRepo() error {
 	os.MkdirAll(t.workspacePath, 0o755)
 
-	top, _ := gitRun(t.workspacePath, "rev-parse", "--show-toplevel")
-	topResolved, _ := filepath.Abs(strings.TrimSpace(top))
-	wsResolved, _ := filepath.Abs(t.workspacePath)
-	if topResolved != wsResolved {
+	top, topStatus := gitRun(t.workspacePath, "rev-parse", "--show-toplevel")
+	if topStatus != 0 || !samePath(strings.TrimSpace(top), t.workspacePath) {
 		if _, status := gitRun(t.workspacePath, "init"); status != 0 {
 			return &statusError{code: 500, msg: "Failed to initialize git repo for workspace"}
 		}
