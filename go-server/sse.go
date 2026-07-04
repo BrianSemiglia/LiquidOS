@@ -118,7 +118,8 @@ func (d *agentDebugState) pushLine(line string) {
 func (d *agentDebugState) snapshotLines() []string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return append([]string(nil), d.lines...)
+	out := make([]string, 0, len(d.lines)) // [] not null when empty
+	return append(out, d.lines...)
 }
 
 // streamHub carries the agent output framing: the /events + /agent/stream hubs,

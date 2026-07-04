@@ -414,51 +414,6 @@ func (c config) handleStatic(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// router returns the top-level handler directly rather than an http.ServeMux:
-// ServeMux 307-redirects any path containing `..` to its cleaned form before a
-// handler runs, which would bypass the workspace-escape guard (server.js
-// returns 400 "path escapes workspace" for those). A plain HandlerFunc sees the
-// raw, un-cleaned r.URL.Path, so the guard fires as it does in Node.
-func (c config) router() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/workspace/") {
-			rel, err := decodeURIComponent(strings.TrimPrefix(r.URL.Path, "/workspace/"))
-			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			c.handleWorkspaceFile(w, r, rel)
-			return
-		}
-		if r.Method == http.MethodGet && r.URL.Path == "/canvases" {
-			payload, _ := json.Marshal(map[string]any{
-				"current":     filepath.Base(c.canvasPath),
-				"currentPath": c.canvasPath,
-				"canvases":    c.availableCanvases(),
-			})
-			send(w, http.StatusOK, string(payload), "application/json; charset=utf-8")
-			return
-		}
-		c.handleStatic(w, r)
-	})
-}
-
-// ---------------------------------------------------------------------------
-
-func main() {
-	cfg := parseArgs(os.Args[1:])
-	cfg.canvasPath = activeCanvasPath(cfg.workspace)
-
-	appendServerLog(cfg.workspace)
-
-	addr := fmt.Sprintf("127.0.0.1:%d", cfg.port)
-	fmt.Printf("Build: liquidos-server (Go, phase 1)\n")
-	fmt.Printf("Listening on http://%s\n", addr)
-	if err := http.ListenAndServe(addr, cfg.router()); err != nil {
-		failStartup("listen failed: " + err.Error())
-	}
-}
-
 // appendServerLog mirrors server.js's durable log banner append.
 func appendServerLog(workspace string) {
 	logDir := filepath.Join(workspace, ".liquidos")

@@ -306,7 +306,7 @@ func (g *canvasGraph) renderEntry(componentPath, entryPath string, component map
 }
 
 func (g *canvasGraph) relationshipComponents() []map[string]any {
-	var out []map[string]any
+	out := []map[string]any{} // JSON [] not null when empty (the client iterates it)
 	for _, entry := range g.relationshipEntries() {
 		relPath, _ := filepath.Rel(g.canvasPath, filepath.Join(entry.componentPath, "functions.js"))
 		component := map[string]any{
@@ -406,6 +406,44 @@ func (g *canvasGraph) validateCanvasConfig() error {
 		}
 	}
 	return nil
+}
+
+// findLeafComponentByPath resolves a component reference (in any of the forms a
+// route might use) to its index.json entry, or nil (graph.js).
+func (g *canvasGraph) findLeafComponentByPath(componentPath string) *inputEntry {
+	if componentPath == "" {
+		return nil
+	}
+	absolute := g.resolveCanvasReference(componentPath)
+	folder := componentFolderPath(absolute)
+	entries, err := g.inputEntries()
+	if err != nil {
+		return nil
+	}
+	for i := range entries {
+		e := &entries[i]
+		cp := e.componentPath
+		if cp == componentPath ||
+			cp == absolute ||
+			g.componentScopePath(cp) == componentPath ||
+			componentFolderPath(cp) == componentPath ||
+			componentFolderPath(cp) == absolute ||
+			g.componentScopePath(componentFolderPath(cp)) == componentPath ||
+			g.componentScopePath(componentFolderPath(cp)) == absolute ||
+			componentFolderPath(cp) == folder {
+			return e
+		}
+	}
+	return nil
+}
+
+// pathIsInside reports whether file is base or nested under it (server.js).
+func pathIsInside(file, base string) bool {
+	rel, err := filepath.Rel(base, file)
+	if err != nil {
+		return false
+	}
+	return rel == "" || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel))
 }
 
 // graphDependsOn: does the rendered graph depend on this workspace-relative
