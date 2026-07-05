@@ -162,12 +162,6 @@ rsync -a \
   --exclude 'go-server/server' \
   --exclude 'canvas/network.mjs' \
   --exclude 'workspace/bootstrap.js' \
-  --exclude '.claude' \
-  --exclude 'notes' \
-  --exclude 'electron-app' \
-  --exclude 'agent/test' \
-  --exclude 'skills/testing/scripts/probe-*.mjs' \
-  --exclude 'skills/testing/scripts/*.liquidos' \
   "$PROJECT_ROOT/" "$RESOURCES/"
 
 
