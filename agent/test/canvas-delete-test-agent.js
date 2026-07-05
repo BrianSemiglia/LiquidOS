@@ -1,13 +1,14 @@
 // Test agent for the canvas-delete (agent path) probe.
 //
 // Simulates an agent that deletes a canvas: on dispatch it runs the shared
-// canvas/delete-canvas.js CLI — the exact tool skills/canvas/scripts/
-// delete-instance.sh wraps and the DELETE /canvases/<name> endpoint calls — to
-// remove a pre-staged 'doomed' canvas. The workspace watcher sees the folder
-// vanish and fires canvases-changed, so the grid drops the card; the probe
-// asserts that disappearance through the UI.
+// `delete-canvas` subcommand of the server binary — the exact tool
+// skills/canvas/scripts/delete-instance.sh wraps and the DELETE /canvases/<name>
+// endpoint runs (deleteCanvasWithTimeline) — to remove a pre-staged 'doomed'
+// canvas. The workspace watcher sees the folder vanish and fires
+// canvases-changed, so the grid drops the card; the probe asserts that
+// disappearance through the UI.
 //
-// Running the real CLI (not an in-process shortcut) is the point: it proves the
+// Running the real tool (not an in-process shortcut) is the point: it proves the
 // agent path and the UI path delete through one shared implementation.
 
 const path = require('path');
@@ -45,12 +46,12 @@ const CanvasDeleteTestAgent = () => {
                 return;
             }
             setStatus({ status: 'running', cwd: workspace });
-            const cli = path.join(__dirname, '..', '..', 'canvas', 'delete-canvas.js');
-            const result = spawnSync('node', [cli, TARGET, workspace], { encoding: 'utf8' });
+            const bin = path.join(__dirname, '..', '..', 'go-server', 'liquidos-server');
+            const result = spawnSync(bin, ['delete-canvas', TARGET, workspace], { encoding: 'utf8' });
             if (result.status !== 0) {
                 const detail = (result.stderr || result.error?.message || 'unknown').trim();
                 setStatus({ status: 'failed', error: detail });
-                reject(new Error(KIND + ': delete-canvas CLI failed: ' + detail));
+                reject(new Error(KIND + ': delete-canvas failed: ' + detail));
                 return;
             }
             setStatus({ status: 'waiting' });
