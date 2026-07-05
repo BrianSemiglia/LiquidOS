@@ -162,6 +162,8 @@ rsync -a \
   --exclude 'go-server/server' \
   --exclude 'canvas/network.mjs' \
   --exclude 'workspace/bootstrap.js' \
+  --exclude 'notes' \
+  --exclude 'electron-app' \
   "$PROJECT_ROOT/" "$RESOURCES/"
 
 
