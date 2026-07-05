@@ -29,16 +29,16 @@ case "$WORKSPACE_DIR" in
 esac
 
 # Unlike create-instance.sh, deletion is NOT reimplemented in bash. The real
-# work lives in the app's canvas/delete-canvas.js — the same module the DELETE
-# /canvases/<name> endpoint calls — so the two paths can never drift. This skill
-# tree is copied into the agent's sandbox (see agent/skills.js), so it can't
-# reach app code by a relative path; the app root is baked in at copy time. When
-# run straight from the repo (tests, dev) the token is untouched, so fall back
-# to the repo root three levels up from this script.
+# work lives in the server binary's `delete-canvas` subcommand — the same delete
+# + timeline pair the DELETE /canvases/<name> endpoint runs — so the two paths
+# can never drift. This skill tree is copied into the agent's sandbox (see
+# agent/skills.js), so it can't reach app code by a relative path; the app root
+# is baked in at copy time. When run straight from the repo (tests, dev) the
+# token is untouched, so fall back to the repo root three levels up.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_ROOT="__LIQUIDOS_APP_ROOT__"
 case "$APP_ROOT" in
     __LIQUIDOS_APP_ROOT__) APP_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)" ;;
 esac
 
-node "$APP_ROOT/canvas/delete-canvas.js" "$CANVAS_NAME" "$WORKSPACE_DIR"
+"$APP_ROOT/go-server/liquidos-server" delete-canvas "$CANVAS_NAME" "$WORKSPACE_DIR"

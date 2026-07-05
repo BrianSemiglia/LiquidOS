@@ -944,6 +944,13 @@ func (s *server) run() error {
 }
 
 func main() {
+	// Subcommands let the agent's shell tooling reach server logic through the
+	// one binary instead of a JS module, so no server-logic JS needs to ship.
+	if len(os.Args) > 1 && os.Args[1] == "delete-canvas" {
+		runDeleteCanvasCLI(os.Args[2:])
+		return
+	}
+
 	cfg := parseArgs(os.Args[1:])
 	cfg.canvasPath = activeCanvasPath(cfg.workspace)
 	appendServerLog(cfg.workspace)

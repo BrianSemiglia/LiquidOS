@@ -141,6 +141,12 @@ else
   echo "Warning: $ICONSET missing; building without custom icon."
 fi
 
+# The server core is the Go binary — build it, and ship ONLY the binary, never
+# its source. The agent layer stays JS (sidecar + runtimes), and the client
+# (index.html, lib/) is JS by nature, but no server-logic source ships.
+( cd "$PROJECT_ROOT/go-server" && go build -o liquidos-server . ) \
+  || { echo "Error: go build (go-server) failed." >&2; exit 1; }
+
 rsync -a \
   --exclude '.git' \
   --exclude '__MACOSX' \
@@ -149,6 +155,22 @@ rsync -a \
   --exclude 'mac-app' \
   --exclude 'node_modules' \
   --exclude 'canvases/*' \
+  --exclude 'go-server/*.go' \
+  --exclude 'go-server/go.mod' \
+  --exclude 'go-server/go.sum' \
+  --exclude 'go-server/.gitignore' \
+  --exclude 'go-server/server' \
+  --exclude 'canvas/graph.js' \
+  --exclude 'canvas/module-graph.js' \
+  --exclude 'canvas/output-queue.js' \
+  --exclude 'canvas/prompt-builder.js' \
+  --exclude 'canvas/crash-recovery.js' \
+  --exclude 'canvas/files.js' \
+  --exclude 'canvas/activity-persistence.js' \
+  --exclude 'canvas/git-timeline.js' \
+  --exclude 'canvas/delete-canvas.js' \
+  --exclude 'canvas/network.mjs' \
+  --exclude 'workspace/bootstrap.js' \
   "$PROJECT_ROOT/" "$RESOURCES/"
 
 
