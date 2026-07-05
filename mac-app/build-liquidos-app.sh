@@ -160,15 +160,6 @@ rsync -a \
   --exclude 'go-server/go.sum' \
   --exclude 'go-server/.gitignore' \
   --exclude 'go-server/server' \
-  --exclude 'canvas/graph.js' \
-  --exclude 'canvas/module-graph.js' \
-  --exclude 'canvas/output-queue.js' \
-  --exclude 'canvas/prompt-builder.js' \
-  --exclude 'canvas/crash-recovery.js' \
-  --exclude 'canvas/files.js' \
-  --exclude 'canvas/activity-persistence.js' \
-  --exclude 'canvas/git-timeline.js' \
-  --exclude 'canvas/delete-canvas.js' \
   --exclude 'canvas/network.mjs' \
   --exclude 'workspace/bootstrap.js' \
   "$PROJECT_ROOT/" "$RESOURCES/"
