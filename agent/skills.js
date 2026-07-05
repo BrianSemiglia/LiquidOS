@@ -22,8 +22,9 @@ const copySkillsTreeToRoot = (sourceRoot, destinationRoot) => {
     // app lives (lsof the running server, hunt for server.js). sourceRoot is
     // <app>/skills, so the app root is its parent.
     //   - boot-workspace-sandbox.mjs boots a sandbox of the agent's workspace.
-    //   - canvas/delete-instance.sh delegates to canvas/delete-canvas.js so the
-    //     agent and the DELETE endpoint share one delete path.
+    //   - canvas/delete-instance.sh delegates to the server binary's
+    //     delete-canvas subcommand so the agent and the DELETE endpoint share
+    //     one delete path.
     const appRoot = path.dirname(sourceRoot);
     const scriptsWithAppRoot = [
         path.join(skillsRoot, 'testing', 'scripts', 'boot-workspace-sandbox.mjs'),
