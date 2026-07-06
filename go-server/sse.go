@@ -98,15 +98,17 @@ func (h *sseHub) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 // agentDebugState is the current agent status snapshot + recent output lines.
+// Each line is a {text} object — the shape the client's debug rail renders
+// (plainDebugText reads line.text), for both the snapshot and live events.
 type agentDebugState struct {
 	mu      sync.Mutex
 	current map[string]any
-	lines   []string
+	lines   []map[string]any
 }
 
 const maxDebugLines = 200
 
-func (d *agentDebugState) pushLine(line string) {
+func (d *agentDebugState) pushLine(line map[string]any) {
 	d.mu.Lock()
 	d.lines = append(d.lines, line)
 	if len(d.lines) > maxDebugLines {
@@ -115,10 +117,10 @@ func (d *agentDebugState) pushLine(line string) {
 	d.mu.Unlock()
 }
 
-func (d *agentDebugState) snapshotLines() []string {
+func (d *agentDebugState) snapshotLines() []map[string]any {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	out := make([]string, 0, len(d.lines)) // [] not null when empty
+	out := make([]map[string]any, 0, len(d.lines)) // [] not null when empty
 	return append(out, d.lines...)
 }
 
@@ -252,18 +254,24 @@ func (s *streamHub) currentDebug() map[string]any {
 
 var ansiRe = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
 
-// writeProcessOutput logs an agent/service output chunk line-by-line and feeds
-// the activity rail's debug lines (skipping blank/ansi-only lines).
+// writeProcessOutput feeds an agent/service output chunk into the debug rail
+// line-by-line: strip ansi, trim the trailing newline/whitespace, skip blanks,
+// then record and broadcast each line as a {text} object (server.js's
+// pushAgentDebugLine) so both the snapshot and the live `debug-line` feed carry
+// the shape the client renders.
 func (s *streamHub) writeProcessOutput(label, chunk string) {
 	normalized := strings.ReplaceAll(strings.ReplaceAll(chunk, "\r\n", "\n"), "\r", "\n")
-	for _, line := range splitKeepNewline(normalized) {
-		if line == "" {
+	for _, raw := range splitKeepNewline(normalized) {
+		if raw == "" {
 			continue
 		}
-		if strings.TrimSpace(ansiRe.ReplaceAllString(line, "")) == "" {
+		text := strings.TrimRight(ansiRe.ReplaceAllString(raw, ""), " \t\r\n\v\f")
+		if strings.TrimSpace(text) == "" {
 			continue
 		}
+		line := map[string]any{"text": text}
 		s.debug.pushLine(line)
+		s.emitDebugEvent(map[string]any{"type": "debug-line", "line": line})
 	}
 }
 
