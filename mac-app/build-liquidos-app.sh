@@ -149,6 +149,7 @@ fi
 
 rsync -a \
   --exclude '.git' \
+  --exclude '/.claude' \
   --exclude '__MACOSX' \
   --exclude '.DS_Store' \
   --exclude 'build' \
