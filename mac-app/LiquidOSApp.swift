@@ -1027,8 +1027,14 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
 
         let fileMenuItem = NSMenuItem()
         fileMenuItem.submenu = NSMenu(title: "File")
-        fileMenuItem.submenu?.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileMenuItem.submenu?.addItem(withTitle: "New Window", action: #selector(LiquidOSApp.newWindow(_:)), keyEquivalent: "n")
+        // Open a workspace via the File menu — the same NSOpenPanel the startup
+        // chooser's "Open" button drives. Target the delegate explicitly (like
+        // Show Debug Panel below) so it fires regardless of the responder chain.
+        let openItem = fileMenuItem.submenu?.addItem(withTitle: "Open Workspace…", action: #selector(openWorkspaceMenuAction(_:)), keyEquivalent: "o")
+        openItem?.target = NSApp.delegate
+        fileMenuItem.submenu?.addItem(NSMenuItem.separator())
+        fileMenuItem.submenu?.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         mainMenu.addItem(fileMenuItem)
 
         let editMenuItem = NSMenuItem()
@@ -1075,6 +1081,10 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
 
     @objc private func newWindow(_ sender: Any?) {
         showWindow()
+    }
+
+    @objc private func openWorkspaceMenuAction(_ sender: Any?) {
+        showOpenWorkspacePanel()
     }
 
     @objc private func toggleDebugPanel(_ sender: Any?) {
