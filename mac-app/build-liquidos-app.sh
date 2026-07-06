@@ -154,14 +154,13 @@ rsync -a \
   --exclude 'build' \
   --exclude 'mac-app' \
   --exclude 'node_modules' \
-  --exclude 'canvases/*' \
   --exclude 'go-server/*.go' \
   --exclude 'go-server/go.mod' \
   --exclude 'go-server/go.sum' \
   --exclude 'go-server/.gitignore' \
   --exclude 'go-server/server' \
-  --exclude 'canvas/network.mjs' \
-  --exclude 'workspace/bootstrap.js' \
+  --exclude '/canvas' \
+  --exclude '/workspace' \
   --exclude 'notes' \
   --exclude 'electron-app' \
   "$PROJECT_ROOT/" "$RESOURCES/"
@@ -181,8 +180,6 @@ if [ ! -f "$PROJECT_ROOT/skills/canvas/scripts/create-instance.sh" ]; then
   echo "Error: skills/canvas/scripts/create-instance.sh is required." >&2
   exit 1
 fi
-
-mkdir -p "$RESOURCES/canvases"
 
 # Hermes is not bundled. LiquidOS uses the user-installed `hermes` found on PATH.
 if [ -f "$RESOURCES/package.json" ]; then
