@@ -13,9 +13,13 @@ Use this skill when changing a workspace or component and you need to verify the
 
 A probe is a module that exports a single async function. The test runner boots a sandbox, opens a browser, hands your function `{ url, workspace, page, browser }`, and **tears everything down afterward — no matter what.** You never boot, parse, or clean up anything.
 
+Each test is its own folder — `probe-clock/` — holding everything it needs under short local names: the test is `index.mjs`, its fixture is `workspace.liquidos`, its agent (if any) is `agent.js`. The folder is the namespace, so nothing is shared between tests and nothing needs a qualified name.
+
 ```js
-export const fixture = './probe-clock.liquidos';   // this probe's own copy, sitting right next to it
-// agent: omit for the default no-op runtime; set a test agent's path (agent/test/…) only when the probe needs a live dispatch loop
+// skills/testing/scripts/probe-clock/index.mjs
+export const fixture = './workspace.liquidos';   // this test's own fixture, in its folder
+// agent: omit for the default no-op runtime; set './agent.js' (this test's own copy,
+// in its folder) only when the probe needs a live dispatch loop
 
 export default async ({ url, workspace, page, browser }) => {
   await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -35,10 +39,10 @@ export default async ({ url, workspace, page, browser }) => {
 ## Run it
 
 ```sh
-node skills/testing/scripts/run-probe.mjs path/to/probe.mjs [more-probes...]
+node skills/testing/scripts/run-probe.mjs path/to/probe-clock [more-probes...]
 ```
 
-The runner imports each probe, boots the sandbox for its `fixture` (or `--workspace <path>` to override), runs it, prints `✓`/`✗`, and exits non-zero if any probe failed. Repeat the path for several probes. There is no launcher to start and no process to remember to kill — the runner owns the sandbox **and** the browser, in a `finally`, so a probe that throws or hangs can't leak either. The app location is baked into the launcher by the server, so you don't pass `--app` (only when running from a raw source checkout: `--app /path/to/liquidos-source`).
+Point it at a test's folder (or its `index.mjs`). The runner imports the probe, boots the sandbox for its `fixture` (or `--workspace <path>` to override), runs it, prints `✓`/`✗`, and exits non-zero if any probe failed. Repeat the path for several probes. There is no launcher to start and no process to remember to kill — the runner owns the sandbox **and** the browser, in a `finally`, so a probe that throws or hangs can't leak either. The app location is baked into the launcher by the server, so you don't pass `--app` (only when running from a raw source checkout: `--app /path/to/liquidos-source`).
 
 ## Assert what a person sees
 
@@ -53,16 +57,18 @@ Drive the app the way the user does (type into the prompt bar, click the button)
 
 ## Fixtures, agents, and self-managed probes
 
-- **`fixture`** is a path, relative to the probe file, to the probe's own `.liquidos` workspace copy — which sits right next to the probe (`probe-foo.mjs` → `probe-foo.liquidos/`). Every probe owns its own copy, so editing one test's fixture never disturbs another's. The runner sandboxes that copy, so the probe can mutate it freely.
-- **`agent`** is the server's agent runtime. Omit it for the default no-op runtime — the harness runs but no agent, so callbacks fail loudly and testing can't recurse. Probes that need a working dispatch loop set a per-scenario test agent's path (these live in `agent/test/`).
-- **`fixture = null`** means *the probe manages its own sandbox(es)* — it scaffolds a workspace at runtime, or needs two peers. The runner then skips the pre-boot and just hands you `browser`. Boot your own with the shared helper:
+Everything a test needs lives in its folder under a local name, so no two tests ever share a fixture or an agent.
+
+- **`fixture`** is `'./workspace.liquidos'` — the test's own `.liquidos` copy, in its folder. The runner sandboxes that copy, so the probe can mutate it freely. (A path is resolved relative to `index.mjs`, so any local name works.)
+- **`agent`** is the server's agent runtime. Omit it for the default no-op runtime — the harness runs but no agent, so callbacks fail loudly and testing can't recurse. Probes that need a working dispatch loop set `'./agent.js'` — their own copy of the stub, in their folder. A test that flips between two agents uses `['./agent-a.js', './agent-b.js']`.
+- **`fixture = null`** means *the probe manages its own sandbox(es)* — it scaffolds a workspace at runtime, or needs two peers. The runner then skips the pre-boot and just hands you `browser`. Boot your own with the shared helper (one directory up, since the test is a folder):
 
 ```js
-import { bootSandbox } from './sandbox.mjs';
+import { bootSandbox } from '../sandbox.mjs';
 
 export const fixture = null;
 export default async ({ browser }) => {
-  const sandbox = await bootSandbox(new URL('./probe-foo.liquidos', import.meta.url));
+  const sandbox = await bootSandbox(new URL('./workspace.liquidos', import.meta.url));
   try {
     const page = await browser.newPage();
     await page.goto(sandbox.url);
@@ -73,7 +79,7 @@ export default async ({ browser }) => {
 };
 ```
 
-A two-peer probe is the same idea: declare one peer as the `fixture` (driven through the provided `page`) and `bootSandbox(new URL('./probe-foo-consumer.liquidos', import.meta.url), …)` the other from its own sibling copy, tearing it down in a `finally`. See `probe-cross-peer-share.mjs`.
+A two-peer probe is the same idea: declare one peer as the `fixture` (driven through the provided `page`) and `bootSandbox(new URL('./consumer.liquidos', import.meta.url), …)` the other from its own copy in the folder, tearing it down in a `finally`. A self-managed probe that needs its own agent passes it as a URL so it resolves in the folder: `bootSandbox(ws, { agent: new URL('./agent.js', import.meta.url) })`. See `probe-cross-peer-share/`.
 
 ## Save the probe
 

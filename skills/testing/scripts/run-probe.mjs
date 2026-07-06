@@ -90,8 +90,16 @@ window.visibleText = () => {
 let exitCode = 0;
 
 for (const probe of probes) {
-  const probeAbs = path.resolve(probe);
-  const name = path.basename(probeAbs);
+  // A test is a folder (probe-foo/) holding index.mjs plus its own agent.js and
+  // workspace.liquidos — everything the test needs, namespaced to the folder so
+  // the pieces get short local names. Point us at the folder or the index.mjs.
+  let probeAbs = path.resolve(probe);
+  if (fs.existsSync(probeAbs) && fs.statSync(probeAbs).isDirectory()) {
+    probeAbs = path.join(probeAbs, 'index.mjs');
+  }
+  const name = path.basename(probeAbs) === 'index.mjs'
+    ? path.basename(path.dirname(probeAbs))
+    : path.basename(probeAbs);
   if (!fs.existsSync(probeAbs)) { console.error(`[run-probe] probe not found: ${probeAbs}`); exitCode = 1; continue; }
 
   let mod;
@@ -116,8 +124,17 @@ for (const probe of probes) {
     : (mod.fixture ? path.resolve(path.dirname(probeAbs), mod.fixture) : null);
   if (!selfManaged && !source) { console.error(`[run-probe] ${name}: no --workspace given and the probe exports no \`fixture\``); exitCode = 1; continue; }
   // The probe's `agent` is one or more agent script path(s); defaults to the
-  // no-op agent. --agent overrides.
-  const agentScripts = agent || mod.agent || 'agent/none-agent.js';
+  // no-op agent. --agent overrides. A path starting with ./ or ../ is the
+  // test's own agent.js sitting in its folder — resolve it there (like the
+  // fixture), so it needs only a local name. App-relative names (the shared
+  // agent/none-agent.js) and absolute paths pass through unchanged.
+  const probeDir = path.dirname(probeAbs);
+  const rawAgents = agent || mod.agent || 'agent/none-agent.js';
+  const resolveAgent = a =>
+    (typeof a === 'string' && (a.startsWith('./') || a.startsWith('../')))
+      ? path.resolve(probeDir, a)
+      : a;
+  const agentScripts = Array.isArray(rawAgents) ? rawAgents.map(resolveAgent) : resolveAgent(rawAgents);
 
   let sandbox = { url: null, workspace: null, teardown: () => {} };
   if (!selfManaged) {
