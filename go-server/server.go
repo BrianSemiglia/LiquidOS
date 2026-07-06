@@ -956,9 +956,10 @@ func main() {
 	appendServerLog(cfg.workspace)
 
 	s := &server{
-		cfg:            cfg,
-		canvasPath:     cfg.canvasPath,
-		canceledJobIDs: map[string]bool{},
+		cfg:             cfg,
+		canvasPath:      cfg.canvasPath,
+		activeAgentKind: activeAgentKind(cfg.workspace),
+		canceledJobIDs:  map[string]bool{},
 	}
 	if err := s.run(); err != nil {
 		failStartup("server failed: " + err.Error())

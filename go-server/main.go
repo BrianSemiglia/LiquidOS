@@ -158,6 +158,22 @@ func activeCanvasPath(workspace string) string {
 	return filepath.Join(workspace, name)
 }
 
+// activeAgentKind is the persisted agent selection from ui-state.json's `agent`
+// key, or "" for "let the sidecar pick its default (first) runtime". Mirrors
+// activeCanvasPath so a reopened workspace boots the agent the user last chose
+// instead of resetting to the default.
+func activeAgentKind(workspace string) string {
+	if data, err := os.ReadFile(filepath.Join(workspace, "ui-state.json")); err == nil {
+		var state struct {
+			Agent string `json:"agent"`
+		}
+		if json.Unmarshal(data, &state) == nil {
+			return strings.TrimSpace(state.Agent)
+		}
+	}
+	return ""
+}
+
 // ---------------------------------------------------------------------------
 // Path safety + MIME — ports of staticPath / newShapeGuardAbs / newShapeMimeFor.
 // ---------------------------------------------------------------------------
