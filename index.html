@@ -3,6 +3,15 @@
 <head>
     <meta charset="utf-8">
     <title>Live Edit</title>
+    <!-- Sharing (peer discovery / install, and the per-canvas + per-component
+         "Shared" toggles) is disabled for now. This one flag is the whole
+         switch: set it to true — or delete this block — to bring the UI back.
+         The server side is already inert (go-libp2p is deferred; /network/status
+         reports running:false), so nothing else needs changing to re-enable. -->
+    <script>
+        window.__SHARING_ENABLED = false;
+        document.documentElement.dataset.sharing = window.__SHARING_ENABLED ? 'on' : 'off';
+    </script>
     <!-- New-shape helpers + element library. window.liquidos is the only
          thing custom elements rely on; everything else is the legacy chrome. -->
     <script type="module">
@@ -780,6 +789,13 @@
             gap: 0.75rem;
         }
         .canvas-requirements-header > div:first-child { display: flex; flex-direction: column; gap: 0.15rem; }
+        /* Sharing disabled (see window.__SHARING_ENABLED at the top): hide every
+           sharing affordance — the canvas + component "Shared" toggles and the
+           Browse overlay's peer search/results. The from-scratch tile stays, so
+           the "Create" flow is untouched. Re-enabling the flag restores all of it. */
+        html[data-sharing="off"] .share-toggle,
+        html[data-sharing="off"] #browse-query,
+        html[data-sharing="off"] #browse-results { display: none !important; }
         /* Generic share toggle for requirements modal headers (canvas + component). */
         .share-toggle {
             display: flex;
@@ -3699,6 +3715,7 @@
         // gate; if the canvas isn't shared we disable the per-component
         // toggle (the user has to enable canvas sharing first).
         const loadComponentShareState = async item => {
+            if (window.__SHARING_ENABLED === false) return;  // sharing disabled — skip the /share fetch
             const button = item.querySelector('[data-component-share-switch]');
             if (!button || !item.__component?.componentPath) return;
             // Token guards against canvas-switch (or component swap) mid-fetch:
@@ -4711,18 +4728,25 @@
                 return card;
             });
 
-            // "+ New" card → the usual browse/new-from-scratch flow.
+            // "+ New" card → create a canvas.
             const newCard = document.createElement('button');
             newCard.type = 'button';
             newCard.className = 'canvas-grid-card new';
             newCard.id = 'canvas-grid-new';
             newCard.textContent = 'Create';
-            newCard.setAttribute('aria-label', 'Browse apps or start a new canvas from scratch');
-            newCard.addEventListener('click', () => {
-                // Leave the grid open underneath so Escape from the browse
-                // overlay steps back to the grid (grid → browse → name modal).
-                openBrowseOverlay();
-            });
+            if (window.__SHARING_ENABLED === false) {
+                // Sharing off: the browse overlay would only offer "from scratch",
+                // so skip it — Create opens the name dialog directly. The grid
+                // stays open underneath; Cancel/Escape steps back to it.
+                newCard.setAttribute('aria-label', 'Create a new canvas');
+                newCard.addEventListener('click', () => { showNewCanvasModal(); });
+            } else {
+                // Sharing on: Create opens the browse overlay (discover apps or
+                // start from scratch). Leave the grid open underneath so Escape
+                // from the overlay steps back to it (grid → browse → name modal).
+                newCard.setAttribute('aria-label', 'Browse apps or start a new canvas from scratch');
+                newCard.addEventListener('click', () => { openBrowseOverlay(); });
+            }
             cards.push(newCard);
 
             canvasGrid.replaceChildren(...cards);
@@ -5103,6 +5127,7 @@
         const canvasShareSwitch = document.getElementById('canvas-share-switch');
 
         const loadCanvasShareState = async (canvasName) => {
+            if (window.__SHARING_ENABLED === false) return;  // sharing disabled — skip the /share fetch
             setShareSwitchUI(canvasShareSwitch, false, true);
             try {
                 const response = await fetch(

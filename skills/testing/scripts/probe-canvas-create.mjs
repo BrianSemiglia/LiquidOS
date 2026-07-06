@@ -1,10 +1,11 @@
 //
 // probe-canvas-create.mjs
 //
-// User zooms out to the grid → clicks "+ New" → Browse overlay opens →
-// clicks the "from scratch" tile → name modal opens → types a name +
-// submits → the new canvas appears in the grid, is the one now selected,
-// and is still there after a reload. UI-only; no agent involved.
+// User zooms out to the grid → clicks "+ New" → name modal opens directly →
+// types a name + submits → the new canvas appears in the grid, is the one now
+// selected, and is still there after a reload. UI-only; no agent involved.
+// (Sharing is disabled, so Create goes straight to the name dialog rather than
+// through the browse overlay.)
 //
 // Run it:  node run-probe.mjs probe-canvas-create.mjs
 //
@@ -18,7 +19,7 @@ export default async ({ url, page }) => {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const showGrid    = page.getByRole('button', { name: 'Show all spaces' });
-    const newCard     = page.getByRole('button', { name: 'Browse apps or start a new canvas from scratch' });
+    const newCard     = page.getByRole('button', { name: 'Create a new canvas' });
     const createdCard = page.getByRole('button', { name: 'Open ' + NAME + ' space' });
 
     // Open the grid. Pre-condition: it doesn't list the new canvas yet.
@@ -29,11 +30,8 @@ export default async ({ url, page }) => {
         throw new Error('canvas already existed before create');
     }
 
-    // + New → Browse overlay → from-scratch tile → name modal → type + submit.
+    // + New → name modal opens directly → type + submit.
     await newCard.dispatchEvent('click');
-    const fromScratch = page.getByRole('button', { name: /Create an empty canvas/ });
-    await fromScratch.waitFor({ state: 'visible', timeout: 5000 });
-    await fromScratch.dispatchEvent('click');
     const dialog = page.getByRole('dialog', { name: 'New Canvas' });
     await dialog.waitFor({ state: 'visible', timeout: 5000 });
     await page.getByPlaceholder('Name').fill(NAME);
