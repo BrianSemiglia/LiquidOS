@@ -160,7 +160,6 @@ rsync -a \
   --exclude 'go-server/.gitignore' \
   --exclude 'go-server/server' \
   --exclude '/canvas' \
-  --exclude '/workspace' \
   --exclude 'notes' \
   --exclude 'electron-app' \
   "$PROJECT_ROOT/" "$RESOURCES/"
