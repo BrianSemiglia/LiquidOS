@@ -1,0 +1,3 @@
+# The Dockerfile COPYs nothing (the repo is bind-mounted at run time), so send
+# an empty build context — keeps `docker build` from uploading node_modules/dist.
+*

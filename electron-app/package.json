@@ -1,0 +1,48 @@
+{
+  "name": "liquidos-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "LiquidOS desktop wrapper (Electron). Supervises server.js and shows the canvas — the cross-platform sibling of mac-app/LiquidOSApp.swift, meant to run as a real app in the ChromeOS launcher via the Linux (Crostini) container.",
+  "main": "main.js",
+  "author": "Brian Semiglia <brian.semiglia@gmail.com>",
+  "homepage": "https://liquidos.local",
+  "scripts": {
+    "start": "electron .",
+    "build:server": "cd ../go-server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o liquidos-server-linux-x64 . && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o liquidos-server-linux-arm64 .",
+    "dist": "npm run build:server && electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.liquidos.desktop",
+    "productName": "LiquidOS",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "../server.js", "to": "app-root/server.js" },
+      { "from": "../index.html", "to": "app-root/index.html" },
+      { "from": "../agent", "to": "app-root/agent" },
+      { "from": "../lib", "to": "app-root/lib" },
+      { "from": "../canvas", "to": "app-root/canvas" },
+      { "from": "../skills", "to": "app-root/skills" },
+      { "from": "../go-server/liquidos-server-linux-${arch}", "to": "app-root/go-server/liquidos-server" }
+    ],
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64", "arm64"] },
+        { "target": "deb", "arch": ["x64", "arm64"] }
+      ],
+      "category": "Development",
+      "icon": "build/icon.png",
+      "executableName": "liquidos",
+      "synopsis": "LiquidOS — canvas workspace desktop",
+      "maintainer": "Brian Semiglia <brian.semiglia@gmail.com>"
+    }
+  }
+}

@@ -4,6 +4,8 @@ index.json
 !skills/testing/scripts/**/index.json
 node_modules/
 package.json
+# The Electron wrapper's package.json IS its electron-builder config — keep it tracked.
+!electron-app/package.json
 package-lock.json
 npm-debug.log*
 .DS_Store
@@ -16,3 +18,6 @@ __pycache__/
 .pytest_cache/
 /mac-app/build
 /mac-app/.node-cache
+
+# electron-builder output (AppImage/.deb/unpacked)
+/electron-app/dist
