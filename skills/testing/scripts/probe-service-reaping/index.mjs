@@ -16,7 +16,7 @@
 //      (2) before it gets going.
 //
 // Self-managed (no fixture / browser): it scaffolds a throwaway workspace and
-// drives real `node server.js` processes.
+// drives real liquidos-server processes.
 //
 // Run it:  node run-probe.mjs probe-service-reaping
 //
@@ -33,7 +33,7 @@ export const fixture = null; // self-managed
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(scriptsDir, '..', '..', '..', '..');
-const SERVER_JS = path.join(ROOT, 'server.js');
+const SERVER = path.join(ROOT, 'go-server', 'liquidos-server');
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -96,7 +96,7 @@ const scaffold = () => {
 // so the time varies; we wait for the event, not a guess.) The timeout is only
 // a failure bound.
 const startServer = (ws, port) => new Promise((resolve, reject) => {
-    const child = childProcess.spawn('node', [SERVER_JS, '--workspace', ws, '--agent', path.join(ROOT, 'agent/none-agent.js'), '--port', String(port)],
+    const child = childProcess.spawn(SERVER, ['--workspace', ws, '--agent', path.join(ROOT, 'agent/none-agent.js'), '--port', String(port)],
         { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = '', settled = false;
     const ready = 'Server at http://127.0.0.1:' + port;

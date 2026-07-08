@@ -4,7 +4,7 @@
 //
 // Same job as the Mac app: it is a process supervisor with a webview face. It
 //   1. picks a free localhost port,
-//   2. spawns `node server.js --workspace <ws> --agent … --port <p>` and pipes it,
+//   2. spawns `go-server/liquidos-server --workspace <ws> --agent … --port <p>` and pipes it,
 //   3. shows an app-owned chooser to open/create a `.liquidos` workspace,
 //   4. loads the canvas once the server answers on 127.0.0.1:<port>,
 //   5. supervises the server: on an unexpected exit it restarts (rate-limited),
@@ -15,11 +15,11 @@
 //
 // The one structural difference from the Mac app is where Node comes from.
 // Packaged (AppImage/.deb, see package.json "build"), there is no system Node —
-// and none is needed: the server core is the bundled Go binary, and the only JS
-// left (the server.js shim + the agent sidecar the Go server spawns) uses just
-// Node built-ins, no native modules. So the packaged app runs that JS on
-// Electron's own bundled Node via ELECTRON_RUN_AS_NODE and stays self-contained.
-// From source we spawn the `node` on PATH. Override either with LIQUIDOS_NODE.
+// and none is needed: the server core is the bundled Go binary, launched
+// directly. The only JS left is the agent sidecar the Go server spawns; the
+// packaged app runs that on Electron's own bundled Node via ELECTRON_RUN_AS_NODE
+// (LIQUIDOS_NODE) and stays self-contained. From source the sidecar runs on the
+// `node` on PATH. Override with LIQUIDOS_NODE.
 
 const { app, BrowserWindow, dialog, shell, Menu, Notification, nativeTheme, ipcMain } = require('electron');
 const path = require('path');
@@ -29,18 +29,18 @@ const net = require('net');
 const http = require('http');
 const { spawn } = require('child_process');
 
-// The repo root (where server.js lives). From source this is the parent of
+// The repo root (where go-server/ lives). From source this is the parent of
 // electron-app/; when packaged it's the `app-root/` payload electron-builder
 // copies into the app's resources (package.json "build" extraResources).
 // Override either layout with LIQUIDOS_APP_ROOT.
 const APP_ROOT = process.env.LIQUIDOS_APP_ROOT
     || (app.isPackaged ? path.join(process.resourcesPath, 'app-root') : path.resolve(__dirname, '..'));
 
-// True when we run the server's JS on Electron's own bundled Node (packaged,
-// with no LIQUIDOS_NODE override). Then nodeBin() is the Electron binary and
-// serverEnvironment() sets ELECTRON_RUN_AS_NODE so it behaves as plain Node.
+// True when the Go server should run its Node sidecar on Electron's own bundled
+// Node (packaged, with no LIQUIDOS_NODE override). serverEnvironment() then
+// points LIQUIDOS_NODE at the Electron binary and sets ELECTRON_RUN_AS_NODE so
+// it behaves as plain Node.
 const usingElectronNode = () => app.isPackaged && !process.env.LIQUIDOS_NODE;
-const nodeBin = () => (usingElectronNode() ? process.execPath : (process.env.LIQUIDOS_NODE || 'node'));
 
 // The harness "desk" background, matched natively so unpainted web backing reads
 // as one surface with the harness desk (dark = Slate, light = Mist) — mirrors
@@ -160,11 +160,10 @@ function launchPath() {
 function serverEnvironment() {
     const env = { ...process.env, LIQUIDOS_RUNTIME_KIND: 'electron-app', PATH: launchPath() };
     if (usingElectronNode()) {
-        // Run server.js — and the agent sidecar the Go server spawns — on
-        // Electron's bundled Node. LIQUIDOS_NODE points the Go server at the same
-        // binary; ELECTRON_RUN_AS_NODE makes that binary behave as plain Node
-        // rather than relaunching the app. Both propagate down the whole chain:
-        // Electron → server.js shim → go-server → agent/sidecar.js.
+        // Run the agent sidecar the Go server spawns on Electron's bundled Node.
+        // LIQUIDOS_NODE points the Go server at that binary; ELECTRON_RUN_AS_NODE
+        // makes it behave as plain Node rather than relaunching the app. Both
+        // propagate down the chain: Electron → go-server → agent/sidecar.js.
         env.LIQUIDOS_NODE = process.execPath;
         env.ELECTRON_RUN_AS_NODE = '1';
     }
@@ -184,22 +183,22 @@ function agentScriptArgs() {
 
 function startServer() {
     if (!canvasesRoot) { showWorkspaceChooser(); return; }
-    if (!fs.existsSync(path.join(APP_ROOT, 'server.js'))) {
-        showError('Missing server.js in ' + APP_ROOT + '.');
+    const serverBinary = path.join(APP_ROOT, 'go-server', 'liquidos-server');
+    if (!fs.existsSync(serverBinary)) {
+        showError('Missing server binary at ' + serverBinary + '.');
         return;
     }
 
     serverErrorBuffer = '';
-    const args = ['server.js', '--workspace', canvasesRoot, ...agentScriptArgs(), '--port', String(port)];
-    const proc = spawn(nodeBin(), args, { cwd: APP_ROOT, env: serverEnvironment() });
+    const args = ['--workspace', canvasesRoot, ...agentScriptArgs(), '--port', String(port)];
+    const proc = spawn(serverBinary, args, { cwd: APP_ROOT, env: serverEnvironment() });
     serverProc = proc;
 
     proc.stdout.on('data', (d) => handleServerOutput(d.toString()));
     proc.stderr.on('data', (d) => { process.stderr.write(d); serverErrorBuffer += d.toString(); });
 
     proc.on('error', (err) => {
-        showError('Could not start Node ("' + nodeBin() + '"). Install Node in your Linux '
-            + 'container (or set LIQUIDOS_NODE), then reopen LiquidOS.\n\n' + err.message);
+        showError('Could not start the LiquidOS server ("' + serverBinary + '").\n\n' + err.message);
     });
 
     // The server died on its own — almost always one component the agent wrote

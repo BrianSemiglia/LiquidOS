@@ -23,8 +23,8 @@ const LAUNCHER = path.join(SCRIPT_DIR, 'boot-workspace-sandbox.mjs');
 
 // The launcher needs to know where the app is. In a materialized workspace it
 // has the location baked in (pass nothing). From the repo, ../../.. is the app
-// — recognize it by its server.js and forward it.
-const hasServerJs = dir => { try { return fs.existsSync(path.join(dir, 'server.js')); } catch { return false; } };
+// — recognize it by its server binary and forward it.
+const hasServerBinary = dir => { try { return fs.existsSync(path.join(dir, 'go-server', 'liquidos-server')); } catch { return false; } };
 const repoRoot = path.resolve(SCRIPT_DIR, '../../..');
 
 // Boot a sandbox of `fixture` — an absolute .liquidos path, or a file: URL
@@ -37,7 +37,7 @@ export const bootSandbox = (fixture, { agent = 'agent/none-agent.js', app } = {}
   const source = fixture instanceof URL || String(fixture).startsWith('file:')
     ? fileURLToPath(fixture)
     : fixture;
-  const appRoot = app || (hasServerJs(repoRoot) ? repoRoot : null);
+  const appRoot = app || (hasServerBinary(repoRoot) ? repoRoot : null);
   const toPath = a => (a instanceof URL || String(a).startsWith('file:')) ? fileURLToPath(a) : a;
   const agentScripts = (Array.isArray(agent) ? agent : [agent]).map(toPath);
   const args = ['--workspace', source, ...agentScripts.flatMap(a => ['--agent', a])];

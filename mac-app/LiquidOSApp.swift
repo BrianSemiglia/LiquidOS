@@ -329,8 +329,8 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
             return
         }
         
-        guard FileManager.default.fileExists(atPath: appRoot.appendingPathComponent("server.js").path) else {
-            showError("Missing server.js in app resources.")
+        guard FileManager.default.fileExists(atPath: appRoot.appendingPathComponent("go-server/liquidos-server").path) else {
+            showError("Missing server binary in app resources.")
             return
         }
         
@@ -339,15 +339,15 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         server = Process()
         server?.executableURL = URL(fileURLWithPath: "/bin/zsh")
         server?.currentDirectoryURL = appRoot
-        // Run the server on the Node runtime bundled in the app (Resources/
-        // runtime/bin/node), by absolute path, so the app works with no
-        // user-installed node. launchPath() also puts that bin first, so any
-        // `node` the server itself spawns resolves to the bundled one too.
-        let bundledNode = appRoot.appendingPathComponent("runtime/bin/node").path
+        // The server core is a native binary and needs no runtime to launch. The
+        // agent sidecar it spawns still runs on Node; LIQUIDOS_NODE (set in
+        // serverEnvironment) points that at the bundled runtime so the app works
+        // with no user-installed node.
+        let serverBinary = appRoot.appendingPathComponent("go-server/liquidos-server").path
         server?.arguments = [
             "-lc",
             Self.shellCommand(
-                [bundledNode, "server.js", "--workspace", canvasesRootURL.path]
+                [serverBinary, "--workspace", canvasesRootURL.path]
                     + Self.agentScriptArgs()
                     + ["--port", String(port)]
             )
@@ -389,7 +389,7 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
                 // agent wrote taking it down. The app's only job is to restart
                 // it: the fresh boot is where the server hands the crash to the
                 // agent (Phase 1, make it bootable) and then the permanent fix
-                // (Phase 2) — see dispatchCrashRecovery in server.js. If it
+                // (Phase 2). If it
                 // crashes again we land right back here; that recursion is what
                 // runs until the workspace boots clean. Give up only if it keeps
                 // crashing faster than the repairs can help.
@@ -898,8 +898,8 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     // `zsh -lc` sources ~/.zprofile but not ~/.zshrc — where user bin dirs like
     // ~/.local/bin usually live — so we set it explicitly here.
     // PATH for finding the external agent CLIs (hermes, claude, …). Node is not
-    // resolved through here — the server runs on the bundled runtime and puts
-    // its own execPath dir first for any node it spawns, so there is one node.
+    // resolved through here — the server spawns its Node sidecar via the bundled
+    // runtime named explicitly by LIQUIDOS_NODE (serverEnvironment).
     private static func launchPath() -> String {
         [
             NSHomeDirectory() + "/.local/bin",
@@ -916,10 +916,14 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     }
 
     private static func serverEnvironment() -> [String: String] {
-        [
+        var env = [
             "LIQUIDOS_RUNTIME_KIND": "mac-app",
             "PATH": launchPath()
         ]
+        if let resources = Bundle.main.resourceURL {
+            env["LIQUIDOS_NODE"] = resources.appendingPathComponent("runtime/bin/node").path
+        }
+        return env
     }
 
     // The agent roster is the array of --agent script paths the server loads;

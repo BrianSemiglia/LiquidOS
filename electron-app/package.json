@@ -2,7 +2,7 @@
   "name": "liquidos-desktop",
   "private": true,
   "version": "0.1.0",
-  "description": "LiquidOS desktop wrapper (Electron). Supervises server.js and shows the canvas — the cross-platform sibling of mac-app/LiquidOSApp.swift, meant to run as a real app in the ChromeOS launcher via the Linux (Crostini) container.",
+  "description": "LiquidOS — a just-in-time operating system.",
   "main": "main.js",
   "author": "Brian Semiglia <brian.semiglia@gmail.com>",
   "homepage": "https://liquidos.local",
@@ -26,7 +26,6 @@
       "package.json"
     ],
     "extraResources": [
-      { "from": "../server.js", "to": "app-root/server.js" },
       { "from": "../agent", "to": "app-root/agent" },
       { "from": "../canvas", "to": "app-root/canvas" },
       { "from": "../skills", "to": "app-root/skills" },
@@ -40,7 +39,7 @@
       "category": "Development",
       "icon": "build/icon.png",
       "executableName": "liquidos",
-      "synopsis": "LiquidOS — canvas workspace desktop",
+      "synopsis": "A just-in-time operating system.",
       "maintainer": "Brian Semiglia <brian.semiglia@gmail.com>"
     }
   }

@@ -4,7 +4,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "node server.js",
+    "start": "./go-server/liquidos-server",
     "build:client": "node scripts/build-client.mjs",
     "validate:skills": "node scripts/validate-skills.js"
   },

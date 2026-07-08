@@ -39,7 +39,7 @@ const cpuSeconds = (pid) => {
 // The harness process for this sandbox: its command line carries the unique
 // temp workspace path, so a substring match is unambiguous.
 const harnessPid = (workspace) => {
-  const pids = execSync(`pgrep -f ${JSON.stringify('server.js --workspace ' + workspace)}`, { encoding: 'utf8' })
+  const pids = execSync(`pgrep -f ${JSON.stringify('liquidos-server --workspace ' + workspace)}`, { encoding: 'utf8' })
     .trim().split(/\s+/).filter(Boolean);
   if (!pids.length) throw new Error(`no harness process for workspace ${workspace}`);
   return Number(pids[0]);

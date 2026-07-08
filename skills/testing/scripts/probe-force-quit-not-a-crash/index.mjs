@@ -25,7 +25,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
-const SERVER = path.join(REPO_ROOT, 'server.js');
+const SERVER = path.join(REPO_ROOT, 'go-server', 'liquidos-server');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const waitFor = async (predicate, ms = 15000) => {
@@ -50,7 +50,7 @@ export default async () => {
     try {
         // Boot the server the way the app does. Its stdout/stderr are pipes whose
         // read ends live here — this process stands in for the macOS app.
-        proc = spawn('node', [SERVER, '--workspace', workspace, '--agent', path.join(REPO_ROOT, 'agent/none-agent.js'), '--port', '0'],
+        proc = spawn(SERVER, ['--workspace', workspace, '--agent', path.join(REPO_ROOT, 'agent/none-agent.js'), '--port', '0'],
             { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, LIQUIDOS_RUNTIME_KIND: 'mac-app' } });
 
         let stdout = '';

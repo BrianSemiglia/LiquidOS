@@ -19,7 +19,7 @@ const copySkillsTreeToRoot = (sourceRoot, destinationRoot) => {
 
     // Bake the running app's location into the scripts that delegate back to
     // app code, so the runtime agent doesn't have to reverse-engineer where the
-    // app lives (lsof the running server, hunt for server.js). sourceRoot is
+    // app lives (lsof the running server binary). sourceRoot is
     // <app>/skills, so the app root is its parent.
     //   - boot-workspace-sandbox.mjs boots a sandbox of the agent's workspace.
     //   - canvas/delete-instance.sh delegates to the server binary's

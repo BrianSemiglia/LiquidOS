@@ -70,11 +70,12 @@ const readPackageJson = directory => {
   }
 };
 
-const useServerJs = fs.existsSync(path.join(appDirectory, 'server.js'));
+const serverBinary = path.join(appDirectory, 'go-server', 'liquidos-server');
+const useServerBinary = fs.existsSync(serverBinary);
 const useNpmStart = Boolean(readPackageJson(appDirectory).scripts?.start);
 
-if (!useServerJs && !useNpmStart) {
-  fail(`app directory has no server.js or package.json start script: ${appDirectory}`);
+if (!useServerBinary && !useNpmStart) {
+  fail(`app directory has no go-server/liquidos-server or package.json start script: ${appDirectory}`);
 }
 
 // Pick a free port ourselves: bind ephemeral, read assigned port, release. The
@@ -117,8 +118,8 @@ const serverArgs = [
 ];
 
 const appProcess = spawn(
-  useServerJs ? 'node' : 'npm',
-  useServerJs ? ['server.js', ...serverArgs] : ['start', '--', ...serverArgs],
+  useServerBinary ? serverBinary : 'npm',
+  useServerBinary ? serverArgs : ['start', '--', ...serverArgs],
   {
     cwd: appDirectory,
     env: process.env,
