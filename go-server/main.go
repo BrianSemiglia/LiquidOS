@@ -413,15 +413,22 @@ func (c config) handleStatic(w http.ResponseWriter, r *http.Request) {
 		send(w, http.StatusNotFound, "Not found", "")
 		return
 	}
-	info, err := os.Stat(file)
-	if err != nil || info.IsDir() {
-		send(w, http.StatusNotFound, "Not found", "")
-		return
-	}
-	data, err := os.ReadFile(file)
-	if err != nil {
-		send(w, http.StatusNotFound, "Not found", "")
-		return
+	// Prefer the embedded copy; fall back to disk.
+	var data []byte
+	rel := strings.TrimPrefix(file, c.root+string(filepath.Separator))
+	if embedded, ok := embeddedClient(rel); ok {
+		data = embedded
+	} else {
+		info, err := os.Stat(file)
+		if err != nil || info.IsDir() {
+			send(w, http.StatusNotFound, "Not found", "")
+			return
+		}
+		data, err = os.ReadFile(file)
+		if err != nil {
+			send(w, http.StatusNotFound, "Not found", "")
+			return
+		}
 	}
 	if mime, ok := staticMime[strings.ToLower(filepath.Ext(file))]; ok {
 		w.Header().Set("Content-Type", mime)

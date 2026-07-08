@@ -8,7 +8,8 @@
   "homepage": "https://liquidos.local",
   "scripts": {
     "start": "electron .",
-    "build:server": "cd ../go-server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o liquidos-server-linux-x64 . && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o liquidos-server-linux-arm64 .",
+    "build:client": "cd .. && node scripts/build-client.mjs",
+    "build:server": "npm run build:client && cd ../go-server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o liquidos-server-linux-x64 . && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o liquidos-server-linux-arm64 .",
     "dist": "npm run build:server && electron-builder --linux"
   },
   "devDependencies": {
@@ -26,9 +27,7 @@
     ],
     "extraResources": [
       { "from": "../server.js", "to": "app-root/server.js" },
-      { "from": "../index.html", "to": "app-root/index.html" },
       { "from": "../agent", "to": "app-root/agent" },
-      { "from": "../lib", "to": "app-root/lib" },
       { "from": "../canvas", "to": "app-root/canvas" },
       { "from": "../skills", "to": "app-root/skills" },
       { "from": "../go-server/liquidos-server-linux-${arch}", "to": "app-root/go-server/liquidos-server" }

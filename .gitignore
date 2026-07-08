@@ -21,3 +21,7 @@ __pycache__/
 
 # electron-builder output (AppImage/.deb/unpacked)
 /electron-app/dist
+
+# Generated build output; PLACEHOLDER is kept so the build works before it runs.
+/go-server/clientdist/*
+!/go-server/clientdist/PLACEHOLDER

@@ -141,9 +141,12 @@ else
   echo "Warning: $ICONSET missing; building without custom icon."
 fi
 
-# The server core is the Go binary — build it, and ship ONLY the binary, never
-# its source. The agent layer stays JS (sidecar + runtimes), and the client
-# (index.html, lib/) is JS by nature, but no server-logic source ships.
+# Prepare the client assets the server binary embeds.
+( cd "$PROJECT_ROOT" \
+    && node scripts/build-client.mjs >/dev/null ) \
+  || { echo "Error: client build failed." >&2; exit 1; }
+
+# Build the Go server binary (ships as a binary, not source).
 ( cd "$PROJECT_ROOT/go-server" && go build -o liquidos-server . ) \
   || { echo "Error: go build (go-server) failed." >&2; exit 1; }
 
@@ -160,6 +163,11 @@ rsync -a \
   --exclude 'go-server/go.sum' \
   --exclude 'go-server/.gitignore' \
   --exclude 'go-server/server' \
+  --exclude 'go-server/clientdist' \
+  --exclude '/index.html' \
+  --exclude '/lib' \
+  --exclude 'scripts/build-client.mjs' \
+  --exclude 'build-tools' \
   --exclude '/canvas' \
   --exclude 'notes' \
   --exclude 'electron-app' \

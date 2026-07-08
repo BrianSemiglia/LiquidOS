@@ -5,6 +5,7 @@
   },
   "scripts": {
     "start": "node server.js",
+    "build:client": "node scripts/build-client.mjs",
     "validate:skills": "node scripts/validate-skills.js"
   },
   "dependencies": {

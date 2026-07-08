@@ -94,7 +94,8 @@ function createWindow() {
     // so the canvas never gets a stray Escape. One action per physical press;
     // swallow OS auto-repeats without re-triggering. (Swift: installEscapeMonitor.)
     win.webContents.on('before-input-event', (event, input) => {
-        if (input.type !== 'keyDown' || input.key !== 'Escape') return;
+        if (input.type !== 'keyDown') return;
+        if (input.key !== 'Escape') return;
         event.preventDefault();
         if (!input.isAutoRepeat) {
             win.webContents.executeJavaScript('window.liquidos?.handleEscape?.()').catch(() => {});
