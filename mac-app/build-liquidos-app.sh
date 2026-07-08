@@ -165,6 +165,7 @@ rsync -a \
   --exclude 'go-server/server' \
   --exclude 'go-server/clientdist' \
   --exclude '/index.html' \
+  --exclude '/README.md' \
   --exclude '/lib' \
   --exclude 'scripts/build-client.mjs' \
   --exclude 'build-tools' \

@@ -2547,8 +2547,8 @@
     </style>
 </head>
 <body>
-    <!-- Test sink for the lqpatch sniffer (lib/lqpatch-sniffer.js).
-         The sniffer routes atomic and op="stream" patches here when the
+    <!-- Test sink for lqpatch output.
+         Atomic and op="stream" patches route here when the
          agent emits them; writeFile patches go straight to /workspace.
          Hidden from the user — only the probe + window.__lqpatch see it. -->
     <div id="lqpatch-sink" hidden></div>
