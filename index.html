@@ -613,10 +613,28 @@
         body:not([data-debug-open="true"]) .debug-rail,
         body:not([data-debug-open="true"]) .debug-resizer { display: none !important; }
 
+        /* Lock the document to the viewport so the ONLY scroller is the
+           canvas frame (.canvas-shell, position:fixed; overflow:auto). Without
+           this, WebKit/Safari lets the document itself rubber-band and lets the
+           canvas's scroll chain out to it at the top/bottom boundary — which
+           drags the position:fixed harness chrome (prompt bar, meta toggles,
+           the framed card) with it. Chromium suppresses that chaining, so the
+           bug only shows in Safari. overscroll-behavior:none kills the document
+           bounce; .canvas-shell carries overscroll-behavior:contain to stop the
+           chain at its own edge. */
+        html {
+            height: 100%;
+            overflow: hidden;
+            overscroll-behavior: none;
+        }
+
         body {
             display: grid;
             grid-template-columns: var(--debug-rail-width) minmax(0, 1fr);
-            min-height: 100vh;
+            height: 100%;
+            min-height: 0;
+            overflow: hidden;
+            overscroll-behavior: none;
             margin: 0;
             /* Flat neutral "desk" the canvas sheet sits on. */
             background: var(--bg);
@@ -636,6 +654,10 @@
             left: var(--debug-rail-space);
             min-width: 0;
             overflow: auto;
+            /* Keep the canvas's scroll to itself: at the top/bottom boundary it
+               must not chain out to the document and drag the fixed chrome
+               (the Safari symptom). */
+            overscroll-behavior: contain;
             /* Above the prompt bar (z-index:0), so the canvas wins any overlap
                with it — the prompt no longer overlaps the canvas in steady state
                (it sits in the stepped-back margin), so on the brief transition
