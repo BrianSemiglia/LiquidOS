@@ -17,7 +17,7 @@ A *relationship* is a small unit of wiring that subscribes to one component's ou
 <canvas>/relationships/<from>-to-<to>/
   functions.js                 — mount(surface) → surface.__io.connect
   feature-requirements.txt     — plain-text description of the wire
-  test.js                      — optional behavior test, runnable by hand
+  tests/                       — optional behavior probes (see Testing Skill)
 ```
 
 Only `functions.js` is required. Relationships don't render — there's nothing to paint, just wiring. Split `functions.js` into more files if you like: import them with plain relative paths, and editing any module it imports re-wires the relationship, same as editing `functions.js`.
@@ -200,11 +200,9 @@ The scaffold creates a single 1→1 relationship. For fanout or fan-in, scaffold
 
 ## Testing the behavior
 
-Every relationship implements some user-observable behavior — "pressing a key changes the color picker", "moving the slider scrolls the timeline". Verify that behavior with a small UI script alongside the relationship. The test goes in the relationship folder (`relationships/<name>/test.js`) because the behavior would disappear if the relationship did.
+Every relationship implements some user-observable behavior — "pressing a key changes the color picker", "moving the slider scrolls the timeline". Verify that behavior with a probe, the same as anything else on the canvas (see the [Testing Skill](../testing/SKILL.md)). Save it under the relationship's folder — `relationships/<name>/tests/` — because the behavior would disappear if the relationship did.
 
-**The test does not know about relationships.** It reads as a script a user could narrate: click here, observe that change there. No mention of `surface.__io`, no probing of internal handles, no assertions about which file forwards which event. If the implementation changed tomorrow but produced the same behavior, the test should still pass without edits.
-
-The scaffold writes a complete Playwright runner that launches Chromium and navigates to the page; you fill in the `TODO` block. The snippet that goes there is a few lines:
+**The probe does not know about relationships.** It reads as a script a user could narrate: click here, observe that change there. No mention of `surface.__io`, no probing of internal handles, no assertions about which file forwards which event. If the implementation changed tomorrow but produced the same behavior, the probe should still pass without edits.
 
 ```js
 // pressing the rainbow-keyboard changes the color picker's color
@@ -213,8 +211,6 @@ await page.locator('.pk-white[data-midi]').first().dispatchEvent('click');
 const after = await page.locator('[data-role="hex"]').textContent();
 assert.notStrictEqual(after, before);
 ```
-
-Run by hand against a live server: `LIQUIDOS_APP_DIR=/path/to/liquidos-source node test.js <port>`. `LIQUIDOS_APP_DIR` points at the LiquidOS source checkout (where `node_modules/playwright` lives); the Mac app exports it automatically. There's no separate testing domain — the test is one file the relationship ships with.
 
 ## Removing
 

@@ -42,7 +42,7 @@ export default async ({ url, workspace, page, browser }) => {
 node skills/testing/scripts/run-probe.mjs path/to/probe-clock [more-probes...]
 ```
 
-Point it at a test's folder (or its `index.mjs`). The runner imports the probe, boots the sandbox for its `fixture` (or `--workspace <path>` to override), runs it, prints `✓`/`✗`, and exits non-zero if any probe failed. Repeat the path for several probes. There is no launcher to start and no process to remember to kill — the runner owns the sandbox **and** the browser, in a `finally`, so a probe that throws or hangs can't leak either. The app location is baked into the launcher by the server, so you don't pass `--app` (only when running from a raw source checkout: `--app /path/to/liquidos-source`).
+Point it at a test's folder (or its `index.mjs`). The runner imports the probe, boots the sandbox for its `fixture` (or `--workspace <path>` to override), runs it, prints `✓`/`✗`, and exits non-zero if any probe failed. Repeat the path for several probes. The runner owns the sandbox **and** the browser, tearing both down in a `finally`, so a probe that throws or hangs can't leak either. You don't pass `--app` (only when running from a raw source checkout: `--app /path/to/liquidos-source`).
 
 ## Assert what a person sees
 
@@ -102,10 +102,9 @@ When the changes verify in the sandbox, land each changed file into the source
 workspace by writing it through the workspace endpoint: `PUT /workspace/<path>`,
 one file per call, where `<path>` is workspace-relative (e.g.
 `home/components/foo/component.html`). For a file you produced in the sandbox,
-read its bytes and PUT them; there is no separate batch or copy endpoint.
+read its bytes and PUT them, one file per call.
 
-The source server's watcher sees the writes and coalesces the burst into a
-single refresh, so the user gets one coherent update — no per-file flicker.
+The user gets one coherent update — no per-file flicker.
 
 ## Services during testing
 

@@ -20,10 +20,7 @@ A component is **self-contained and portable** — copy its folder to another ca
 
 ## What lives in `component.html`
 
-`component.html` is the component's initial body. The harness loads it on first paint and re-renders it on every subsequent file change — one rule, no modes. Two things about the re-render are worth knowing:
-
-- **`<liquidos-file>` mounts have identity.** A mount that stays put across an edit (same `path`, same attributes) keeps its running service and hydrated children. A mount whose `path` or attributes changed is replaced wholesale — the old service tears down, the new one starts. New mounts are added; missing mounts are removed.
-- **Everything else is diffed position-by-position** against the live DOM — attributes synced, children recursed, mismatches replaced. Standard structural reconcile.
+`component.html` is the component's initial body. The harness paints it, and re-renders on every later change to the file. A `<liquidos-file>` mount that stays put across an edit (same `path`, same attributes) keeps its running service and hydrated children; change its `path` or attributes and the old service tears down and a new one starts.
 
 Runtime DOM state (typed inputs, focus, scroll, in-flight pulses) is **not auto-preserved** across re-renders. Persist anything the user produces to a file inside the component and read it back on render — the disk is the source of truth, not the live DOM. Never `localStorage` or anything keyed to the browser; it doesn't travel with the component.
 
@@ -49,12 +46,12 @@ The default `<liquidos-file path="…"></liquidos-file>` (no attributes) fetches
 
 ## Building and changing the body
 
-Create the component if it isn't on the canvas yet, then **stream its HTML elements in — one element per patch.** Never a block of markup with its children inline: a card is its frame appended first, then its image, heading, price, and button each appended into it. The user watches every element land.
+Create the component if it isn't on the canvas yet, then **stream its HTML elements in — one element per patch.** Never a block of markup with its children inline: a product card is its frame appended first, then its image, heading, price, and button each appended into it. The user watches every element land.
 
 - **Create** (only when it doesn't exist): `bash skills/component/scripts/create-component.sh <canvas-path> <name>`. That registers it and gives you an empty `<liquidos-component>` — the root you stream into.
 - **Stream** element by element: `op="append"` / `"prepend"` one element to a selector **already in the live DOM** — the component root, or a parent you appended a moment ago. To nest, append the parent (empty) first, then append each child into it. `op="replace"` swaps an element (or the `<style>` for a theme), `op="setAttr"` retunes one, `op="remove"` drops one.
 
-Two ways to skip the stream, both leaving the user staring at nothing: aiming a patch at a container you haven't put in the DOM yet (it has no target), or `writeFile`-ing the whole view into `component.html` (it lands all at once on disk, off-stream — and the generic Write tool does the same). Patches aimed inside the `<liquidos-component>` persist back to `component.html`, so what you streamed survives a reload; there is no `op="streamFile"`. To re-shape the root itself — its `<style>`, mounts, wiring — `op="writeFile"` the new root; a `<liquidos-file>` that stays put keeps its running service. Files the component owns but the user never reads — the behavior script, `data/*.json` — are written with `op="writeFile"`.
+A patch only lands if its target is already in the live DOM — aim at a container you haven't appended yet and nothing shows. Patches aimed inside the `<liquidos-component>` persist back to `component.html`, so what you streamed survives a reload. To re-shape the root itself — its `<style>`, mounts, wiring — `op="writeFile"` the new root; a `<liquidos-file>` that stays put keeps its running service. Files the component owns but the user never reads — the behavior script, `data/*.json` — are written with `op="writeFile"`. Don't `writeFile` the whole view: it lands all at once, off-stream, and the user watches nothing grow.
 
 Read `<canvas>/feature-requirements.txt` first if it exists; your component should fit the canvas's intent. If the user reports a problem, check `diagnostics/` (and `processes` for "slow / hot / stuck"). One component per turn.
 
@@ -96,7 +93,7 @@ items.push('<li>' + item + '</li>');
 fs.writeFileSync(__dirname + '/../feed.html', '<ul id="feed">' + items.join('') + '</ul>\n');
 ```
 
-A service has no special output stream — **stdout and stderr are ordinary logs**, neither reaches the view. The view changes only through the files the service writes, and because those files live in the component's own folder a service can only ever touch its own component. Concurrent writers don't corrupt each other either: each file write is atomic and the morph reconciles whatever the file says, so there's no stream to interleave.
+A service has no special output stream — **stdout and stderr are ordinary logs**, neither reaches the view. The view changes only through the files the service writes, and because those files live in the component's own folder a service can only ever touch its own component.
 
 ## Feature requirements
 

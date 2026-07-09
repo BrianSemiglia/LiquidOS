@@ -23,4 +23,4 @@ Then:
 - **Each later user message** arrives as a prompt. The chat already echoed the user's own `.msg--user` bubble into `#chat-log` on send, so you only append your `.msg--bot` reply. The whole conversation lives in `#chat-log` — read it for context (including "this/that" references) before replying.
 - **A message can be a request** to change the canvas or workspace. Do the work, then append a short `.msg--bot` bubble saying what changed.
 
-A chat is implemented as an ordinary component under `components/<name>/`, so the component skill applies (streaming rules, diagnostics, portability) — but that's a detail. Reach for this whenever you need to talk to the user.
+A chat is an ordinary component under `components/<name>/`, so the component skill applies (streaming rules, diagnostics, portability). Reach for this whenever you need to talk to the user.

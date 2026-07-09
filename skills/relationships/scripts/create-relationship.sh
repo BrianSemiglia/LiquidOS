@@ -18,10 +18,10 @@ set -euo pipefail
 #   - Verifies <from> and <to> exist under the canvas's components/. The
 #     reserved name `canvas` wires the canvas itself and needs no such folder.
 #   - Errors if the relationship folder already exists.
-#   - Writes functions.js, feature-requirements.txt, and a test.js stub
-#     at the relationship folder root. No view.json — relationships
-#     don't render, so the harness synthesizes their component shape
-#     from convention.
+#   - Writes functions.js and feature-requirements.txt at the relationship
+#     folder root. No view.json — relationships don't render, so the harness
+#     synthesizes their component shape from convention. Behavior is verified
+#     with a probe under tests/ (see the Testing Skill), not scaffolded here.
 #   - Does NOT touch index.json. The server discovers relationships by
 #     scanning <canvas>/relationships/.
 #
@@ -185,60 +185,6 @@ export const mount = (surface) => {
     };
 };
 FUNCTIONSJS
-
-# test.js — behavior test that lives with the relationship. The test
-# describes what a user observes when interacting with ${from_name} and
-# what changes in ${to_name}. It does NOT reference relationship
-# internals (no surface.__io, no connect, no peers).
-cat > "$rel_dir/test.js" <<TESTJS
-// Behavior test.
-//
-// Describe what a user sees: interact with the ${from_name} component,
-// observe a change in the ${to_name} component. Do not reference any
-// relationship plumbing — if the implementation changed tomorrow, this
-// test should still pass.
-//
-// Run:
-//   LIQUIDOS_APP_DIR=/path/to/liquidos-source node test.js <port>
-//
-// LIQUIDOS_APP_DIR points at the directory that has node_modules/playwright.
-// The Mac app exports this when launching tests; for manual runs, set it
-// yourself to the LiquidOS source checkout.
-
-const path = require('node:path');
-const assert = require('node:assert/strict');
-if (!process.env.LIQUIDOS_APP_DIR) {
-    console.error('Missing LIQUIDOS_APP_DIR — set it to the LiquidOS source dir that has node_modules/playwright.');
-    process.exit(2);
-}
-const { chromium } = require(path.join(process.env.LIQUIDOS_APP_DIR, 'node_modules', 'playwright'));
-
-const PORT = process.argv[2];
-if (!PORT) {
-    console.error('Usage: node test.js <port>');
-    process.exit(2);
-}
-
-(async () => {
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
-    await page.goto(\`http://127.0.0.1:\${PORT}\`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await new Promise(r => setTimeout(r, 2500));
-
-    // TODO: replace with selectors and interactions specific to ${from_name}
-    // and ${to_name}. Read user-visible state before and after; assert it
-    // changed in the way a user would describe.
-    //
-    // Example shape:
-    //   const before = await page.locator('<selector for ${to_name} readout>').textContent();
-    //   await page.locator('<selector for ${from_name} control>').dispatchEvent('click');
-    //   const after = await page.locator('<selector for ${to_name} readout>').textContent();
-    //   assert.notStrictEqual(after, before);
-
-    console.log('OK');
-    await browser.close();
-})().catch(e => { console.error('FAIL:', e.message); process.exit(1); });
-TESTJS
 
 printf '{"relationship":"%s","from":"%s","to":"%s","path":"%s"}\n' \
     "$rel_name" "$from_name" "$to_name" "$rel_dir"

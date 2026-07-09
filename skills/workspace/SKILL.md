@@ -40,7 +40,7 @@ A canvas is any direct child folder that contains `index.json`.
 bash skills/workspace/scripts/set-ui-state.sh <workspace> --canvas <canvas-name>
 ```
 
-The active canvas is a key in `ui-state.json`; the tool read-merge-writes it so the panel state is left alone. The harness watches the file, validates the canvas exists, and switches to it; if the named canvas doesn't exist, the change is ignored and active stays where it was. There's no dedicated endpoint — `ui-state.json` is a normal workspace file the harness watches, written like any other.
+The active canvas is a key in `ui-state.json`; the tool merges the change so open panels are left alone. Naming a canvas that doesn't exist is ignored — active stays where it was.
 
 ### Show/hide system panels (escape mode, canvas picker, requirements editors)
 
