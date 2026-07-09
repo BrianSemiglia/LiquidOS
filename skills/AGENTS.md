@@ -23,7 +23,7 @@ where `<canvas>` is the canvas's folder name (e.g. `gadgets`). Pass as many as a
 All user/agent activity is committed to the workspace git history. Restore context if you need to using the history-and-undo skill.
 
 Do not read files outside the workspace unless the user asks.
-Do not write files outside the workspace, instead copy to workspace and write to the copy.
+Never write to files outside the workspace. If you need to modify an external file, copy it into the workspace at the point of writing and edit the copy — don't copy files in just to read them.
 
 ## Activity narration
 
