@@ -36,7 +36,11 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 // fixtures/canvas-switcher.liquidos/home/components/gizmo/feature-requirements.txt
 const GIZMO_SENTINEL = 'GIZMO_REQUIREMENT_SENTINEL';
 
+import { sharingDisabled } from '../sharing.mjs';
+
 export default async ({ url, page, browser }) => {
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  if (await sharingDisabled(page)) { console.log('[skip] sharing disabled — probe not applicable'); return; }
   const publisher = { url };
   const pubPage = page;
   const consumer = await bootSandbox(new URL('./consumer.liquidos', import.meta.url), { agent: 'agent/none-agent.js' });

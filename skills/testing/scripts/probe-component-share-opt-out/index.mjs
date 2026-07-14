@@ -32,7 +32,11 @@ export const fixture = './workspace.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+import { sharingDisabled } from '../sharing.mjs';
+
 export default async ({ url, page, browser }) => {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    if (await sharingDisabled(page)) { console.log('[skip] sharing disabled — probe not applicable'); return; }
     const consumer = await bootSandbox(new URL('./consumer.liquidos', import.meta.url), { agent: 'agent/none-agent.js' });
     console.log('publisher:', url);
     console.log('consumer :', consumer.url);

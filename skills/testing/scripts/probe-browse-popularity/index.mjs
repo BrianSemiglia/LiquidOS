@@ -91,7 +91,11 @@ const writeComponent = (workspace, name, bullets, lookup) => {
     fs.writeFileSync(indexPath, JSON.stringify(input, null, 2) + '\n');
 };
 
+import { sharingDisabled } from '../sharing.mjs';
+
 export default async ({ url, page, browser }) => {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    if (await sharingDisabled(page)) { console.log('[skip] sharing disabled — probe not applicable'); return; }
     await page.setViewportSize({ width: 1400, height: 900 });
 
     const publishers = [];

@@ -17,8 +17,12 @@ export const fixture = './workspace.liquidos';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+import { sharingDisabled } from '../sharing.mjs';
+
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[pageerror]', err.message));
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    if (await sharingDisabled(page)) { console.log('[skip] sharing disabled — probe not applicable'); return; }
 
     const onScreen  = (text, timeout = 10000) => page.waitForFunction(
         t => visibleText().includes(t), text, { timeout });
