@@ -21,39 +21,47 @@ export const agent = 'agent/none-agent.js';
 
 const MARKER = '- REQ_PERSIST_RELOAD_MARKER must survive a reload';
 
+// The controls a user works with, found the way a user finds them: the Notes
+// component's requirements button by its label, the field by the prompt it shows.
+const requirementsButton = (page) => page.getByRole('button', { name: 'Edit Notes requirements' });
+const requirementsField = (page) => page.getByPlaceholder(/Describe what this component should do/);
+
 const openEditor = async (page) => {
-    await page.getByRole('button', { name: 'Edit Probe requirements' }).dispatchEvent('click');
-    await page.waitForSelector('[data-feature-requirements]', { timeout: 8000 });
+    await requirementsButton(page).dispatchEvent('click');
+    await requirementsField(page).waitFor({ state: 'visible', timeout: 8000 });
 };
 
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('[data-probe]', { timeout: 20000 });
+    // The component has mounted once its Requirements button is on screen.
+    await requirementsButton(page).waitFor({ state: 'visible', timeout: 20000 });
 
     // --- type a requirement and save -------------------------------------
     await openEditor(page);
-    await page.locator('[data-feature-requirements]').fill(MARKER + '\n');
+    await requirementsField(page).fill(MARKER + '\n');
     // Let the save finish writing before we reload — synchronize on the save
     // request landing (plumbing; the assertion below is what the user sees).
     const saved = page.waitForResponse(
         res => /\/features$/.test(new URL(res.url()).pathname) && res.request().method() === 'POST',
         { timeout: 10000 }
     );
-    await page.locator('[data-feature-save]').first().dispatchEvent('click');
+    await page.getByRole('button', { name: 'Build' }).dispatchEvent('click');
     await saved;
 
     // --- reload, reopen, and read the edit back --------------------------
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('[data-probe]', { timeout: 20000 });
+    await requirementsButton(page).waitFor({ state: 'visible', timeout: 20000 });
 
     await openEditor(page);
-    // The reopened editor populates async; wait for the typed text to return.
-    await page.waitForFunction(
-        (expected) => Array.from(document.querySelectorAll('[data-feature-requirements]'))
-            .some(ta => (ta.value || '').includes(expected)),
-        MARKER,
-        { timeout: 10000 }
-    );
+    // The reopened editor populates async; wait for the typed text to return,
+    // reading what the field actually shows on screen.
+    let shown = '';
+    for (let i = 0; i < 50 && !shown.includes(MARKER); i++) {
+        shown = await requirementsField(page).inputValue();
+        if (!shown.includes(MARKER)) await page.waitForTimeout(200);
+    }
+    if (!shown.includes(MARKER))
+        throw new Error('reopened editor did not show the saved requirement; field read: ' + JSON.stringify(shown));
 };

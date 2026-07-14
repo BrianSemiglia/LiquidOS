@@ -1,5 +1,5 @@
 {
   "components": [
-    "components/probe/component.html"
+    "components/notes/component.html"
   ]
 }

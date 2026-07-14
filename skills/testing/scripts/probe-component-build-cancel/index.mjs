@@ -14,16 +14,18 @@ export const fixture = './workspace.liquidos';
 export default async ({ url, page }) => {
     page.on('pageerror', err => console.log('[page error]', err.message));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('[data-probe]', { timeout: 20000 });
 
-    // Open the modal — the overlay appears in the DOM.
-    await page.getByRole('button', { name: 'Edit Probe requirements' }).dispatchEvent('click');
-    await page.waitForSelector('.requirements-overlay', { timeout: 5000 });
+    const openRequirements = page.getByRole('button', { name: 'Edit Notes requirements' });
+    const closeRequirements = page.getByRole('button', { name: 'Close' });
 
-    // Click Cancel — the overlay must go away.
-    await page.locator('[data-feature-cancel]').dispatchEvent('click');
-    await page.waitForFunction(
-        () => !document.querySelector('.requirements-overlay'),
-        { timeout: 5000 }
-    );
+    // The component has mounted once its Requirements button is on screen.
+    await openRequirements.waitFor({ state: 'visible', timeout: 20000 });
+
+    // Open the requirements editor: its Close button appears.
+    await openRequirements.dispatchEvent('click');
+    await closeRequirements.waitFor({ state: 'visible', timeout: 5000 });
+
+    // Close it: the editor's controls leave the screen.
+    await closeRequirements.dispatchEvent('click');
+    await closeRequirements.waitFor({ state: 'hidden', timeout: 5000 });
 };
