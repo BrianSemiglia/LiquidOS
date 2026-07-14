@@ -1,0 +1,1 @@
+- Let me mark the item, but not while the agent is changing this card.

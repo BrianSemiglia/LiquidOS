@@ -384,6 +384,36 @@
                 let buffer = '';
                 let chunks = 0;
 
+                // Disable exactly the region being mutated — the element the agent
+                // is streaming into, nothing around it — for as long as the stream
+                // is open. Released on close BEFORE the file write, so the lock is
+                // never serialized into component.html (which would strand it), and
+                // so the region frees the instant the mutation does. A per-element
+                // counter keeps concurrent streams into the same target from
+                // unlocking each other early.
+                // Only the AGENT's writes are transactional mutations to lock the
+                // user out of. A component's own service streams into its region as
+                // normal operation (a feed, a ticker) — and often never closes — so
+                // locking those would strand the region inert. Gate on the source.
+                // The mark lives in the DOM (not a JS var) so the drained-queue
+                // safety net in syncBusyUI — a separate <script> — can free strays.
+                const lockThisStream = source === 'agent';
+                if (lockThisStream) {
+                    el._openStreamCount = (el._openStreamCount || 0) + 1;
+                    el.inert = true;
+                    el.setAttribute('aria-busy', 'true');
+                    el.setAttribute('data-agent-stream-lock', '');
+                }
+                const releaseTarget = () => {
+                    if (!lockThisStream) return;
+                    el._openStreamCount = Math.max(0, (el._openStreamCount || 1) - 1);
+                    if (el._openStreamCount === 0) {
+                        el.inert = false;
+                        el.removeAttribute('aria-busy');
+                        el.removeAttribute('data-agent-stream-lock');
+                    }
+                };
+
                 if (attrs.op === 'replace' || attrs.op === 'append' || attrs.op === 'prepend') {
                     // Page chrome (no file) keeps the per-chunk live paint so
                     // the narration badge and debug regions tune in as the
@@ -410,6 +440,7 @@
                             else wrapper.innerHTML = buffer;
                         },
                         close: () => {
+                            releaseTarget();
                             if (toFile) {
                                 writeSurfaceOp(surface, el, (twin) => {
                                     if (attrs.op === 'replace') twin.innerHTML = buffer;
@@ -434,6 +465,7 @@
                 return {
                     appendChunk: (text) => { buffer += text; if (!toFile) node.appendData(text); },
                     close: () => {
+                        releaseTarget();
                         if (toFile) writeSurfaceOp(surface, el, (twin) =>
                             twin.appendChild(document.createTextNode(buffer)));
                         state.dispatches.push({
@@ -2826,6 +2858,19 @@
             syncCallbackState();
             // The Stop button only makes sense while a job is in flight.
             const busy = activeLanes.size > 0;
+            // Safety net for stream-target locks: an agent that dies mid-stream
+            // never fires its close, so the per-element counter would strand the
+            // lock. When the queue drains, no stream can still be open — free any
+            // element still marked (found via the DOM, since the sniffer that set
+            // the mark lives in a separate <script>).
+            if (!busy) {
+                document.querySelectorAll('[data-agent-stream-lock]').forEach(el => {
+                    el._openStreamCount = 0;
+                    el.inert = false;
+                    el.removeAttribute('aria-busy');
+                    el.removeAttribute('data-agent-stream-lock');
+                });
+            }
             // Reconcile the cancel-in-flight state from this event's snapshot
             // (no polling — recomputed only when a queue-status event arrives):
             //  - queue drained → nothing in flight, reset;
