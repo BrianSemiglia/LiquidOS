@@ -340,9 +340,6 @@ const ClaudeCodeAgent = () => {
                 '--include-partial-messages',
                 ...(systemPromptPath ? ['--append-system-prompt-file', systemPromptPath] : []),
                 ...runtimeAccessArguments({ systemPromptPath, canvasPath }),
-                '--allowedTools',
-                'WebSearch',
-                'WebFetch',
                 '--permission-mode',
                 permissionMode(),
                 ...extraArguments()
