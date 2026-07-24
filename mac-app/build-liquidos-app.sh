@@ -146,33 +146,37 @@ fi
     && node scripts/build-client.mjs >/dev/null ) \
   || { echo "Error: client build failed." >&2; exit 1; }
 
-# Build the Go server binary (ships as a binary, not source).
-( cd "$PROJECT_ROOT/go-server" && go build -o liquidos-server . ) \
+# Build the Go server binary (ships as a binary, not source). -trimpath rewrites
+# build-machine paths to the module path, -s -w drops the symbol table and DWARF,
+# -buildvcs=false keeps the git revision out.
+( cd "$PROJECT_ROOT/go-server" \
+    && go build -trimpath -buildvcs=false -ldflags="-s -w" -o liquidos-server . ) \
   || { echo "Error: go build (go-server) failed." >&2; exit 1; }
 
-rsync -a \
-  --exclude '.git' \
-  --exclude '/.claude' \
-  --exclude '__MACOSX' \
-  --exclude '.DS_Store' \
-  --exclude 'build' \
-  --exclude 'mac-app' \
-  --exclude 'node_modules' \
-  --exclude 'go-server/*.go' \
-  --exclude 'go-server/go.mod' \
-  --exclude 'go-server/go.sum' \
-  --exclude 'go-server/.gitignore' \
-  --exclude 'go-server/server' \
-  --exclude 'go-server/clientdist' \
-  --exclude '/index.html' \
-  --exclude '/README.md' \
-  --exclude '/lib' \
-  --exclude 'scripts/build-client.mjs' \
-  --exclude 'build-tools' \
-  --exclude '/canvas' \
-  --exclude 'notes' \
-  --exclude 'electron-app' \
-  "$PROJECT_ROOT/" "$RESOURCES/"
+# What the app needs at runtime, named one by one. This is an allowlist: a new
+# folder in the repo stays out of the bundle until it is listed here.
+BUNDLED_PATHS=(
+  agent
+  diagnostics
+  skills
+  scripts/keyboard-seed
+  package.json
+)
+
+for rel in "${BUNDLED_PATHS[@]}"; do
+  if [ ! -e "$PROJECT_ROOT/$rel" ]; then
+    echo "Error: $rel is required in the bundle but missing from the source tree." >&2
+    exit 1
+  fi
+  mkdir -p "$RESOURCES/$(dirname "$rel")"
+  rsync -a --exclude '.DS_Store' --exclude '__MACOSX' \
+    "$PROJECT_ROOT/$rel" "$RESOURCES/$(dirname "$rel")/"
+done
+
+# Only this arch's server binary; the Linux cross-builds sit beside it in the
+# source tree and have no business in a Mac bundle.
+mkdir -p "$RESOURCES/go-server"
+rsync -a "$PROJECT_ROOT/go-server/liquidos-server" "$RESOURCES/go-server/"
 
 
 if [ ! -f "$PROJECT_ROOT/skills/component/SKILL.md" ]; then
@@ -191,9 +195,10 @@ if [ ! -f "$PROJECT_ROOT/skills/canvas/scripts/create-instance.sh" ]; then
 fi
 
 # Hermes is not bundled. LiquidOS uses the user-installed `hermes` found on PATH.
-if [ -f "$RESOURCES/package.json" ]; then
- npm install --prefix "$RESOURCES" --omit=dev
-fi
+# The lockfile pins this install, then goes away — nothing reads it at runtime.
+cp "$PROJECT_ROOT/package-lock.json" "$RESOURCES/package-lock.json"
+npm install --prefix "$RESOURCES" --omit=dev
+rm -f "$RESOURCES/package-lock.json"
 
 # Bundle a self-contained Node runtime so the app runs with no user-installed
 # node. The Homebrew node links Homebrew dylibs (openssl, icu4c, libnode…) and
