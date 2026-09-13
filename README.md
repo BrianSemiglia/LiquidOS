@@ -1,10 +1,20 @@
-# Live Edit
+# LiquidOS
 
-Run a workspace:
+A generative-UI host: an LLM agent builds and live-edits the user's interface at
+runtime, and the user watches each change land.
+
+- A workspace (`.liquidos`) holds canvases, components, and relationships.
+- A canvas is a screen that arranges and presents its components.
+- A component is a self-contained piece of UI — markup plus optional behavior or
+  a backend service.
+- The harness (Go server + browser shell) renders the workspace and dispatches
+  the agent when the user prompts.
+
+## Running a workspace
 
 ```sh
-node server.js --workspace /path/to/Workspace.liquidos \
-  --agent './agent/hermes.js' --port 3000
+./go-server/liquidos-server --workspace /path/to/Workspace.liquidos \
+  --agent ./agent/hermes.js --port 3000
 ```
 
 Required arguments:
@@ -12,11 +22,12 @@ Required arguments:
 ```text
 --workspace <*.liquidos folder>
 --agent <agent-script-path>   repeatable; each is a module exporting a factory
-                              that returns { label, run, ...optional lifecycle }.
-                              The roster is the agents you pass; the first is the
-                              default-active; the label is the identity (shown in
-                              the picker, persisted, and used to switch). The
-                              labels of co-loaded agents must be unique.
+                              (a bare function, a `default`, or a single
+                              `*Agent` export) that returns an object with at
+                              least `label` and `run`. The roster is the agents
+                              you pass; the first is default-active; the label
+                              is the identity — shown in the picker, persisted,
+                              and used to switch — so labels must be unique.
 --port <number>
 ```
 
@@ -28,53 +39,57 @@ Optional arguments:
 
 If omitted, the selected agent waits indefinitely instead of timing out.
 
-The server expects the `.liquidos` workspace itself to be the canvas root. Each top-level canvas directory contains:
+`agent/` ships `hermes.js`, `claude.js`, `codex.js`, `pi.js`, and `none-agent.js`
+(boots the harness with no working runtime, so a dispatched prompt rejects
+loudly).
+
+The server does not create or guess a workspace. The Mac app opens or creates
+`.liquidos` folders, then launches the server with explicit arguments.
+
+## Workspace layout
+
+The `.liquidos` folder itself is the canvas root:
 
 ```text
 Workspace.liquidos/
-  ui-state.json
+  ui-state.json          active canvas, active agent
   home/
-    index.json
+    index.json           the components on this canvas, in order
+    canvas.js            how this canvas presents them
     components/
+      <name>/
+        component.html
+        feature-requirements.txt
   <other-canvas>/
-    index.json
-    components/
+    ...
 ```
 
-The prompt bar can switch canvases, create a new canvas, and send canvas-scoped prompts. The whole `.liquidos` workspace folder is tracked as one Git repo so activity across canvases has a single timeline.
+The prompt bar can switch canvases, create a canvas, and send canvas-scoped
+prompts. The whole workspace folder is one Git repo — every agent turn is a
+commit — so activity across canvases has a single timeline.
 
-The server does not create or guess a workspace. The Mac app opens or creates `.liquidos` workspace folders, then launches the server with explicit arguments.
+## Components with a backend
 
-If you are editing the running Mac app, update the opened `<workspace>.liquidos` folder.
+A component that needs a long-running process declares it inline, and the
+service updates the view by writing files the component renders — it has no
+output channel of its own. `skills/component/SKILL.md` is the contract.
 
-## Listening components and plugins
+## Building
 
-When a component or plugin needs to listen to an external thing, keep the shape simple:
+```sh
+node scripts/build-client.mjs          # collect the client assets the server embeds
+cd go-server && go build -o liquidos-server .
+```
 
-1. Pick the source of truth.
-   - For stateful UI, that is usually the component JSON itself.
-   - For external signals, it may be a watcher state file or a small outbox file.
+`mac-app/build-liquidos-app.sh` builds the Mac app; `npm run dist` in
+`electron-app/` builds the Linux AppImage and .deb.
 
-2. Decide how the listener runs.
-   - If it needs to stay alive, make it a plugin hook plus a background watcher or daemon.
-   - If it only needs to react once, a plain callback is enough.
+## Tests
 
-3. Choose the bridge back into the canvas.
-   - For this repo, `output.json` is the easiest proof-of-concept bridge because the server already watches it.
+The probe suite drives the app the way a user does and asserts only what a
+person can see. Run one, or the whole suite at 8-way concurrency:
 
-4. Keep loop-safety in mind.
-   - If the plugin can also trigger the same thing it is watching, suppress self-caused changes for a short window.
-   - If the bridge writes back into the canvas, only emit when the canvas is idle.
-
-5. Let the server or agent update the component, not the listener.
-   - The listener should report the event and any useful args.
-   - The canvas update still happens through the normal callback path.
-
-The system-volume watcher plugin follows this pattern:
-
-- it polls the host volume in the background
-- it records changes into a small state file and an outbox
-- it writes a pending job into `output.json` as a proof of concept
-- the server consumes that job and hands it back to Hermes
-
-That is usually the right split when the thing being watched is external and the canvas should stay elastic rather than hard-wired to one special case.
+```sh
+node skills/testing/scripts/run-probe.mjs skills/testing/scripts/probe-canvas-build
+ls -d skills/testing/scripts/probe-* | xargs -P8 -n1 node skills/testing/scripts/run-probe.mjs
+```
