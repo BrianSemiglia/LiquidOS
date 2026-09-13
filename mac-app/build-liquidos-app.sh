@@ -142,13 +142,12 @@ else
 fi
 
 # Prepare the client assets the server binary embeds.
-( cd "$PROJECT_ROOT" \
-    && node scripts/build-client.mjs >/dev/null ) \
+( cd "$PROJECT_ROOT" && node scripts/build-client.mjs >/dev/null ) \
   || { echo "Error: client build failed." >&2; exit 1; }
 
-# Build the Go server binary (ships as a binary, not source). -trimpath rewrites
-# build-machine paths to the module path, -s -w drops the symbol table and DWARF,
-# -buildvcs=false keeps the git revision out.
+# Build the Go server binary. -trimpath rewrites build-machine paths to the
+# module path, -s -w drops the symbol table and DWARF, -buildvcs=false keeps the
+# git revision out — standard release flags, and a smaller binary.
 ( cd "$PROJECT_ROOT/go-server" \
     && go build -trimpath -buildvcs=false -ldflags="-s -w" -o liquidos-server . ) \
   || { echo "Error: go build (go-server) failed." >&2; exit 1; }

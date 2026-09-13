@@ -112,6 +112,9 @@ final class LiquidOSApp: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         webView?.uiDelegate = self
         webView?.navigationDelegate = self
         webView?.allowsBackForwardNavigationGestures = true
+        if #available(macOS 13.3, *) {
+            webView?.isInspectable = true
+        }
         // Until a page paints, WKWebView draws its own opaque (white) backing on
         // top of the window — a flash of white on launch (before the chooser
         // even loads) and between page swaps, worst in dark mode. Stop it from
