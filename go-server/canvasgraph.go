@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -166,9 +167,20 @@ func (g *canvasGraph) componentNeedsRepair(componentPath string) bool {
 	return false
 }
 
+// diagnosticsMu serializes the read-modify-write in updateDiagnostics. The
+// client reports several categories for one component at once — a relationship
+// that remounts POSTs `import` and `mount` in the same tick — and concurrent
+// handlers would each read the same "before" copy, so the last writer dropped
+// the other's category. A lost `mount: ok:false` is a failure the user never
+// sees: the file ends up healthy, no further write means no further watch
+// event, and the Repair button never appears.
+var diagnosticsMu sync.Mutex
+
 // updateDiagnostics merges a category into <component>/diagnostics/status.json,
 // preserving other categories. Never breaks component loading on failure.
 func (g *canvasGraph) updateDiagnostics(componentPath, category string, partial map[string]any) {
+	diagnosticsMu.Lock()
+	defer diagnosticsMu.Unlock()
 	diagnosticsDir := filepath.Join(componentFolderPath(componentPath), "diagnostics")
 	statusPath := filepath.Join(diagnosticsDir, "status.json")
 	if os.MkdirAll(diagnosticsDir, 0o755) != nil {

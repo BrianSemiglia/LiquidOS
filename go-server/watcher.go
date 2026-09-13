@@ -102,6 +102,7 @@ func (fw *fsWatcher) run() {
 			if event.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 					fw.addRecursive(event.Name)
+					fw.enqueueExisting(event.Name)
 				}
 			}
 			fw.enqueue(event.Name)
@@ -115,6 +116,20 @@ func (fw *fsWatcher) run() {
 			}
 		}
 	}
+}
+
+// enqueueExisting reports the files already inside dir. A write landing
+// between the directory appearing and the watch being added on it produces no
+// event of its own, so without this the first write into any new folder is
+// lost — the clients are told the folder appeared but never what is in it.
+func (fw *fsWatcher) enqueueExisting(dir string) {
+	filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || fw.isIgnored(p) {
+			return nil
+		}
+		fw.enqueue(p)
+		return nil
+	})
 }
 
 func (fw *fsWatcher) enqueue(path string) {
