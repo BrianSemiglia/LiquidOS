@@ -21,8 +21,6 @@ import (
 	"time"
 )
 
-const serverBuild = "hermes-output-server-2026-05-10-canvases-git-timeline"
-
 type server struct {
 	cfg config
 
@@ -936,7 +934,6 @@ func (s *server) run() error {
 	}
 	resolvedPort := listener.Addr().(*net.TCPAddr).Port
 
-	fmt.Println("Build: " + serverBuild)
 	fmt.Printf("Server at http://127.0.0.1:%d\n", resolvedPort)
 	fmt.Println("Canvas: " + s.getCanvasPath())
 
