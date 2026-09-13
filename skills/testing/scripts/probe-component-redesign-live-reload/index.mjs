@@ -12,7 +12,7 @@
 // rely on fs.watch noticing it, and fs.watch drops the server's own writes
 // under load, so the redesign could fail to repaint until a canvas switch.
 //
-// The workspace is now watched by @parcel/watcher, which reports every
+// The workspace is watched by the server, which reports every
 // change (the server's own writes included), so both halves of the redesign
 // land live. This probe drives the exact two write paths and asserts the new
 // design — the caption authored in component.html — shows without a switch.

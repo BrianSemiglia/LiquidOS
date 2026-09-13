@@ -128,12 +128,22 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-xcrun swiftc \
-  -target "$(uname -m)-apple-macos13.0" \
-  "$MAC_ROOT/LiquidOSApp.swift" \
-  -o "$MACOS/LiquidOS" \
-  -framework Cocoa \
-  -framework WebKit
+# Universal: swiftc emits one architecture at a time, so build each slice and
+# fuse them. Both slices carry the same macos13.0 floor the check at the end
+# asserts.
+SLICE_DIR="$(mktemp -d)"
+for ARCH in arm64 x86_64; do
+  xcrun swiftc \
+    -target "${ARCH}-apple-macos13.0" \
+    "$MAC_ROOT/LiquidOSApp.swift" \
+    -o "$SLICE_DIR/LiquidOS-$ARCH" \
+    -framework Cocoa \
+    -framework WebKit \
+    || { echo "Error: swiftc failed for $ARCH." >&2; exit 1; }
+done
+lipo -create "$SLICE_DIR/LiquidOS-arm64" "$SLICE_DIR/LiquidOS-x86_64" -output "$MACOS/LiquidOS" \
+  || { echo "Error: lipo failed for the app binary." >&2; exit 1; }
+rm -rf "$SLICE_DIR"
 
 if [ -d "$ICONSET" ]; then
   iconutil -c icns "$ICONSET" -o "$RESOURCES/LiquidOS.icns"
@@ -149,7 +159,11 @@ fi
 # module path, -s -w drops the symbol table and DWARF, -buildvcs=false keeps the
 # git revision out — standard release flags, and a smaller binary.
 ( cd "$PROJECT_ROOT/go-server" \
-    && go build -trimpath -buildvcs=false -ldflags="-s -w" -o liquidos-server . ) \
+    && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false -ldflags="-s -w" -o liquidos-server-arm64 . \
+    && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags="-s -w" -o liquidos-server-amd64 . \
+    && rm -f liquidos-server \
+    && lipo -create liquidos-server-arm64 liquidos-server-amd64 -output liquidos-server \
+    && rm -f liquidos-server-arm64 liquidos-server-amd64 ) \
   || { echo "Error: go build (go-server) failed." >&2; exit 1; }
 
 # What the app needs at runtime, named one by one. This is an allowlist: a new
@@ -203,30 +217,36 @@ rm -f "$RESOURCES/package-lock.json"
 # node. The Homebrew node links Homebrew dylibs (openssl, icu4c, libnode…) and
 # isn't portable, so fetch the official build — one binary linking only system
 # libraries — for this arch, matching the version we test against. Cached.
+# Node ships one binary per architecture, so fetch both and fuse them into a
+# universal node — otherwise the app is universal everywhere except the runtime
+# it shells out to.
 NODE_VERSION="$(node -p 'process.version')"
-case "$(uname -m)" in
-  arm64) NODE_ARCH="darwin-arm64" ;;
-  x86_64) NODE_ARCH="darwin-x64" ;;
-  *) echo "Error: unsupported arch $(uname -m) for bundled node." >&2; exit 1 ;;
-esac
-NODE_PKG="node-${NODE_VERSION}-${NODE_ARCH}"
 NODE_CACHE="$MAC_ROOT/.node-cache"
-NODE_TARBALL="$NODE_CACHE/${NODE_PKG}.tar.gz"
 mkdir -p "$NODE_CACHE"
-if [ ! -f "$NODE_TARBALL" ]; then
-  echo "Downloading ${NODE_PKG}…"
-  curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/${NODE_PKG}.tar.gz" -o "$NODE_TARBALL" \
-    || { echo "Error: could not download Node ${NODE_VERSION} (${NODE_ARCH})." >&2; exit 1; }
-fi
-rm -rf "$NODE_CACHE/${NODE_PKG}"
-tar -xzf "$NODE_TARBALL" -C "$NODE_CACHE"
 mkdir -p "$RESOURCES/runtime/bin"
-cp "$NODE_CACHE/${NODE_PKG}/bin/node" "$RESOURCES/runtime/bin/node"
+NODE_SLICES=()
+for NODE_ARCH in darwin-arm64 darwin-x64; do
+  NODE_PKG="node-${NODE_VERSION}-${NODE_ARCH}"
+  NODE_TARBALL="$NODE_CACHE/${NODE_PKG}.tar.gz"
+  if [ ! -f "$NODE_TARBALL" ]; then
+    echo "Downloading ${NODE_PKG}…"
+    curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/${NODE_PKG}.tar.gz" -o "$NODE_TARBALL" \
+      || { echo "Error: could not download Node ${NODE_VERSION} (${NODE_ARCH})." >&2; exit 1; }
+  fi
+  rm -rf "$NODE_CACHE/${NODE_PKG}"
+  tar -xzf "$NODE_TARBALL" -C "$NODE_CACHE"
+  NODE_SLICES+=("$NODE_CACHE/${NODE_PKG}/bin/node")
+done
+lipo -create "${NODE_SLICES[@]}" -output "$RESOURCES/runtime/bin/node" \
+  || { echo "Error: lipo failed for the bundled node." >&2; exit 1; }
 chmod +x "$RESOURCES/runtime/bin/node"
 
 # Guard against ever shipping a non-portable node: it must link only system
 # libraries (/usr/lib, /System) and its own @rpath/@executable_path.
-if otool -L "$RESOURCES/runtime/bin/node" | awk 'NR>1{print $1}' \
+# Read only the indented dependency lines: otool -L prints an unindented
+# "<path> (architecture <arch>):" header for EACH slice of a fat binary, and
+# skipping just the first line would treat the second header as a dependency.
+if otool -L "$RESOURCES/runtime/bin/node" | awk '/^\t/{print $1}' \
     | grep -qvE '^/usr/lib/|^/System/|^@rpath/|^@executable_path/'; then
   echo "Error: bundled node has non-system dylib dependencies (not portable):" >&2
   otool -L "$RESOURCES/runtime/bin/node" >&2
