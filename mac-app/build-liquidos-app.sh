@@ -9,6 +9,21 @@ MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 ICONSET="$MAC_ROOT/LiquidOS.iconset"
 
+# Which architectures to build. Defaults to this machine's, so a local build
+# stays as fast as it ever was; pass "x86_64", "arm64", or "universal" to pick.
+# Each arch carries its own ~140MB Node runtime, so a universal bundle is
+# roughly double the download and half of it is dead weight on any given Mac —
+# shipping one bundle per arch is usually the better trade.
+case "${1:-$(uname -m)}" in
+  universal) ARCHS=(arm64 x86_64) ;;
+  arm64)     ARCHS=(arm64) ;;
+  x86_64)    ARCHS=(x86_64) ;;
+  *) echo "Error: unknown architecture '${1}' (want arm64, x86_64, or universal)." >&2; exit 1 ;;
+esac
+goarch_for() { [ "$1" = "arm64" ] && echo arm64 || echo amd64; }
+nodearch_for() { [ "$1" = "arm64" ] && echo darwin-arm64 || echo darwin-x64; }
+echo "Building for: ${ARCHS[*]}"
+
 rm -rf "$APP"
 mkdir -p "$MACOS" "$RESOURCES"
 
@@ -128,11 +143,11 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-# Universal: swiftc emits one architecture at a time, so build each slice and
-# fuse them. Both slices carry the same macos13.0 floor the check at the end
-# asserts.
+# swiftc emits one architecture at a time, so build a slice per arch and fuse
+# them only when there's more than one. Every slice carries the macos13.0 floor
+# the check at the end asserts.
 SLICE_DIR="$(mktemp -d)"
-for ARCH in arm64 x86_64; do
+for ARCH in "${ARCHS[@]}"; do
   xcrun swiftc \
     -target "${ARCH}-apple-macos13.0" \
     "$MAC_ROOT/LiquidOSApp.swift" \
@@ -141,7 +156,7 @@ for ARCH in arm64 x86_64; do
     -framework WebKit \
     || { echo "Error: swiftc failed for $ARCH." >&2; exit 1; }
 done
-lipo -create "$SLICE_DIR/LiquidOS-arm64" "$SLICE_DIR/LiquidOS-x86_64" -output "$MACOS/LiquidOS" \
+lipo -create "$SLICE_DIR"/LiquidOS-* -output "$MACOS/LiquidOS" \
   || { echo "Error: lipo failed for the app binary." >&2; exit 1; }
 rm -rf "$SLICE_DIR"
 
@@ -159,11 +174,13 @@ fi
 # module path, -s -w drops the symbol table and DWARF, -buildvcs=false keeps the
 # git revision out — standard release flags, and a smaller binary.
 ( cd "$PROJECT_ROOT/go-server" \
-    && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false -ldflags="-s -w" -o liquidos-server-arm64 . \
-    && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags="-s -w" -o liquidos-server-amd64 . \
+    && for ARCH in "${ARCHS[@]}"; do \
+         CGO_ENABLED=0 GOOS=darwin GOARCH="$(goarch_for "$ARCH")" \
+           go build -trimpath -buildvcs=false -ldflags="-s -w" -o "liquidos-server-$ARCH" . || exit 1; \
+       done \
     && rm -f liquidos-server \
-    && lipo -create liquidos-server-arm64 liquidos-server-amd64 -output liquidos-server \
-    && rm -f liquidos-server-arm64 liquidos-server-amd64 ) \
+    && lipo -create liquidos-server-* -output liquidos-server \
+    && rm -f liquidos-server-arm64 liquidos-server-x86_64 ) \
   || { echo "Error: go build (go-server) failed." >&2; exit 1; }
 
 # What the app needs at runtime, named one by one. This is an allowlist: a new
@@ -225,7 +242,8 @@ NODE_CACHE="$MAC_ROOT/.node-cache"
 mkdir -p "$NODE_CACHE"
 mkdir -p "$RESOURCES/runtime/bin"
 NODE_SLICES=()
-for NODE_ARCH in darwin-arm64 darwin-x64; do
+for ARCH in "${ARCHS[@]}"; do
+  NODE_ARCH="$(nodearch_for "$ARCH")"
   NODE_PKG="node-${NODE_VERSION}-${NODE_ARCH}"
   NODE_TARBALL="$NODE_CACHE/${NODE_PKG}.tar.gz"
   if [ ! -f "$NODE_TARBALL" ]; then
